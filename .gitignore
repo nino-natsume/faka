@@ -1,0 +1,25 @@
+# 打包产物 / 本地临时
+*.tar.gz
+*.zip
+*.7z
+
+# 系统/编辑器
+.DS_Store
+Thumbs.db
+*.swp
+*~
+
+# 敏感配置（实际由 deploy.sh 生成，不进仓库避免泄露密码）
+# 注意: config.php 含数据库密码 0d000721，默认排除
+config.php
+
+# 运行时生成的缓存/日志（这些应留在服务器，不进源码）
+content/cache/
+content/upload/
+*.log
+
+# 嵌套冗余副本 faka/（与根目录完全重复，仅保留根目录一套）
+/faka/
+
+# 无关的第三方推广快捷方式
+*.url

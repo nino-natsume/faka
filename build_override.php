@@ -1,0 +1,1 @@
+<?php \ = getenv('DC_BUILD_OUTPUT'); require __DIR__.'/build.php';

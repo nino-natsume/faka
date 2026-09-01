@@ -1,0 +1,7 @@
+#
+# robots.txt for dcshop
+#
+
+User-agent: *
+Disallow: /admin/
+Disallow: /config.php

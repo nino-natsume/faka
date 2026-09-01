@@ -1,0 +1,782 @@
+.h-fix > .container{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.logo, .logo-text {
+    height: 60px;
+    max-width: 250px;
+    margin: 6px 5px 0 0;
+    padding: 0;
+    float: left;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    font-size: 0;
+    font-weight: normal;
+    line-height: 0;
+    flex: 0 0 auto;
+}
+
+/* 新的Logo+标题+副标题样式 */
+.logo-brand {
+    height: 60px;
+    margin: 6px 5px 0 0;
+    padding: 0;
+    float: left;
+    display: flex;
+    align-items: center;
+    font-weight: normal;
+    flex: 0 0 auto;
+}
+.logo-brand a {
+    display: flex;
+    align-items: center;
+    height: 100%;
+    text-decoration: none;
+}
+.logo-brand .brand-logo {
+    height: 45px;
+    width: auto;
+    margin-right: 12px;
+    flex-shrink: 0;
+}
+.logo-brand .brand-text {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+.logo-brand .brand-title {
+    font-size: 17.5px;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1.3;
+}
+.logo-brand .brand-subtitle {
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.8) !important;
+    line-height: 1.3;
+    margin-top: 2px;
+}
+.nav-container{
+    flex: 1 1 auto;
+    overflow: hidden; /* 核心：隐藏超出内容 */
+    white-space: nowrap; /* 关键：防止导航项换行（如果是单行布局） */
+  /* 可选：限制最小宽度，避免缩得太窄 */
+    min-width: 0; /* 修复Flex布局下min-width:auto导致的不收缩问题（关键！） */
+    margin-left: 20px;
+}
+.nav-container nav > ul{
+    display: flex;          /* 导航项也排成一行（可选） */
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    gap: 6px; 
+}
+.logo a {
+    display: flex;
+    align-items: center;
+    height: 100%;
+    width: 100%;
+}
+
+.logo img {
+    max-height: 100%;
+    max-width: 100%;
+    vertical-align: middle;
+    vertical-align: -webkit-baseline-middle;
+}
+.logo-text a span{
+    font-size: 22px;
+    color: #4C7D71;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    display: inline-block;
+    vertical-align: middle;
+}
+.header-right{
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+}
+.header-right-btn {
+    display: flex;
+    align-items: center;
+    height: 72px;
+    flex-wrap: nowrap;
+}
+.header-search-order-btn{
+    display: flex;
+    align-items: center;
+}
+
+/* 买家帮助按钮 */
+.header-help-mobile {
+    display: flex;
+    align-items: center;
+    height: 72px;
+}
+.header-help-btn,
+.header-back-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 36px;
+    border-radius: 4px;
+    background-color: rgba(255,255,255,0.2);
+    color: #fff;
+    font-size: 14px;
+    padding: 0 1rem;
+    text-decoration: none;
+    transition: all 0.3s ease;
+    white-space: nowrap;
+    margin-left: 10px;
+}
+.header-help-btn:hover {
+    background-color: rgba(255,255,255,0.3);
+    text-decoration: none;
+    color: #fff;
+}
+.header-search-order-btn .a {
+    display: block;
+    height: 36px;
+    line-height: 36px;
+    text-align: center;
+    border-radius: 4px;
+    background-color: rgb(255 255 255 / 20%);
+    color: #fff;
+    font-size: 14px;
+    padding: 0 1rem;
+    white-space: nowrap;
+}
+
+.header-search-order-btn .a:hover {
+    background-color: rgba(255,255,255,0.3);
+}
+
+.search, .header-user, .m-btn {
+    display: flex;
+    align-items: center;
+    height: 72px;
+    position: relative !important;
+}
+
+/* 确保搜索框容器是定位上下文 */
+.search {
+    position: relative !important;
+}
+.m-btn{
+    display: none;
+}
+
+.search, .header-user, .m-btn{
+    padding: 0 6px;
+    margin-left: 5px;
+}
+
+.search i.fa, .header-user i.fa, .m-btn i.fa {
+    color: #fff;
+    line-height: 36px;
+    opacity: 0.8;
+    font-size: 18px;
+    padding: 0;
+    -webkit-transition: all .3s ease;
+    -o-transition: all .3s ease;
+    transition: all .3s ease;
+    cursor: pointer;
+    display: inline-block;
+    width: 36px;
+    height: 36px;
+    text-align: center;
+    border-radius: 50%;
+}
+
+.search i.fa:hover, .header-user i.fa:hover, .m-btn i.fa:hover {
+    opacity: 1;
+    background: rgba(255,255,255,0.3);
+    color: #fff;
+}
+
+
+
+
+
+
+
+
+/* transition */
+.transition {
+    -webkit-transition: all ease .4s;
+    -moz-transition: all ease .4s;
+    -ms-transition: all ease .4s;
+    -o-transition: all ease .4s;
+    transition: all ease .4s
+}
+
+/* 图片高斯模糊 */
+.blur {
+    -webkit-filter: blur(10px);
+    -moz-filter: blur(10px);
+    -ms-filter: blur(10px);
+    filter: blur(10px);
+    filter: progid:DXImageTransform.Microsoft.Blur(PixelRadius=10, MakeShadow=false);
+}
+
+
+.h-fix {
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 9999;
+    background: #0c6be1;
+    width: 100%;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+}
+
+.header {
+    display: block;
+    height: 72px;
+    position: relative;
+    left: 0;
+    -webkit-transition: all .3s ease;
+    -o-transition: all .3s ease;
+    transition: all .3s ease;
+    z-index: 9
+}
+
+.header .container:before,
+.header .container:after {
+    content: "";
+    display: table;
+}
+
+.header .container:after {
+    clear: both;
+}
+
+.header .logo h1,
+.header .logo div {
+    height: 100%;
+    display: block;
+}
+
+
+
+/* 占位元素仅用于撑开宽度，完全不影响视觉 */
+.header .logo a .placeholder {
+    visibility: hidden;
+    /* 隐藏视觉显示 */
+    display: inline-block;
+    /* 确保宽度由内容决定 */
+    font-size: 25px;
+    /* 与#light-logo保持一致 */
+    height: 0;
+    /* 消除占位元素的高度影响 */
+    overflow: hidden;
+    /* 避免意外换行导致高度变化 */
+}
+
+
+
+.tel-footer {
+    display: none;
+}
+
+.header .nav-bar li {
+    display: inline-block;
+    height: 72px;
+    line-height: 72px;
+    position: relative;
+    vertical-align: top;
+    margin: 0 3px;
+}
+
+.header .nav-bar li a {
+    display: inline-block;
+    padding: 0 12px;
+    color: #fff;
+    font-size: 14px;
+    font-weight: 500;
+    position: relative;
+    z-index: 2;
+    min-width: auto;
+    text-align: center;
+    border-radius: 6px;
+    height: 36px;
+    line-height: 36px;
+    margin: 18px 0;
+    /* 上下边距替代margin-top */
+    transition: all 0.3s;
+    white-space: nowrap;
+    /* 强制不换行 */
+    overflow: hidden;
+    /* 隐藏溢出文字 */
+    text-overflow: ellipsis;
+    /* 显示省略号 */
+    max-width: 120px;
+    /* 限制单个菜单项最大宽度 */
+}
+
+.header .nav-bar li em[class*="dot"] {
+    display: inline-block;
+    position: relative;
+    left: -10px;
+    z-index: 1;
+    width: 16px;
+}
+
+.header .nav-bar li em[class*="dot"] .fa {
+    color: #fff;
+    font-size: 16px;
+    width: 16px;
+    display: block;
+}
+
+.header .nav-bar li a:hover {
+    color: #fff;
+    background: rgba(255,255,255,0.15);
+}
+
+.header .nav-bar li.active:before,
+.header .nav-bar li[class*="li-cate-"]:before {
+    display: none;
+}
+
+.header .nav-bar li.active:after,
+.header .nav-bar li[class*="li-cate-"]:after {
+    display: none;
+}
+
+.header .nav-bar li.active>a {
+    color: #fff;
+    background: rgba(255,255,255,0.2);
+    font-weight: 600;
+}
+
+
+/*二级高亮*/
+.header .nav-bar ul li>ul {
+    width: 100%;
+    min-width: 140px;
+    position: absolute;
+    top: 60px;
+    left: 50%;
+    transform: translateX(-50%) translateY(10px);
+    right: 0;
+    background: #fff;
+    z-index: 888;
+    visibility: hidden;
+    opacity: 0;
+    border-radius: 8px;
+    box-shadow: 0px 8px 20px 0px rgba(0, 0, 0, 0.1);
+    -webkit-transition: all .3s ease;
+    -o-transition: all .3s ease;
+    transition: all .3s ease;
+    padding: 8px 0;
+}
+
+.header .nav-bar ul li>ul li {
+    width: 100%;
+    height: 36px;
+    line-height: 36px;
+    display: block;
+    margin: 0;
+}
+
+.header .nav-bar ul li>ul li a {
+    width: 100%;
+    text-align: left;
+    height: 36px;
+    line-height: 36px;
+    font-size: 14px;
+    color: #666;
+    opacity: 1;
+    margin: 0;
+    padding: 0 20px;
+    border-radius: 0;
+    font-weight: 400;
+}
+
+.header .nav-bar ul li>ul li a:hover {
+    color: #0c6be1;
+    background: #f5f5f5;
+}
+
+.header .nav-bar ul li.on > a {
+    color: #fff;
+    background: rgba(255,255,255,0.15);
+}
+
+.header .nav-bar ul li.on>ul {
+    visibility: visible;
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+
+.header .nav-bar ul li>ul li em[class*="dot"] {
+    position: absolute;
+    right: 5px;
+    left: auto;
+    top: 10px;
+    z-index: 3;
+    -webkit-transform: rotate(-90deg);
+    -ms-transform: rotate(-90deg);
+    -o-transform: rotate(-90deg);
+    transform: rotate(-90deg);
+}
+
+.header .nav-bar ul li.on>ul li em[class*="dot"] .fa {
+    color: #6b7386;
+}
+
+/*三级高亮*/
+.header .nav-bar ul li>ul li .sub-menu {
+    visibility: hidden;
+    opacity: 0;
+    display: none;
+    left: -100%;
+    transform: none;
+}
+
+.header .nav-bar ul li>ul li.on .sub-menu {
+    right: -100%;
+    left: auto;
+    top: 0;
+    visibility: visible;
+    opacity: 1;
+    display: block;
+}
+
+.header .nav-bar ul li>ul li.on .sub-menu li a,
+.header .nav-bar ul li>ul li.on .sub-menu li a:hover {
+    background: rgba(0, 0, 0, 0);
+    color: #666;
+}
+
+.header .nav-bar ul li>ul li.on .sub-menu li.on a,
+.header .nav-bar ul li>ul li.on .sub-menu li.on a:hover {
+    color: #0c6be1;
+}
+
+.m-nav {
+    width: 280px;
+    background: #fff;
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: -280px;
+    -webkit-transition: all .3s ease;
+    -o-transition: all .3s ease;
+    transition: all .3s ease;
+    z-index: 999;
+    overflow-y: scroll;
+    overflow-x: hidden;
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.1);
+}
+
+.m-nav .m-btn {
+    height: 48px;
+    line-height: 48px;
+    left: auto;
+    right: -45px;
+    display: none;
+}
+
+.m-nav ul {
+    padding-top: 20px;
+}
+
+.m-nav li {
+    width: 100%;
+    position: relative;
+}
+
+.m-nav li a {
+    padding: 0 25px;
+    line-height: 50px;
+    color: #333;
+    display: block;
+    border-bottom: 1px solid #f5f5f5;
+    font-size: 15px;
+}
+
+.m-nav li a:hover {
+    background: #EDF2F1;
+    color: #4C7D71;
+}
+
+.m-nav ul li>ul {
+    display: none;
+}
+
+.m-nav li em[class*="dot"] {
+    position: absolute;
+    top: 0px;
+    right: 0px;
+    width: 50px;
+    height: 50px;
+    text-align: center;
+    border-left: 1px solid rgba(255, 255, 255, 0);
+    cursor: pointer;
+}
+
+.m-nav li em[class*="dot"] .fa {
+    font-size: 16px;
+    color: #999;
+    -webkit-transition: all .3s ease;
+    -o-transition: all .3s ease;
+    transition: all .3s ease;
+    position: absolute;
+    width: 50px;
+    line-height: 50px;
+    top: 0;
+    left: 0;
+}
+
+.m-nav li em[class*="dot"] .fa.open {
+    -webkit-transform: rotate(180deg);
+    -ms-transform: rotate(180deg);
+    -o-transform: rotate(180deg);
+    transform: rotate(180deg);
+}
+
+.m-nav ul li>ul li {
+    background: #fcfcfc;
+}
+
+.m-nav ul li>ul li a {
+    border-bottom: 1px solid #f0f0f0;
+    opacity: 0.9;
+    font-size: 14px;
+    text-indent: 1em;
+    color: #666;
+}
+
+/*搜索 - 已改用layer弹窗实现 */
+
+
+#mask {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, .5);
+    z-index: 899;
+    display: none;
+}
+
+/*----------- 响应式 -----------*/
+@media only screen and (max-width:1200px) {
+
+    .wrapper,
+    .header .container,
+    .crumb {
+        padding: 0 15px;
+    }
+
+    #nav-box {
+        display: none;
+    }
+    .m-btn{
+        display: flex;
+        order: -1; /* 移动端菜单图标移到最前面（个人中心左边） */
+    }
+
+    .header-right {
+        flex: 0 0 auto;
+    }
+    .nav-container{
+        display: none;
+    }
+
+    .h-fix .container{
+        display: block;
+    }
+
+    /* 隐藏查询订单按钮 */
+    .header-search-order-btn {
+        display: none;
+    }
+    
+    /* 移动端买家帮助按钮调整 */
+    .header-help-mobile {
+        margin-left: 0;
+        margin-right: 5px;
+    }
+    
+    body.open .m-nav {
+        left: 0px;
+    }
+}
+
+@media only screen and (max-width:992px) {
+
+    .wrapper,
+    .header .container {
+        padding: 0 15px;
+    }
+
+
+    .header .logo a span#light-logo {
+        font-size: 22px;
+    }
+
+
+
+    .header {
+        top: 0;
+        width: 100%;
+        z-index: 898;
+    }
+
+    /* 导航菜单在平板端的优化 */
+    .header .nav-bar {
+        max-width: 70%;
+        /* 平板端增加导航宽度限制 */
+        overflow-x: auto;
+        /* 允许水平滚动 */
+        overflow-y: hidden;
+        /* 隐藏垂直滚动 */
+        white-space: nowrap;
+        /* 强制不换行 */
+        scrollbar-width: none;
+        /* 隐藏滚动条 */
+        -ms-overflow-style: none;
+        /* IE隐藏滚动条 */
+        height: 56px;
+        /* 固定高度 */
+        line-height: 56px;
+        /* 垂直居中 */
+    }
+
+    .header .nav-bar::-webkit-scrollbar {
+        display: none;
+        /* Chrome/Safari隐藏滚动条 */
+    }
+}
+
+@media only screen and (max-width:768px) {
+
+    .logo{
+        max-width: 150px;
+    }
+    .logo-text a span{
+        font-size: 20px;
+    }
+
+}
+
+/* 超小屏幕导航优化 */
+@media only screen and (max-width:480px) {
+    .logo{
+        max-width: 130px;
+    }
+    
+    .search, .header-user, .m-btn {
+        padding: 0 3px;
+    }
+    .wrapper, .header .container {
+        padding: 0 10px;
+    }
+}
+/* 超小屏幕导航优化 */
+@media only screen and (max-width:320px) {
+    .logo{
+        max-width: 100px;
+    }
+}
+
+
+
+.container {
+    margin-right: auto;
+    margin-left: auto;
+    padding-left: 10px;
+    padding-right: 10px
+}
+
+.container:after,
+.container:before {
+    content: "";
+    display: table
+}
+
+.container:after {
+    clear: both
+}
+
+@media (min-width:768px) {
+    .container {
+        width: 100%
+    }
+}
+
+@media (min-width:992px) {
+    .container {
+        width: 100%
+    }
+}
+
+@media (min-width:1200px) {
+    .container {
+        max-width: 1200px
+    }
+}
+
+/* 底部导航优化 */
+.footer-nav {
+    display: none;
+}
+
+@media (max-width: 1200px) {
+    .footer-nav {
+        position: fixed;
+        bottom: 0;
+        left: 0;
+        right: 0;
+        display: flex;
+        justify-content: space-around;
+        padding: 6px 0 env(safe-area-inset-bottom, 4px);
+        z-index: 999;
+        /* iOS 毛玻璃效果 */
+        background: rgba(255, 255, 255, 0.72);
+        -webkit-backdrop-filter: saturate(180%) blur(20px);
+        backdrop-filter: saturate(180%) blur(20px);
+        border-top: 0.5px solid rgba(0, 0, 0, 0.1);
+    }
+}
+
+.nav-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    color: #999;
+    font-size: 11px;
+    padding: 0 10px;
+    transition: all 0.3s ease;
+    flex: 1;
+    position: relative;
+    justify-content: center;
+    height: 50px;
+}
+
+.nav-item.active {
+    color: var(--theme-primary, #4C7D71);
+    font-weight: 500;
+}
+
+.nav-icon {
+    font-size: 20px;
+    margin-bottom: 4px;
+    transition: transform 0.3s;
+}
+
+.nav-item:active .nav-icon {
+    transform: scale(0.9);
+}
+
+.nav-item.active .nav-icon {
+    transform: scale(1.1);
+}
