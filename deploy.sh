@@ -3,15 +3,17 @@
 #  faka (DCSHOP) 一键精简部署 - 1核512M 专用
 #  适用于: Debian 11 (bullseye) / Debian 12 (bookworm)
 #  用法: sh deploy.sh [域名]
-#  数据库: 库名/用户 = ciallo, 密码 = 0d000721
+#  数据库: 库名/用户 = dcshop (默认), 密码请按需修改
 # =========================================================
 set -e
 
 WEB_ROOT="/var/www/faka"
-DB_NAME="ciallo"
-DB_USER="ciallo"
-DB_PASS="0d000721"
+DB_NAME="dcshop"
+DB_USER="dcshop"
+DB_PASS="dcshop@123"
 DOMAIN="${1:-_}"
+AUTH_KEY="dcshop_change_me"
+AUTH_COOKIE_NAME="DC_AUTHCOOKIE"
 
 SRC_DIR="$(cd "$(dirname "$0")" && pwd)"
 
@@ -156,23 +158,23 @@ sudo mkdir -p ${WEB_ROOT}
 # 用 cp 更通用（rsync 已装，但保险用 cp -a 也行）
 sudo cp -a "${SRC_DIR}/." "${WEB_ROOT}/"
 
-# 写 config.php（固定 ciallo 账号）
-sudo tee ${WEB_ROOT}/config.php > /dev/null <<'EOF'
+# 写 config.php（与上方数据库变量一致）
+sudo tee ${WEB_ROOT}/config.php > /dev/null <<EOF
 <?php
 //MySQL database host
 const DB_HOST = 'localhost';
 //Database username
-const DB_USER = 'ciallo';
+const DB_USER = '${DB_USER}';
 //Database user password
-const DB_PASSWD = '0d000721';
+const DB_PASSWD = '${DB_PASS}';
 //Database name
-const DB_NAME = 'ciallo';
+const DB_NAME = '${DB_NAME}';
 //Database Table Prefix
 const DB_PREFIX = 'dc_';
 //Auth key
-const AUTH_KEY = '$P$B7964e799724dac441c1666bbcbb5';
+const AUTH_KEY = '${AUTH_KEY}';
 //Cookie name
-const AUTH_COOKIE_NAME = 'DC_AUTHCOOKIE_5ca784223f7f376477a1be608f1b82e676cb9deb';
+const AUTH_COOKIE_NAME = '${AUTH_COOKIE_NAME}';
 EOF
 
 # 权限

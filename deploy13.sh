@@ -7,7 +7,7 @@
 #  用法 : bash deploy13.sh [域名]      # 域名可省略, 默认 _
 #  说明 : 脚本需与源码放在同一目录上传到服务器
 #         目录中需包含 index.php 与 shujuku7777777.sql
-#  数据库: 库名/用户 = ciallo, 密码 = 0d000721 (可改本文件)
+#  数据库: 库名/用户 = dcshop (默认), 密码自动随机生成 (可用环境变量覆盖)
 #
 #  HTTPS (可选, Cloudflare API 自动申请源站证书):
 #    使用前请注入凭据 (不含任何明文密钥, 无泄露风险):
@@ -25,9 +25,10 @@ warn() { echo -e "${YELLOW}[WARN]${NC}  $*"; }
 err()  { echo -e "${RED}[ERROR]${NC}  $*"; exit 1; }
 
 WEB_ROOT="/var/www/faka"
-DB_NAME="ciallo"
-DB_USER="ciallo"
-DB_PASS="0d000721"
+# 数据库默认值 (可通过环境变量 DB_NAME/DB_USER/DB_PASS 覆盖)
+DB_NAME="${DB_NAME:-dcshop}"
+DB_USER="${DB_USER:-dcshop}"
+DB_PASS="${DB_PASS:-}"
 DOMAIN="${1:-_}"
 
 # Cloudflare 凭据 (自定义变量: 传入环境变量或修改此处默认值, 避免明文入库)
@@ -63,6 +64,9 @@ apt-get update -y
 apt-get upgrade -y ${MIN}
 # 最小化基础包: 不装 vim/git 等大件, 需要时再 apt-get install
 apt-get install -y ${MIN} curl wget rsync openssl ca-certificates unzip gnupg2 jq
+
+# 数据库密码: 未指定环境变量则自动随机生成 (部署完成信息里会显示)
+DB_PASS="${DB_PASS:-$(openssl rand -hex 12)}"
 
 TOTAL_MEM=$(free -m | awk '/Mem:/{print $2}')
 if ! swapon --show | grep -q swapfile; then
@@ -195,23 +199,26 @@ rsync -a --exclude='.git' --exclude='*.zip' --exclude='*.sql' \
   --exclude='*.sh' --exclude='*.txt' \
   "${SRC_DIR}/" "${WEB_ROOT}/"
 
-# config.php (固定 ciallo 账号, 与数据库一致)
-tee "${WEB_ROOT}/config.php" > /dev/null <<'EOF'
+# config.php (变量注入: 数据库密码 + 随机认证密钥, 每次部署全新)
+AUTH_KEY="$(openssl rand -hex 24)"
+AUTH_COOKIE_NAME="DC_AUTHCOOKIE_$(echo -n "$AUTH_KEY" | md5sum | cut -c1-16)"
+
+tee "${WEB_ROOT}/config.php" > /dev/null <<EOF
 <?php
 //MySQL database host
 const DB_HOST = 'localhost';
 //Database username
-const DB_USER = 'ciallo';
+const DB_USER = '${DB_USER}';
 //Database user password
-const DB_PASSWD = '0d000721';
+const DB_PASSWD = '${DB_PASS}';
 //Database name
-const DB_NAME = 'ciallo';
+const DB_NAME = '${DB_NAME}';
 //Database Table Prefix
 const DB_PREFIX = 'dc_';
 //Auth key
-const AUTH_KEY = '$P$B7964e799724dac441c1666bbcbb5';
+const AUTH_KEY = '${AUTH_KEY}';
 //Cookie name
-const AUTH_COOKIE_NAME = 'DC_AUTHCOOKIE_5ca784223f7f376477a1be608f1b82e676cb9deb';
+const AUTH_COOKIE_NAME = '${AUTH_COOKIE_NAME}';
 EOF
 
 # 目录权限

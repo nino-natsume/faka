@@ -3,13 +3,13 @@
 #  faka (DCSHOP) 一键卸载脚本
 #  适用于 Debian 13 (trixie) + PHP 8.2 (SURY) + Nginx + MariaDB
 #  用法: sh uninstall.sh
-#  警告: 会删除站点代码 /var/www/faka、数据库 ciallo、相关软件包
+#  警告: 会删除站点代码 /var/www/faka、数据库 dcshop、相关软件包
 # =========================================================
 set -e
 
 WEB_ROOT="/var/www/faka"
-DB_NAME="ciallo"
-DB_USER="ciallo"
+DB_NAME="dcshop"
+DB_USER="dcshop"
 PHP_VER="8.2"
 
 echo "============================================="
