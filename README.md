@@ -30,12 +30,12 @@ DCSHOP 多财商城发卡系统源码（PHP + MySQL），含前台商城、后�
 ## 一键部署（推荐）
 
 ```bash
-# 1. 将整个源码目录上传到服务器（含 deploy13.sh、index.php、*.sql）
-scp -r faka/ root@服务器IP:/root/
-
-# 2. 进入目录执行（域名可省略）
-cd /root/faka
-bash deploy13.sh 你的域名.com
+# 1. 将整个源码目录clone到服务器
+git clone https://github.com/nino-natsume/faka.git
+# 2. 进入目录执行
+cd /faka
+chmod +x deploy13.sh
+bash deploy13.sh
 ```
 
 部署完成后访问：
@@ -43,7 +43,7 @@ bash deploy13.sh 你的域名.com
 - 前台：`http://你的域名.com/`
 - 后台：`http://你的域名.com/admin/`
 
-### 启用 HTTPS（Cloudflare 源站证书）
+### 【可选】启用 HTTPS（Cloudflare 源站证书）
 
 脚本支持通过 Cloudflare API 自动申请 15 年源站证书，需要两个环境变量：
 
@@ -54,7 +54,7 @@ CF_API_TOKEN=你的Token CF_ZONE_ID=你的ZoneID bash deploy13.sh 你的域名.c
 要求：
 
 - 域名已在 Cloudflare 托管并开启代理（橙色云朵）
-- API Token 需具备 `Zone > SSL and Certificates > Edit` 权限
+- API Token 需具备 `Zone（区域） > SSL and Certificates（SSL和证书） > Edit（编辑）` 权限
 - 申请成功后到 Cloudflare 控制台将 SSL/TLS 模式设为 `Full (strict)`
 
 不传凭据时自动仅部署 HTTP，不影响主流程。
@@ -63,16 +63,21 @@ CF_API_TOKEN=你的Token CF_ZONE_ID=你的ZoneID bash deploy13.sh 你的域名.c
 
 - 默认库名/用户：`dcshop`
 - 密码：未指定则**自动随机生成**，部署完成信息中会显示
-- 可通过环境变量覆盖：`DB_NAME=xxx DB_USER=xxx DB_PASS=xxx bash deploy13.sh 域名`
+- 若需要设置数据库信息可使用：`DB_NAME=xxx DB_USER=xxx DB_PASS=xxx bash deploy13.sh example.com`
 
 ### 管理员账号
 
-数据库导入后管理员位于 `dc_user` 表（`uid=1000` 且 `role='admin'` 的记录）。密码为 bcrypt 哈希，无法反查，请在服务器上重置：
+数据库导入后管理员位于 `dc_user` 表（`uid=1000` 且 `role='admin'` 的记录）。密码需在服务器上重置：
 
 ```bash
 NEWHASH=$(php -r "echo password_hash('你的新密码', PASSWORD_BCRYPT), PHP_EOL;")
 mysql dcshop -e "UPDATE dc_user SET password='$NEWHASH' WHERE uid=1000 AND role='admin';"
 ```
+
+重置后的用户信息：
+| 用户名 | 密码 |
+| :---: | :---: |
+| admin | 你设的新密码 |
 
 ## 卸载
 
@@ -88,6 +93,3 @@ sh uninstall.sh
 - Nginx 已配置禁止执行缓存/上传/模板目录中的 PHP，防 WebShell
 - 部署后请务必修改管理员密码
 
-## 运行截图 / 说明文档
-
-见 `README.txt`（系统自带）。
