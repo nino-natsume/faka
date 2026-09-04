@@ -81,12 +81,14 @@
    进入：宝塔面板 → 网站 → 当前站点 → 设置 → 伪静态
    粘贴以下规则并保存：
 
+```
 location / {
     index index.php index.html;
     if (!-e $request_filename){
         rewrite ^/(.*)$ /index.php last;
     }
 }
+```
 
    说明：
    - 伪静态是必做项，不只是为了 SEO。
