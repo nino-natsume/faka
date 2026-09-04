@@ -24,5 +24,7 @@ DCSHOP 多财商城发卡系统源码（PHP + MySQL），含前台商城、后�
 
 本服务提供两种部署方式，详情点击查看
 
-[服务器部署](https://github.com/nino-natsume/faka/blob/main/server.md) [代码部署](https://github.com/nino-natsume/faka/blob/main/code.md)
+[服务器部署](https://github.com/nino-natsume/faka/blob/main/server.md)
+
+[代码部署](https://github.com/nino-natsume/faka/blob/main/code.md)
 
