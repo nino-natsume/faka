@@ -25,8 +25,9 @@
 7. **完成**：访问 `https://xxx.pages.dev` 查看商城；`/admin` 进入后台。
    再次部署只需重复第 4 步（更新代码后重新上传）。
 
-> ⚠️ 若后续修改了 `worker.js` / `admin.js` / `lib.js`，需重新生成 `public/_worker.js`：
-> `npx esbuild worker.js --bundle --format=esm --platform=neutral --outfile=public/_worker.js`
+> ✅ 修改 `worker.js` / `admin.js` / `lib.js` **无需手动操作**：代码 push 到 `main`
+> 后，`Build Pages Bundle` 工作流会自动重新打包 `public/_worker.js` 并提交。
+> 浏览器上传前确认使用的是最新 `main` 分支代码即可（可在本机执行 `git pull`）。
 
 ## 快速部署（GitHub Actions）
 

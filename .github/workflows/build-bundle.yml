@@ -1,0 +1,47 @@
+name: Build Pages Bundle
+
+# 代码变更后自动重新打包 public/_worker.js，无需手动执行 esbuild。
+# 仅打包提交，不触发部署（部署由 Deploy to Cloudflare Workers 手动触发）。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'worker.js'
+      - 'admin.js'
+      - 'lib.js'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Rebuild public/_worker.js
+        run: |
+          npx --yes esbuild worker.js --bundle --format=esm --platform=neutral --target=es2022 \
+            --outfile=public/_worker.js \
+            --banner:js="// DCSHOP faka - Pages 单文件入口 (由 worker.js+admin.js+lib.js 自动打包生成, 勿手改)"
+
+      - name: Commit bundle if changed
+        run: |
+          if git diff --quiet public/_worker.js; then
+            echo "bundle 无变化，无需提交"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add public/_worker.js
+            git commit -m "chore: 自动重新打包 public/_worker.js [skip ci]"
+            git push origin main
+            echo "已提交并推送最新 bundle"
+          fi
