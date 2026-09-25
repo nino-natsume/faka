@@ -88,16 +88,26 @@ INSERT OR IGNORE INTO acg_category (id, name, sort, create_time, owner, icon, st
 
 -- 演示商品
 INSERT OR IGNORE INTO acg_commodity (id, category_id, name, description, cover, factory_price, price, user_price, status, owner, create_time, api_status, code, delivery_way, delivery_auto_mode, contact_type, password_status, sort, coupon, stock, seckill_status, draft_status, inventory_hidden, recommend, only_user, minimum, maximum) VALUES
-(1, 1, 'DEMO', '<p>该商品是演示商品</p>', '/favicon.ico', 0.00, 1.00, 0.90, 1, 0, 1700000000, 1, '8AE80574F3CA98BE', 1, 0, 0, 0, 1, 1, 999999, 0, 0, 0, 0, 0, 0, 0);
+(1, 1, 'DEMO', '<p>该商品是演示商品</p>', '/favicon.ico', 0.00, 1.00, 0.90, 1, 0, 1700000000, 1, '8AE80574F3CA98BE', 1, 0, 0, 0, 1, 1, 999999, 0, 0, 0, 0, 0, 0, 0),
+(2, 1, '卡密商品', '<p>自动发货演示</p>', '/favicon.ico', 0.00, 2.00, 0.00, 1, 0, 1700000000, 1, 'KAMI1984TEST', 0, 0, 0, 0, 1, 1, 0, 0, 0, 0, 1, 0, 0, 0);
+
+-- 演示卡密 (商品2 自动发货)
+INSERT OR IGNORE INTO acg_card (id, commodity_id, secret, race, sku, status, draft, create_time) VALUES
+(1, 2, 'TEST-KAMI-AAAA-0001', NULL, NULL, 0, 0, 1700000000),
+(2, 2, 'TEST-KAMI-BBBB-0002', NULL, NULL, 0, 0, 1700000000),
+(3, 2, 'TEST-KAMI-CCCC-0003', NULL, NULL, 0, 0, 1700000000);
 
 -- 管理员 (admin / admin123)
 INSERT OR IGNORE INTO acg_manage (id, email, password, security_password, nickname, salt, avatar, status, type, create_time, note) VALUES
 (1, 'admin', '8601ff2b97eeffff68cb37ea6da3511933e94eb6', NULL, '管理员', 'AcgFaka2026WorkerD1Salt0123456789', '/favicon.ico', 1, 0, 1700000000, '系统初始管理员');
 
--- 支付方式 (余额 + 易支付支付宝)
+-- 支付方式 (余额 + 易支付 - 支付宝/微信)
+INSERT OR IGNORE INTO acg_pay_config (id, handle, name, config, sort, create_time) VALUES
+(1, 'Epay', '易支付', '{"gateway":"https://pay.example.com","pid":"1000","key":"demo-secret-key-change-me"}', 1, 1700000000);
 INSERT OR IGNORE INTO acg_pay (id, name, icon, code, commodity, recharge, create_time, handle, pay_config_id, sort, equipment, cost, cost_type, archived) VALUES
 (1, '余额', '/assets/static/images/wallet.png', '#system', 1, 0, 1700000000, '#system', 0, 999, 0, 0.000, 0, 0),
-(2, '支付宝', '/assets/user/images/cash/alipay.png', 'alipay', 1, 1, 1700000000, 'Epay', 0, 1, 0, 0.000, 0, 0);
+(2, '支付宝', '/assets/user/images/cash/alipay.png', 'alipay', 1, 1, 1700000000, 'Epay', 1, 1, 0, 0.000, 0, 0),
+(3, '微信支付', '/assets/user/images/cash/wechat.png', 'wxpay', 1, 1, 1700000000, 'Epay', 1, 2, 0, 0.000, 0, 0);
 
 -- 会员 uid 从 1000 开始 (对齐原版, 防枚举; 若 D1 报错可忽略此行)
 UPDATE sqlite_sequence SET seq = 1000 WHERE name = 'acg_user';

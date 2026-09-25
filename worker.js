@@ -11,6 +11,12 @@ import {
   now, htmlEscape, md5hex, parseCookies, requestInfo, langMenu,
   loadConfig, dbRows, dbFirst, buildCategoryTree, indexVar, itemVar,
 } from './lib.js';
+import * as api from './api.js';
+import {
+  renderAuthHeader, renderAuthFooter, pageLogin, pageRegister,
+  userCenterShell, pageDashboard, pagePurchaseRecord, pageBill,
+  pageRecharge, pageSecurity,
+} from './pages.js';
 
 const APP_VERSION = '3.7.9';
 
@@ -629,6 +635,23 @@ const jsonRes = (data, status = 200) => new Response(JSON.stringify(data), {
   status, headers: { 'Content-Type': 'application/json; charset=utf-8', 'X-Content-Type-Options': 'nosniff' },
 });
 
+async function readBody(request) {
+  if (request.method === 'GET' || request.method === 'HEAD') return {};
+  try {
+    const ct = (request.headers.get('Content-Type') || '').toLowerCase();
+    if (ct.includes('application/json')) return await request.json();
+    if (ct.includes('application/x-www-form-urlencoded') || ct.includes('multipart/form-data')) {
+      const form = await request.formData();
+      const out = {};
+      form.forEach((v, k) => { out[k] = v; });
+      return out;
+    }
+    const text = await request.text();
+    if (text) { try { return JSON.parse(text); } catch (e) { /* fallthrough */ } }
+    return {};
+  } catch (e) { return {}; }
+}
+
 const pageRes = (html) => new Response(html, {
   status: 200,
   headers: {
@@ -664,10 +687,60 @@ async function route(env, request, url, ctx) {
     return pageRes('<!DOCTYPE html><html><head><meta charset="utf-8"><title>敬请期待</title></head><body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f5f6fa;color:#333"><div style="text-align:center"><h1 style="font-size:2rem;margin-bottom:.5rem">管理后台</h1><p>后台管理功能迁移中，敬请期待 (P2 阶段)</p></div></body></html>');
   }
 
-  // ---- 会员中心页面(后续阶段) ----
-  if (s.startsWith('/user/dashboard') || s.startsWith('/user/authentication') || s.startsWith('/user/personal') || s.startsWith('/user/security') || s.startsWith('/user/recharge') || s.startsWith('/user/bill') || s.startsWith('/user/cash') || s.startsWith('/user/coupon') || s.startsWith('/user/ticket') || s.startsWith('/user/message') || s.startsWith('/user/promote') || s.startsWith('/user/order') || s.startsWith('/user/card') || s.startsWith('/user/commodity') || s.startsWith('/user/category') || s.startsWith('/user/business') || s.startsWith('/user/share')) {
-    ctx.route = s;
-    return pageRes(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>敬请期待</title></head><body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f5f6fa;color:#333"><div style="text-align:center"><h1 style="font-size:2rem;margin-bottom:.5rem">${htmlEscape(s)}</h1><p>会员中心功能迁移中，敬请期待 (P1 阶段)</p></div></body></html>`);
+  // ---- 验证码 ----
+  if (pathname.startsWith('/user/captcha/image')) {
+    const action = q.get('action') || 'login';
+    const cap = await api.captchaImage(env, request, action);
+    return new Response(cap.svg, {
+      status: 200,
+      headers: { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'no-store', 'Set-Cookie': cap.cookie },
+    });
+  }
+
+  // ---- 认证页面 ----
+  if (s === '/user/authentication/login') {
+    if (Number(cfg.closed) === 1) return pageRes(renderAuthHeader(await viewContext(env, request, url, '登录')) + `<main class="auth-wrapper"><div class="auth-card"><p class="text-center">店铺维护中，暂时无法登录</p></div></main>` + renderAuthFooter());
+    const v = await viewContext(env, request, url, '登录');
+    v.route = s;
+    return pageRes(renderAuthHeader(v) + pageLogin(v) + renderAuthFooter());
+  }
+  if (s === '/user/authentication/register') {
+    if (Number(cfg.registered_state) === 0) return pageRes(renderAuthHeader(await viewContext(env, request, url, '提示')) + `<main class="auth-wrapper"><div class="auth-card"><p class="text-center">注册已关闭</p></div></main>` + renderAuthFooter());
+    const v = await viewContext(env, request, url, '注册');
+    v.route = s;
+    return pageRes(renderAuthHeader(v) + pageRegister(v) + renderAuthFooter());
+  }
+  if (s === '/user/authentication/logout') return api.logout(env, request, url);
+
+  // ---- 需要登录的会员中心页面 ----
+  const memberPages = {
+    '/user/dashboard/index': pageDashboard,
+    '/user/personal/purchaseRecord': pagePurchaseRecord,
+    '/user/bill/index': pageBill,
+    '/user/recharge/index': pageRecharge,
+    '/user/security/personal': pageSecurity,
+  };
+  const memberPrefixes = ['/user/dashboard', '/user/personal', '/user/security', '/user/recharge', '/user/bill', '/user/cash', '/user/coupon', '/user/ticket', '/user/message', '/user/promote', '/user/order', '/user/card', '/user/commodity', '/user/category', '/user/business', '/user/share'];
+  if (memberPrefixes.some(p => s.startsWith(p))) {
+    const user = await api.currentUser(env, request);
+    if (!user) return new Response(null, { status: 302, headers: { Location: '/user/authentication/login' } });
+    const v = await viewContext(env, request, url, '会员中心', { user });
+    v.route = s;
+    v.group = await api.userGroupOf(env, user);
+    if (s === '/user/recharge/index') {
+      const pays = await api.payList(env, request, url).then(r => r.json()).then(j => j.data || []);
+      v.payList = pays;
+    }
+    if (memberPages[s]) return pageRes(renderHeader(v, indexVar(0, cfg)) + memberPages[s](v) + renderFooter(v));
+    // 未实现的会员页面
+    return pageRes(renderHeader(v, indexVar(0, cfg)) + userCenterShell(v, `
+      <div class="panel">
+        <div class="panel-header"><span class="icon"><i class="fa-duotone fa-regular fa-right-from-bracket"></i></span><h6 class="panel-title">敬请期待</h6></div>
+        <div class="panel-body">
+          <p class="text-muted mb-3">功能开发中，敬请期待 (P2 阶段)</p>
+          <a class="btn btn-primary" href="/user/dashboard/index"><i class="fa-duotone fa-regular fa-arrow-left me-2"></i>返回个人中心</a>
+        </div>
+      </div>`) + renderFooter(v));
   }
 
   // ---- API ----
@@ -675,6 +748,8 @@ async function route(env, request, url, ctx) {
     const parts = s.replace(/^\/user\/api\//, '').split('/');
     const apiCtl = parts[0] || '';
     const apiAct = parts[1] || '';
+    const body = await readBody(request);
+
     if (apiCtl === 'index') {
       if (apiAct === 'data') {
         const cats = await getVisibleCategories(env, cfg);
@@ -691,7 +766,7 @@ async function route(env, request, url, ctx) {
       }
       if (apiAct === 'commodityDetail') {
         try {
-          const item = await getItem(env, cfg, Number(q.get('commodityId')));
+          const item = await getItem(env, cfg, Number(q.get('commodityId') || body.item_id));
           item.stock_state = stockState(item.stock);
           if (item.inventory_hidden == 1) item.stock = hideStockText(item.stock);
           return jsonRes({ code: 200, msg: 'success', data: item });
@@ -699,6 +774,35 @@ async function route(env, request, url, ctx) {
           return jsonRes({ code: 403, msg: e.message }, 200);
         }
       }
+      if (apiAct === 'query') return api.queryOrder(env, request, url, body);
+      if (apiAct === 'card') return api.cardDetail(env, request, url, body);
+    }
+    if (apiCtl === 'authentication') {
+      if (apiAct === 'register') return api.register(env, request, url, body);
+      if (apiAct === 'login') return api.login(env, request, url, body);
+    }
+    if (apiCtl === 'order') {
+      if (apiAct === 'trade') return api.trade(env, request, url, body);
+      if (apiAct.startsWith('callback')) {
+        const tradeNo = apiAct.split('.')[1] || '';
+        return api.orderCallback(env, request, url, tradeNo);
+      }
+    }
+    if (apiCtl === 'purchaseRecord') {
+      if (apiAct === 'data') return api.purchaseRecord(env, request, url);
+    }
+    if (apiCtl === 'bill') {
+      if (apiAct === 'data') return api.billData(env, request, url);
+    }
+    if (apiCtl === 'pay') {
+      if (apiAct === 'data' || apiAct === 'index') return api.payList(env, request, url);
+    }
+    if (apiCtl === 'recharge') {
+      if (apiAct === 'data') return api.payList(env, request, url);
+      if (apiAct === 'index') return api.rechargeCreate(env, request, url, body);
+    }
+    if (apiCtl === 'security') {
+      if (apiAct === 'password') return api.changePassword(env, request, url, body);
     }
     return jsonRes({ code: 404, msg: '接口不存在' }, 404);
   }
