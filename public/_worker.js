@@ -1,3 +1,5 @@
+// DCSHOP faka - Pages 单文件入口 (由 worker.js+admin.js+lib.js 自动打包生成, 勿手改)
+
 // lib.js
 var htmlEscape = (s) => String(s == null ? "" : s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
 var enc = new TextEncoder();
@@ -62,10 +64,10 @@ function indexVar(catId, cfg) {
     CURRENCY: { code: cfg.currency_code || "CNY", symbol: cfg.currency_symbol || "\xA5", rate: Number(cfg.currency_rate || 1), decimals: Number(cfg.currency_decimals || 2) },
     CAT_ID: Number(catId) || 0
   };
-  return `<script>window._data_var=${JSON.stringify(data)};<\/script>${langDictScript()}`;
+  return `<script>window._data_var=${JSON.stringify(data)};</script>${langDictScript()}`;
 }
 function itemVar(item) {
-  return `<script>window._data_var._var_item=${JSON.stringify(item)};<\/script>`;
+  return `<script>window._data_var._var_item=${JSON.stringify(item)};</script>`;
 }
 
 // worker.js
@@ -178,7 +180,7 @@ function renderHeader(v, extraScripts = "") {
     <link href="${favicon}?v=${app.version}" rel="icon">
     <title>${htmlEscape(title)} - ${htmlEscape(config.shop_name)}</title>
     ${CSS_FILES.map((f) => `<link href="${f}" rel="stylesheet">`).join("")}
-    <script src="/assets/common/js/ready.js"><\/script>
+    <script src="/assets/common/js/ready.js"></script>
     ${extraScripts}
 </head>
 <body style="background-size: cover;background-image: linear-gradient(180deg, rgb(255 255 255 / 0%), rgb(255 255 255 / 71%)), url('${htmlEscape(config.background_url || "")}')">
@@ -225,7 +227,7 @@ function renderHeader(v, extraScripts = "") {
 function renderFooter(v) {
   return `</div>
 ${v.setting && v.setting.icp ? `<footer>${htmlEscape(v.setting.icp)}</footer>` : ""}
-${JS_FILES.map((f) => `<script src="${f}"><\/script>`).join("")}
+${JS_FILES.map((f) => `<script src="${f}"></script>`).join("")}
 </body>
 </html>`;
 }
@@ -467,7 +469,7 @@ function pageIndex(v) {
     </div>
   </div>
 </main>
-<script src="/assets/user/controller/index/index.js"><\/script>`;
+<script src="/assets/user/controller/index/index.js"></script>`;
 }
 function pageItem(v) {
   const { item, config } = v;
@@ -596,7 +598,7 @@ function pageItem(v) {
 
 
 </main>
-<script src="/assets/user/controller/index/item.js"><\/script>`;
+<script src="/assets/user/controller/index/item.js"></script>`;
 }
 function pageQuery(v) {
   return `<main class="container py-4">
@@ -621,7 +623,7 @@ function pageQuery(v) {
         </div>
     </div>
 </main>
-<script src="/assets/user/controller/index/query.js"><\/script>`;
+<script src="/assets/user/controller/index/query.js"></script>`;
 }
 function pageClosed(v) {
   return `<main class="container py-5">
