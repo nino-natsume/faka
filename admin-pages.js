@@ -1158,3 +1158,500 @@ export function renderAdminDashboardPage(cfg, manage) {
 <script>ready("/assets/admin/controller/dashboard/index.js");</script>`;
   return renderAdminShell({ cfg, manage, title: '控制台', activePath: '/admin/dashboard/index', body });
 }
+
+// ============================================================
+// 订单管理页 (对齐 Admin/Api/Order: data/save/clear/exportImpact/export)
+// ============================================================
+export function renderAdminOrderPage(cfg, manage) {
+  const body = `
+<div class="card mb-5 mb-xl-8">
+  <div class="card-header border-0">
+    <div class="card-toolbar d-flex flex-wrap">
+      <button class="btn btn-sm btn-light-primary order-export me-3"><i class="fa-duotone fa-regular fa-file-export"></i> 导出订单</button>
+      <button class="btn btn-sm btn-light-danger order-clear me-3"><i class="fa-duotone fa-regular fa-trash-can"></i> 清理未支付</button>
+      <span class="align-self-center text-muted me-3 order-stat">共 <b class="order_count">0</b> 条，销售额 <b class="order_amount">￥0.00</b>，成本 <b class="order_cost">￥0.00</b></span>
+    </div>
+  </div>
+  <div class="card-body py-3">
+    <div class="row g-2 mb-3">
+      <div class="col-md-3"><input class="form-control order-f-trade" placeholder="订单号"></div>
+      <div class="col-md-2"><input class="form-control order-f-owner" placeholder="会员ID，0=访客" inputmode="numeric"></div>
+      <div class="col-md-2"><select class="form-select order-f-status"><option value="">全部支付状态</option><option value="0">未支付</option><option value="1">已支付</option></select></div>
+      <div class="col-md-2"><select class="form-select order-f-delivery"><option value="">全部发货状态</option><option value="0">未发货</option><option value="1">已发货</option></select></div>
+      <div class="col-md-3"><input class="form-control order-f-secret" placeholder="卡密信息(模糊)"></div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-row-bordered table-row-gray-200 align-middle gs-0 gy-3" id="order-table">
+        <thead><tr class="fw-bold text-muted">
+          <th style="width:40px"><input type="checkbox" class="crud-check-all"></th>
+          <th>订单号/下单时间</th><th>客户</th><th>商品</th><th>数量/金额</th><th>发货方式</th><th>支付</th><th>状态</th><th>操作</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="d-flex justify-content-end align-items-center mt-3">
+        <button class="btn btn-sm btn-secondary crud-prev me-2">上一页</button>
+        <span class="crud-pageinfo me-2"></span>
+        <button class="btn btn-sm btn-secondary crud-next">下一页</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" tabindex="-1" id="orderDeliverModal"><div class="modal-dialog modal-lg"><div class="modal-content">
+  <div class="modal-header py-3"><h5 class="modal-title">手动发货</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <form class="modal-form"><div class="modal-body">
+    <div class="alert alert-warning mb-3 order-deliver-warn" hidden>此订单已有发货记录，本次提交会覆盖现有发货内容。</div>
+    <div class="mb-3"><label class="form-label">发货内容</label>
+      <textarea class="form-control" name="secret" rows="8" required placeholder="填写要发货的信息"></textarea></div>
+  </div><div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+    <button type="submit" class="btn btn-primary">核对并发货</button>
+  </div></form>
+</div></div></div>
+<div class="modal fade" tabindex="-1" id="orderExportModal"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header py-3"><h5 class="modal-title">导出订单</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <form class="export-form"><div class="modal-body">
+    <div class="alert alert-warning mb-3">系统会先通过 POST 精确预览当前筛选范围，再生成文件。单次最多 5000 笔；选择“永久删除”后还必须完成高危确认。</div>
+    <div class="mb-3"><label class="form-label">导出数量 <span class="text-muted">(0 或留空表示全部，最多 5000 笔)</span></label>
+      <input class="form-control" name="export_num" type="number" min="0" max="5000" value="0"></div>
+    <div class="mb-3"><label class="form-label">导出后执行</label>
+      <select class="form-select" name="export_status"><option value="0">不执行任何操作</option><option value="1">删除导出的订单（高危/物理删除）</option></select></div>
+    <div class="order-export-preview mt-2"></div>
+  </div><div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+    <button type="submit" class="btn btn-primary">预览导出范围</button>
+  </div></form>
+</div></div></div>`;
+
+  const js = `
+  ready(() => {
+    const tbody = document.getElementById('order-table').querySelector('tbody');
+    const API = '/admin/api/order/';
+    let page = 1, pageSize = 10, deliverRow = null;
+    const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const sym = '￥';
+    const filters = () => {
+      const d = { page, limit: pageSize };
+      const t = document.querySelector('.order-f-trade').value.trim();
+      const o = document.querySelector('.order-f-owner').value.trim();
+      const s = document.querySelector('.order-f-status').value;
+      const dv = document.querySelector('.order-f-delivery').value;
+      const sec = document.querySelector('.order-f-secret').value.trim();
+      if (t) d['equal-trade_no'] = t;
+      if (o) d['equal-owner'] = o;
+      if (s !== '') d['equal-status'] = s;
+      if (dv !== '') d['equal-delivery_status'] = dv;
+      if (sec) d['search-secret'] = sec;
+      return d;
+    };
+    function load() {
+      util.post({ url: API + 'data', data: filters(), loader: false,
+        done: res => {
+          tbody.innerHTML = '';
+          (res.data.list || []).forEach(o => {
+            const p = o.pay || {};
+            const c = o.commodity || {};
+            const u = o.owner || o.substation_user || {};
+            const amount = Number(o.amount || 0);
+            const statusTxt = Number(o.status) === 1 ? '<span class="badge badge-light-success">已支付</span>' : '<span class="badge badge-light-secondary">未支付</span>';
+            const dlvTxt = Number(o.delivery_status) === 1 ? '<span class="badge badge-light-success">已发货</span>' : '<span class="badge badge-light-warning">未发货</span>';
+            const dlvWay = Number(c.delivery_way) === 1 ? '手动' : '自动';
+            let ops = '';
+            if (Number(c.delivery_way) === 0 && Number(o.delivery_status) === 1) {
+              ops += '<button class="btn btn-sm btn-light-primary row-secret me-1">查看卡密</button>';
+            }
+            if (Number(c.delivery_way) === 1 && Number(o.status) === 1) {
+              ops += '<button class="btn btn-sm btn-light-success row-deliver me-1">手动发货</button>';
+            }
+            const tr = document.createElement('tr');
+            tr.dataset.id = o.id; tr.dataset.tradeNo = o.trade_no; tr.dataset.ownerName = (u.username || '-'); tr.dataset.contact = o.contact || '';
+            tr.innerHTML = '<td><input type="checkbox" class="crud-check"></td>' +
+              '<td><div>' + esc(o.trade_no) + '</div><small class="text-muted">' + (o.create_time ? new Date(o.create_time * 1000).toLocaleString() : '-') + '</small></td>' +
+              '<td>' + (o.owner_id ? esc(u.username || ('#'+o.owner_id)) : esc(o.contact || '游客')) + '</td>' +
+              '<td>' + esc(c.name || ('#'+o.commodity_id)) + '</td>' +
+              '<td>' + (o.card_num || 1) + ' / ' + sym + amount.toFixed(2) + '</td>' +
+              '<td>' + dlvWay + '</td>' +
+              '<td>' + esc(p.name || (o.pay_id ? ('#'+o.pay_id) : '-')) + '</td>' +
+              '<td>' + statusTxt + ' ' + dlvTxt + '</td>' +
+              '<td>' + ops + '</td>';
+            tbody.appendChild(tr);
+          });
+          document.querySelector('.order_count').textContent = res.data.count || 0;
+          document.querySelector('.order_amount').textContent = sym + Number(res.data.order_amount || 0).toFixed(2);
+          document.querySelector('.order_cost').textContent = sym + Number(res.data.order_cost || 0).toFixed(2);
+          document.querySelector('.crud-pageinfo').textContent = '第 ' + page + ' 页 / 共 ' + (res.data.count || 0) + ' 条';
+        },
+        error: res => message.error(res.msg) });
+    }
+    document.querySelector('.crud-check-all').addEventListener('change', e => tbody.querySelectorAll('.crud-check').forEach(x => x.checked = e.target.checked));
+    ['.order-f-trade','.order-f-owner','.order-f-status','.order-f-delivery','.order-f-secret'].forEach(sel => {
+      document.querySelector(sel).addEventListener('change', () => { page = 1; load(); });
+      document.querySelector(sel).addEventListener('input', () => { page = 1; load(); });
+    });
+    document.querySelector('.crud-prev').addEventListener('click', () => { if (page > 1) { page--; load(); } });
+    document.querySelector('.crud-next').addEventListener('click', () => { page++; load(); });
+
+    // 手动发货
+    tbody.addEventListener('click', e => {
+      const tr = e.target.closest('tr'); if (!tr) return;
+      if (e.target.closest('.row-secret')) {
+        const sec = tr.querySelector('small[data-secret]');
+        const txt = sec ? sec.dataset.secret : '';
+        if (!txt) { return util.post({ url: API + 'data', data: { page:1, limit:1, 'equal-trade_no': tr.dataset.tradeNo }, loader: false, done: r => { const row = (r.data.list||[])[0]; if (row) window.prompt('卡密内容', row.secret); }, error: () => {} }); }
+        window.prompt('卡密内容', txt);
+        return;
+      }
+      if (e.target.closest('.row-deliver')) {
+        deliverRow = tr;
+        const hasSecret = Number(tr.dataset.hasSecret) === 1;
+        document.querySelector('.order-deliver-warn').hidden = !hasSecret;
+        (window.bootstrap && bootstrap.Modal.getOrCreateInstance(document.getElementById('orderDeliverModal'))).show();
+      }
+    });
+    document.querySelector('#orderDeliverModal .modal-form').addEventListener('submit', e => {
+      e.preventDefault();
+      if (!deliverRow) return;
+      const id = deliverRow.dataset.id;
+      const secret = document.querySelector('#orderDeliverModal textarea[name=secret]').value;
+      util.post({ url: API + 'save', data: { id, secret, overwrite_confirmed: document.querySelector('.order-deliver-warn').hidden ? 0 : 1 },
+        done: res => { (window.bootstrap && bootstrap.Modal.getInstance(document.getElementById('orderDeliverModal'))).hide(); message.alert(res.msg || '订单发货信息已保存。', 'success'); load(); },
+        error: res => message.error(res.msg) });
+    });
+
+    // 清理未支付
+    document.querySelector('.order-clear').addEventListener('click', () => {
+      if (!confirm('只会物理删除 30 分钟前仍未支付的订单；已支付订单不会受影响。确认清理吗？')) return;
+      util.post({ url: API + 'clear', done: res => { message.success(res.msg); load(); }, error: res => message.error(res.msg) });
+    });
+
+    // 导出订单
+    let previewToken = '', previewCount = 0, previewData = null, exportFilter = {};
+    function downloadExport(deleteConfirmation) {
+      const payload = Object.assign({}, exportFilter, { expected_count: previewCount, preview_token: previewToken });
+      if (deleteConfirmation) payload.delete_confirmation = deleteConfirmation;
+      fetch(API + 'export', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+        .then(r => {
+          const ct = r.headers.get('content-type') || '';
+          if (ct.includes('application/json')) return r.json().then(j => { throw new Error(j.msg || '导出失败'); });
+          return r.blob().then(blob => {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = '订单导出-' + previewCount + '-' + new Date().toISOString().slice(0,10) + '.csv';
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            message.success('已导出 ' + previewCount + ' 笔订单');
+            load();
+          });
+        })
+        .catch(err => message.error(err.message));
+    }
+    document.querySelector('#orderExportModal .export-form').addEventListener('submit', e => {
+      e.preventDefault();
+      const num = document.querySelector('#orderExportModal input[name=export_num]').value;
+      const st = document.querySelector('#orderExportModal select[name=export_status]').value;
+      previewToken = ''; previewCount = 0; previewData = null;
+      exportFilter = Object.assign({}, filters(), { export_num: num === '' || num === null ? 0 : Number(num), export_status: Number(st) });
+      delete exportFilter.page; delete exportFilter.limit;
+      util.post({ url: API + 'exportImpact', data: exportFilter, loader: false, done: res => {
+        const impact = res.data || {};
+        previewToken = impact.preview_token || '';
+        previewCount = Number(impact.count || 0);
+        document.querySelector('.order-export-preview').innerHTML = '<div class="alert alert-info">共命中 <b>' + previewCount + '</b> 笔（已支付 ' + (impact.paid_count||0) + '、未支付 ' + (impact.unpaid_count||0) + '）。</div>';
+        if (!previewToken || previewCount < 1) return;
+        (window.bootstrap && bootstrap.Modal.getOrCreateInstance(document.getElementById('orderExportModal'))).hide();
+        if (Number(st) === 1) {
+          const phrase = '确认永久删除' + previewCount + '笔订单';
+          if (!confirm('下载请求成功后，系统会物理删除上述 ' + previewCount + ' 笔订单及其历史记录，无法恢复。\\n\\n请输入确认短语：' + phrase)) return;
+          const typed = window.prompt('请输入：' + phrase);
+          if (typed !== phrase) { message.error('确认短语不匹配，已取消删除'); return; }
+          downloadExport(phrase);
+        } else {
+          if (confirm('本次只下载 CSV，不修改或删除订单。确认导出 ' + previewCount + ' 笔？')) downloadExport('');
+        }
+      }, error: res => message.error(res.msg) });
+    });
+    document.querySelector('.order-export').addEventListener('click', () => {
+      document.querySelector('.order-export-preview').innerHTML = '';
+      (window.bootstrap && bootstrap.Modal.getOrCreateInstance(document.getElementById('orderExportModal'))).show();
+    });
+
+    load();
+  });`;
+
+  return renderCrudPage({ cfg, manage, title: '订单管理', activePath: '/admin/order/index', body, readyJs: js });
+}
+
+// ============================================================
+// 会员管理页 (对齐 Admin/Api/User: data/save/recharge/coin/statistics/del)
+// ============================================================
+export function renderAdminUserPage(cfg, manage) {
+  const body = `
+<div class="card mb-5 mb-xl-8">
+  <div class="card-header border-0">
+    <div class="card-toolbar d-flex flex-wrap">
+      <button class="btn btn-sm btn-light-danger user-del me-3"><i class="fa-duotone fa-regular fa-trash-can"></i> 移除选中</button>
+      <span class="align-self-center text-muted me-3 user-stat">共 <b class="user_count">0</b> 人，余额合计 <b class="user_balance">￥0.00</b>，充值合计 <b class="user_recharge">￥0.00</b></span>
+    </div>
+  </div>
+  <div class="card-body py-3">
+    <div class="row g-2 mb-3">
+      <div class="col-md-3"><input class="form-control user-f-username" placeholder="用户名(模糊)"></div>
+      <div class="col-md-2"><input class="form-control user-f-id" placeholder="UID" inputmode="numeric"></div>
+      <div class="col-md-2"><input class="form-control user-f-email" placeholder="邮箱"></div>
+      <div class="col-md-2"><input class="form-control user-f-qq" placeholder="QQ号" inputmode="numeric"></div>
+      <div class="col-md-2"><select class="form-select user-f-status"><option value="">全部状态</option><option value="1">正常</option><option value="0">已封禁</option></select></div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-row-bordered table-row-gray-200 align-middle gs-0 gy-3" id="user-table">
+        <thead><tr class="fw-bold text-muted">
+          <th style="width:40px"><input type="checkbox" class="crud-check-all"></th>
+          <th>UID/用户名</th><th>余额</th><th>硬币</th><th>充值累计</th><th>状态</th><th>注册时间/IP</th><th>操作</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="d-flex justify-content-end align-items-center mt-3">
+        <button class="btn btn-sm btn-secondary crud-prev me-2">上一页</button>
+        <span class="crud-pageinfo me-2"></span>
+        <button class="btn btn-sm btn-secondary crud-next">下一页</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" tabindex="-1" id="userAdjustModal"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header py-3"><h5 class="modal-title">余额/硬币调整</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <form class="adjust-form"><div class="modal-body">
+    <div class="mb-3"><label class="form-label">操作</label>
+      <select class="form-select" name="action"><option value="1">增加</option><option value="2">扣减</option></select></div>
+    <div class="mb-3"><label class="form-label">类型</label>
+      <select class="form-select" name="currency"><option value="0">余额</option><option value="1">硬币</option></select></div>
+    <div class="mb-3"><label class="form-label">数量</label>
+      <input class="form-control" name="amount" type="number" step="0.01" min="0.01" required></div>
+    <div class="mb-3"><label class="form-label">操作原因</label>
+      <input class="form-control" name="log" required maxlength="64" placeholder="2-64 个字"></div>
+    <div class="form-check mb-3"><input class="form-check-input" type="checkbox" name="total" value="1" id="adj-total">
+      <label class="form-check-label" for="adj-total">计入累计充值/硬币 (仅增加时)</label></div>
+  </div><div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+    <button type="submit" class="btn btn-primary">确认操作</button>
+  </div></form>
+</div></div></div>
+<div class="modal fade" tabindex="-1" id="userStatModal"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header py-3"><h5 class="modal-title">会员交易统计</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body user-stat-body py-3"></div>
+  <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button></div>
+</div></div></div>`;
+
+  const js = `
+  ready(() => {
+    const tbody = document.getElementById('user-table').querySelector('tbody');
+    const API = '/admin/api/user/';
+    let page = 1, pageSize = 10, adjustId = 0;
+    const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const sym = '￥';
+    const filters = () => {
+      const d = { page, limit: pageSize };
+      const u = document.querySelector('.user-f-username').value.trim();
+      const id = document.querySelector('.user-f-id').value.trim();
+      const em = document.querySelector('.user-f-email').value.trim();
+      const qq = document.querySelector('.user-f-qq').value.trim();
+      const st = document.querySelector('.user-f-status').value;
+      if (u) d['search-username'] = u;
+      if (id) d['equal-id'] = id;
+      if (em) d['equal-email'] = em;
+      if (qq) d['equal-qq'] = qq;
+      if (st !== '') d['equal-status'] = st;
+      return d;
+    };
+    function load() {
+      util.post({ url: API + 'data', data: filters(), loader: false,
+        done: res => {
+          tbody.innerHTML = '';
+          (res.data.list || []).forEach(u => {
+            const stTxt = Number(u.status) === 1 ? '<span class="badge badge-light-success">正常</span>' : '<span class="badge badge-light-danger">已封禁</span>';
+            const tr = document.createElement('tr');
+            tr.dataset.id = u.id; tr.dataset.name = u.username;
+            tr.innerHTML = '<td><input type="checkbox" class="crud-check"></td>' +
+              '<td><div>' + u.id + ' / ' + esc(u.username) + '</div><small class="text-muted">' + esc(u.email || '') + '</small></td>' +
+              '<td>' + sym + Number(u.balance || 0).toFixed(2) + '</td>' +
+              '<td>' + Number(u.coin || 0) + '</td>' +
+              '<td>' + sym + Number(u.recharge || 0).toFixed(2) + (Number(u.total_coin) > 0 ? ' / 币' + u.total_coin : '') + '</td>' +
+              '<td>' + stTxt + '</td>' +
+              '<td><small>' + (u.create_time ? new Date(u.create_time * 1000).toLocaleString() : '-') + '</small><br><small class="text-muted">' + esc(u.login_ip || '') + '</small></td>' +
+              '<td><button class="btn btn-sm btn-light-primary row-adjust me-1">调整</button>' +
+              '<button class="btn btn-sm btn-light-info row-stat me-1">统计</button>' +
+              (Number(u.status) === 1 ? '<button class="btn btn-sm btn-light-warning row-ban me-1">封禁</button>' : '<button class="btn btn-sm btn-light-success row-unban me-1">解封</button>') +
+              '<button class="btn btn-sm btn-light-danger row-del">删除</button></td>';
+            tbody.appendChild(tr);
+          });
+          document.querySelector('.user_count').textContent = res.data.count || 0;
+          document.querySelector('.user_balance').textContent = sym + Number(res.data.balance || 0).toFixed(2);
+          document.querySelector('.user_recharge').textContent = sym + Number(res.data.recharge || 0).toFixed(2);
+          document.querySelector('.crud-pageinfo').textContent = '第 ' + page + ' 页 / 共 ' + (res.data.count || 0) + ' 条';
+        },
+        error: res => message.error(res.msg) });
+    }
+    document.querySelector('.crud-check-all').addEventListener('change', e => tbody.querySelectorAll('.crud-check').forEach(x => x.checked = e.target.checked));
+    ['.user-f-username','.user-f-id','.user-f-email','.user-f-qq','.user-f-status'].forEach(sel => {
+      document.querySelector(sel).addEventListener('change', () => { page = 1; load(); });
+      document.querySelector(sel).addEventListener('input', () => { page = 1; load(); });
+    });
+    document.querySelector('.crud-prev').addEventListener('click', () => { if (page > 1) { page--; load(); } });
+    document.querySelector('.crud-next').addEventListener('click', () => { page++; load(); });
+
+    tbody.addEventListener('click', e => {
+      const tr = e.target.closest('tr'); if (!tr) return;
+      if (e.target.closest('.row-adjust')) {
+        adjustId = tr.dataset.id;
+        (window.bootstrap && bootstrap.Modal.getOrCreateInstance(document.getElementById('userAdjustModal'))).show();
+      } else if (e.target.closest('.row-stat')) {
+        util.get(API + 'statistics?id=' + tr.dataset.id, res => {
+          const d = res.data || {};
+          document.querySelector('.user-stat-body').innerHTML =
+            '<table class="table table-bordered align-middle mb-0"><tbody>' +
+            '<tr><td>今日交易额</td><td>' + sym + d.today_order_amount + '</td></tr>' +
+            '<tr><td>昨日交易额</td><td>' + sym + d.yesterday_order_amount + '</td></tr>' +
+            '<tr><td>本周交易额</td><td>' + sym + d.week_order_amount + '</td></tr>' +
+            '<tr><td>本月交易额</td><td>' + sym + d.month_order_amount + '</td></tr>' +
+            '<tr><td>累计交易额</td><td>' + sym + d.total_order_amount + '</td></tr>' +
+            '</tbody></table>';
+          (window.bootstrap && bootstrap.Modal.getOrCreateInstance(document.getElementById('userStatModal'))).show();
+        });
+      } else if (e.target.closest('.row-ban')) {
+        if (!confirm('确认封禁用户 ' + tr.dataset.name + ' ?')) return;
+        util.post({ url: API + 'save', data: { id: tr.dataset.id, status: 0 }, done: load, error: res => message.error(res.msg) });
+      } else if (e.target.closest('.row-unban')) {
+        if (!confirm('确认解封用户 ' + tr.dataset.name + ' ?')) return;
+        util.post({ url: API + 'save', data: { id: tr.dataset.id, status: 1 }, done: load, error: res => message.error(res.msg) });
+      } else if (e.target.closest('.row-del')) {
+        if (!confirm('确认永久删除用户 ' + tr.dataset.name + ' ?（将同步清理其下级分站等关联数据）')) return;
+        util.post({ url: API + 'del', data: { list: tr.dataset.id }, done: res => { message.success(res.msg); load(); }, error: res => message.error(res.msg) });
+      }
+    });
+    document.querySelector('#userAdjustModal .adjust-form').addEventListener('submit', e => {
+      e.preventDefault();
+      if (!adjustId) return;
+      const f = new FormData(e.target);
+      const data = { id: adjustId, action: Number(f.get('action')), currency: Number(f.get('currency')), amount: f.get('amount'), log: f.get('log') };
+      if (f.get('total')) data.total = 1;
+      util.post({ url: API + 'recharge', data, done: res => { (window.bootstrap && bootstrap.Modal.getInstance(document.getElementById('userAdjustModal'))).hide(); message.success(res.msg); load(); }, error: res => message.error(res.msg) });
+    });
+    document.querySelector('.user-del').addEventListener('click', () => {
+      const ids = [...tbody.querySelectorAll('.crud-check:checked')].map(x => x.closest('tr').dataset.id);
+      if (!ids.length) { message.error('请至少勾选 1 个会员！'); return; }
+      if (!confirm('确认永久删除选中的 ' + ids.length + ' 个会员？')) return;
+      util.post({ url: API + 'del', data: { list: ids.join(',') }, done: res => { message.success(res.msg); load(); }, error: res => message.error(res.msg) });
+    });
+
+    load();
+  });`;
+
+  return renderCrudPage({ cfg, manage, title: '会员管理', activePath: '/admin/user/index', body, readyJs: js });
+}
+
+// ============================================================
+// 充值订单管理页 (对齐 Admin/Api/RechargeOrder: data/success/clear)
+// ============================================================
+export function renderAdminRechargePage(cfg, manage) {
+  const body = `
+<div class="card mb-5 mb-xl-8">
+  <div class="card-header border-0">
+    <div class="card-toolbar d-flex flex-wrap">
+      <button class="btn btn-sm btn-light-danger recharge-clear me-3"><i class="fa-duotone fa-regular fa-trash-can"></i> 清理未支付</button>
+      <span class="align-self-center text-muted me-3 recharge-stat">共 <b class="recharge_count">0</b> 单，金额 <b class="recharge_amount">￥0.00</b></span>
+    </div>
+  </div>
+  <div class="card-body py-3">
+    <div class="row g-2 mb-3">
+      <div class="col-md-3"><input class="form-control rc-f-trade" placeholder="订单号"></div>
+      <div class="col-md-2"><input class="form-control rc-f-user" placeholder="会员ID" inputmode="numeric"></div>
+      <div class="col-md-2"><select class="form-select rc-f-status"><option value="">全部状态</option><option value="0">未支付</option><option value="1">已支付</option></select></div>
+      <div class="col-md-2"><input class="form-control rc-f-ip" placeholder="IP地址"></div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-row-bordered table-row-gray-200 align-middle gs-0 gy-3" id="recharge-table">
+        <thead><tr class="fw-bold text-muted">
+          <th>订单号</th><th>会员</th><th>金额</th><th>支付</th><th>下单时间</th><th>IP</th><th>状态</th><th>支付时间</th><th>操作</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="d-flex justify-content-end align-items-center mt-3">
+        <button class="btn btn-sm btn-secondary crud-prev me-2">上一页</button>
+        <span class="crud-pageinfo me-2"></span>
+        <button class="btn btn-sm btn-secondary crud-next">下一页</button>
+      </div>
+    </div>
+  </div>
+</div>`;
+
+  const js = `
+  ready(() => {
+    const tbody = document.getElementById('recharge-table').querySelector('tbody');
+    const API = '/admin/api/recharge/';
+    let page = 1, pageSize = 10;
+    const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const sym = '￥';
+    const filters = () => {
+      const d = { page, limit: pageSize };
+      const t = document.querySelector('.rc-f-trade').value.trim();
+      const u = document.querySelector('.rc-f-user').value.trim();
+      const s = document.querySelector('.rc-f-status').value;
+      const ip = document.querySelector('.rc-f-ip').value.trim();
+      if (t) d['equal-trade_no'] = t;
+      if (u) d['equal-user_id'] = u;
+      if (s !== '') d['equal-status'] = s;
+      if (ip) d['equal-create_ip'] = ip;
+      return d;
+    };
+    function load() {
+      util.post({ url: API + 'data', data: filters(), loader: false,
+        done: res => {
+          tbody.innerHTML = '';
+          (res.data.list || []).forEach(o => {
+            const p = o.pay || {};
+            const u = o.user || {};
+            const stTxt = Number(o.status) === 1 ? '<span class="badge badge-light-success">已支付</span>' : '<span class="badge badge-light-secondary">未支付</span>';
+            const tr = document.createElement('tr');
+            tr.dataset.id = o.id; tr.dataset.tradeNo = o.trade_no; tr.dataset.userName = (u.username || ('#'+o.user_id)); tr.dataset.amount = o.amount; tr.dataset.payName = (p.name || '-');
+            tr.innerHTML = '<td>' + esc(o.trade_no) + '</td>' +
+              '<td>' + esc(u.username || ('#'+o.user_id)) + '</td>' +
+              '<td>' + sym + Number(o.amount || 0).toFixed(2) + '</td>' +
+              '<td>' + esc(p.name || '-') + '</td>' +
+              '<td>' + (o.create_time ? new Date(o.create_time * 1000).toLocaleString() : '-') + '</td>' +
+              '<td>' + esc(o.create_ip || '') + '</td>' +
+              '<td>' + stTxt + '</td>' +
+              '<td>' + (o.pay_time ? new Date(o.pay_time * 1000).toLocaleString() : '-') + '</td>' +
+              '<td>' + (Number(o.status) === 0 ? '<button class="btn btn-sm btn-light-success row-supplement">补单</button>' : '') + '</td>';
+            tbody.appendChild(tr);
+          });
+          document.querySelector('.recharge_count').textContent = res.data.count || 0;
+          document.querySelector('.recharge_amount').textContent = sym + Number(res.data.order_amount || 0).toFixed(2);
+          document.querySelector('.crud-pageinfo').textContent = '第 ' + page + ' 页 / 共 ' + (res.data.count || 0) + ' 条';
+        },
+        error: res => message.error(res.msg) });
+    }
+    document.querySelector('.crud-prev').addEventListener('click', () => { if (page > 1) { page--; load(); } });
+    document.querySelector('.crud-next').addEventListener('click', () => { page++; load(); });
+    ['.rc-f-trade','.rc-f-user','.rc-f-status','.rc-f-ip'].forEach(sel => {
+      document.querySelector(sel).addEventListener('change', () => { page = 1; load(); });
+      document.querySelector(sel).addEventListener('input', () => { page = 1; load(); });
+    });
+
+    tbody.addEventListener('click', e => {
+      const tr = e.target.closest('tr'); if (!tr || !e.target.closest('.row-supplement')) return;
+      if (!confirm('补单会把充值订单标记为已支付，并立即增加会员余额。\\n\\n订单号：' + tr.dataset.tradeNo + '\\n会员：' + tr.dataset.userName + '\\n金额：' + sym + tr.dataset.amount + '\\n\\n该操作会真实入账且无法在本页面撤销。')) return;
+      util.post({ url: API + 'success', data: { id: tr.dataset.id }, done: res => { message.success(res.msg); load(); }, error: res => message.error(res.msg) });
+    });
+
+    document.querySelector('.recharge-clear').addEventListener('click', () => {
+      if (!confirm('只会物理删除 30 分钟前仍未支付的充值订单；已支付订单不会受影响。确认清理吗？')) return;
+      util.post({ url: API + 'clear', done: res => { message.success(res.msg); load(); }, error: res => message.error(res.msg) });
+    });
+
+    load();
+  });`;
+
+  return renderCrudPage({ cfg, manage, title: '充值订单', activePath: '/admin/recharge/order', body, readyJs: js });
+}

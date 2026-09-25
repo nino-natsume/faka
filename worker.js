@@ -17,7 +17,7 @@ import {
 } from './admin.js';
 import {
   renderAdminLoginPage, renderAdminShell, renderAdminDashboardPage,
-  renderAdminCategoryPage, renderAdminCommodityPage, renderAdminCardPage,
+  renderAdminCategoryPage, renderAdminCommodityPage, renderAdminCardPage, renderAdminOrderPage, renderAdminUserPage, renderAdminRechargePage,
 } from './admin-pages.js';
 import {
   renderAuthHeader, renderAuthFooter, pageLogin, pageRegister,
@@ -745,6 +745,15 @@ async function route(env, request, url, ctx) {
     if (s === '/admin/card/index') {
       const cid = Number(url.searchParams.get('commodity_id')) || 0;
       return pageRes(renderAdminCardPage(cfg, manage, cid));
+    }
+    if (s === '/admin/order/index') {
+      return pageRes(renderAdminOrderPage(cfg, manage));
+    }
+    if (s === '/admin/user/index') {
+      return pageRes(renderAdminUserPage(cfg, manage));
+    }
+    if (s === '/admin/recharge/order') {
+      return pageRes(renderAdminRechargePage(cfg, manage));
     }
     return pageRes(renderAdminShell({ cfg, manage, title: '建设中', activePath: s }, 'text/html'));
   }

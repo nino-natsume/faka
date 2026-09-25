@@ -1,5 +1,3 @@
-// DCSHOP faka - Pages 单文件入口 (由 worker.js+admin.js+lib.js 自动打包生成, 勿手改)
-
 // lib.js
 var now = () => Math.floor(Date.now() / 1e3);
 var randStr = (len = 32) => {
@@ -329,10 +327,10 @@ function indexVar(catId, cfg) {
     CURRENCY: { code: cfg.currency_code || "CNY", symbol: cfg.currency_symbol || "\xA5", rate: Number(cfg.currency_rate || 1), decimals: Number(cfg.currency_decimals || 2) },
     CAT_ID: Number(catId) || 0
   };
-  return `<script>window._data_var=${JSON.stringify(data)};</script>${langDictScript()}`;
+  return `<script>window._data_var=${JSON.stringify(data)};<\/script>${langDictScript()}`;
 }
 function itemVar(item) {
-  return `<script>window._data_var._var_item=${JSON.stringify(item)};</script>`;
+  return `<script>window._data_var._var_item=${JSON.stringify(item)};<\/script>`;
 }
 function generateTradeNo() {
   let s = String(1 + Math.floor(Math.random() * 9));
@@ -2108,6 +2106,449 @@ async function cardDel(env, request, url, body = {}) {
   await dbRun(env, `DELETE FROM acg_card WHERE id IN (${list.map(() => "?").join(",")}) AND status=0`, ...list);
   return apiOk("\uFF08\uFF3E\u2200\uFF3E\uFF09\u79FB\u9664\u6210\u529F");
 }
+async function orderData(env, request, url, body = {}) {
+  const page = Math.max(1, Number(body.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(body.limit) || 10));
+  const wheres = [];
+  const params = [];
+  const addEqual = (key, col) => {
+    if (body[key] !== void 0 && body[key] !== "") {
+      wheres.push(`${col}=?`);
+      params.push(body[key]);
+    }
+  };
+  addEqual("equal-trade_no", "trade_no");
+  addEqual("equal-status", "status");
+  addEqual("equal-delivery_status", "delivery_status");
+  addEqual("equal-commodity_id", "commodity_id");
+  addEqual("equal-create_device", "create_device");
+  addEqual("equal-pay_id", "pay_id");
+  addEqual("equal-owner", "owner");
+  if (body["search-secret"] !== void 0 && String(body["search-secret"]).trim() !== "") {
+    wheres.push("secret LIKE ?");
+    params.push(`%${String(body["search-secret"]).trim()}%`);
+  }
+  if (body["equal-contact"] !== void 0 && String(body["equal-contact"]).trim() !== "") {
+    wheres.push("contact=?");
+    params.push(String(body["equal-contact"]).trim());
+  }
+  const start = body["betweenStart-create_time"], end = body["betweenEnd-create_time"];
+  if (start) {
+    wheres.push("create_time>=?");
+    params.push(Number(start));
+  }
+  if (end) {
+    wheres.push("create_time<=?");
+    params.push(Number(end));
+  }
+  const where = wheres.length ? " WHERE " + wheres.join(" AND ") : "";
+  const total = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_order${where}`, ...params);
+  const count = total ? Number(total.n) : 0;
+  const sumRow = await dbFirst(env, `SELECT COALESCE(SUM(amount),0) AS total_amount, COALESCE(SUM(pay_cost),0) AS total_cost FROM acg_order${where}`, ...params);
+  const rows = await dbRows(env, `SELECT * FROM acg_order${where} ORDER BY id DESC LIMIT ? OFFSET ?`, ...params, pageSize, (page - 1) * pageSize);
+  const list = [];
+  for (const r of rows) {
+    list.push({
+      ...r,
+      coupon: r.coupon_id ? await dbFirst(env, "SELECT id, code FROM acg_coupon WHERE id=?", r.coupon_id) || null : null,
+      owner: r.owner ? await dbFirst(env, "SELECT id, username, avatar, recharge FROM acg_user WHERE id=?", r.owner) || null : null,
+      user: r.user_id ? await dbFirst(env, "SELECT id, username, avatar, recharge FROM acg_user WHERE id=?", r.user_id) || null : null,
+      promote: r.from ? await dbFirst(env, "SELECT id, username, avatar, recharge FROM acg_user WHERE id=?", r.from) || null : null,
+      commodity: r.commodity_id ? await dbFirst(env, "SELECT id, name, cover, price, delivery_way, contact_type FROM acg_commodity WHERE id=?", r.commodity_id) || null : null,
+      pay: r.pay_id ? await dbFirst(env, "SELECT id, name, icon FROM acg_pay WHERE id=?", r.pay_id) || null : null,
+      substationUser: r.substation_user_id ? await dbFirst(env, "SELECT id, username, avatar, recharge FROM acg_user WHERE id=?", r.substation_user_id) || null : null,
+      card: r.card_id ? await dbFirst(env, "SELECT id, secret, draft, status FROM acg_card WHERE id=?", r.card_id) || null : null
+    });
+  }
+  return apiOk("success", { list, page, limit: pageSize, count, records: count, order_amount: (sumRow && sumRow.total_amount) ?? 0, order_cost: (sumRow && sumRow.total_cost) ?? 0 });
+}
+async function orderSave(env, request, url, body = {}) {
+  const id = Number(body.id) || 0;
+  const secret = String(body.secret || "").trim();
+  if (id < 1) return apiErr("\u8BA2\u5355 ID \u4E0D\u6B63\u786E\uFF0C\u8BF7\u5237\u65B0\u540E\u91CD\u8BD5");
+  if (secret === "" || secret === "0") return apiErr('\u8BF7\u586B\u5199\u6709\u6548\u7684\u53D1\u8D27\u5185\u5BB9\uFF0C\u4E0D\u80FD\u4EC5\u4E3A\u7A7A\u767D\u6216"0"');
+  const overwriteConfirmed = body.overwrite_confirmed === true || body.overwrite_confirmed === "true" || body.overwrite_confirmed === "1";
+  const order = await dbFirst(env, "SELECT * FROM acg_order WHERE id=?", id);
+  if (!order) return apiErr("\u8BA2\u5355\u4E0D\u5B58\u5728\uFF0C\u8BF7\u5237\u65B0\u540E\u91CD\u8BD5");
+  if (Number(order.status) !== 1) return apiErr("\u4EC5\u5DF2\u652F\u4ED8\u8BA2\u5355\u53EF\u4EE5\u624B\u52A8\u53D1\u8D27");
+  const commodity = await dbFirst(env, "SELECT id, delivery_way FROM acg_commodity WHERE id=?", order.commodity_id);
+  if (!commodity) return apiErr("\u8BA2\u5355\u5BF9\u5E94\u5546\u54C1\u4E0D\u5B58\u5728\uFF0C\u65E0\u6CD5\u624B\u52A8\u53D1\u8D27");
+  if (Number(commodity.delivery_way) !== 1) return apiErr("\u8BE5\u8BA2\u5355\u4E0D\u662F\u624B\u52A8\u53D1\u8D27\u5546\u54C1\uFF0C\u4E0D\u80FD\u4FEE\u6539\u53D1\u8D27\u5185\u5BB9");
+  const hasExisting = Number(order.delivery_status) === 1 || String(order.secret || "").trim() !== "";
+  if (hasExisting && !overwriteConfirmed) return apiErr("\u6B64\u8BA2\u5355\u5DF2\u6709\u53D1\u8D27\u8BB0\u5F55\uFF0C\u8BF7\u660E\u786E\u786E\u8BA4\u8986\u76D6\u540E\u91CD\u8BD5");
+  await dbRun(env, "UPDATE acg_order SET secret=?, delivery_status=1 WHERE id=?", secret, id);
+  try {
+    await dbInsert(env, "acg_manage_log", { email: "admin", nickname: "", content: `[\u624B\u52A8\u53D1\u8D27](${id})\u4FEE\u6539\u4E86\u53D1\u8D27\u4FE1\u606F`, create_time: now(), create_ip: requestInfo(request).ip, ua: "", risk: 0 });
+  } catch (e) {
+  }
+  return apiOk("\uFF08\uFF3E\u2200\uFF3E\uFF09\u53D1\u8D27\u6210\u529F");
+}
+async function orderClear(env, request, url, body = {}) {
+  const cutoff = now() - 1800;
+  const r = await dbRun(env, "DELETE FROM acg_order WHERE create_time<? AND status=0", cutoff);
+  try {
+    await dbInsert(env, "acg_manage_log", { email: "admin", nickname: "", content: "\u8FDB\u884C\u4E86\u4E00\u952E\u6E05\u7406\u65E0\u7528\u5546\u54C1\u8BA2\u5355\u64CD\u4F5C", create_time: now(), create_ip: requestInfo(request).ip, ua: "", risk: 0 });
+  } catch (e) {
+  }
+  return apiOk("\uFF08\uFF3E\u2200\uFF3E\uFF09\u6E05\u7406\u5B8C\u6210");
+}
+var ORDER_EXPORT_TTL = 180;
+var ORDER_EXPORT_MAX = 5e3;
+async function orderExportTokenKey(manage) {
+  return sha256hex(`order-export-preview-v1|${manage.password}`);
+}
+async function orderExportFingerprint(ids) {
+  return sha256hex(ids.join(","));
+}
+async function orderIssueExportToken(manage, ids, options) {
+  const iat = Math.floor(Date.now() / 1e3);
+  const exp = iat + ORDER_EXPORT_TTL;
+  const payload = { fingerprint: await orderExportFingerprint(ids), count: ids.length, export_num: options.export_num, export_status: options.export_status, manage_id: Number(manage.id) || 0, session: await sha256hex(manage.sid || ""), iat, exp };
+  const body = b64urlEncode(JSON.stringify(payload));
+  const sig = await sha256hex(`${body}|${await orderExportTokenKey(manage)}`);
+  return body + "." + sig;
+}
+async function orderVerifyExportToken(manage, token, ids, options) {
+  if (typeof token !== "string" || !token.includes(".")) throw new Error("\u8BF7\u5148\u9884\u89C8\u5E76\u786E\u8BA4\u8BA2\u5355\u5BFC\u51FA\u8303\u56F4");
+  const [body, sig] = token.split(".");
+  const expected = await sha256hex(`${body}|${await orderExportTokenKey(manage)}`);
+  const nowSec = Math.floor(Date.now() / 1e3);
+  let payload = null;
+  try {
+    let b64 = String(body).replace(/-/g, "+").replace(/_/g, "/");
+    while (b64.length % 4) b64 += "=";
+    payload = JSON.parse(decodeURIComponent(escape(atob(b64))));
+  } catch (e) {
+    throw new Error("\u8BA2\u5355\u5BFC\u51FA\u9884\u89C8\u51ED\u8BC1\u65E0\u6548\uFF0C\u8BF7\u91CD\u65B0\u9884\u89C8");
+  }
+  if (sig !== expected || !payload) throw new Error("\u8BA2\u5355\u5BFC\u51FA\u9884\u89C8\u51ED\u8BC1\u65E0\u6548\uFF0C\u8BF7\u91CD\u65B0\u9884\u89C8");
+  if (Number(payload.exp) < nowSec || Number(payload.exp) > Number(payload.iat) + ORDER_EXPORT_TTL) throw new Error("\u8BA2\u5355\u5BFC\u51FA\u9884\u89C8\u5DF2\u8FC7\u671F\uFF0C\u8BF7\u91CD\u65B0\u9884\u89C8");
+  if (Number(payload.manage_id) !== Number(manage.id) || payload.session !== await sha256hex(manage.sid || "")) throw new Error("\u8BA2\u5355\u5BFC\u51FA\u9884\u89C8\u51ED\u8BC1\u65E0\u6548\uFF0C\u8BF7\u91CD\u65B0\u9884\u89C8");
+  if (Number(payload.count) !== ids.length || payload.fingerprint !== await orderExportFingerprint(ids)) throw new Error("\u8BA2\u5355\u5BFC\u51FA\u8303\u56F4\u6216\u6570\u636E\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u9884\u89C8");
+  if (Number(payload.export_num) !== Number(options.export_num) || Number(payload.export_status) !== Number(options.export_status)) throw new Error("\u8BA2\u5355\u5BFC\u51FA\u8303\u56F4\u6216\u6570\u636E\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u9884\u89C8");
+}
+async function orderExportImpact(env, request, url, body = {}, manage) {
+  const exportNum = body.export_num === "" || body.export_num === null ? 0 : Number(body.export_num);
+  if (!Number.isInteger(exportNum) || exportNum < 0 || exportNum > ORDER_EXPORT_MAX) throw new Error(`\u5BFC\u51FA\u6570\u91CF\u5FC5\u987B\u662F 0 \u5230 ${ORDER_EXPORT_MAX} \u7684\u6574\u6570`);
+  const exportStatus = Number(body.export_status) || 0;
+  if (![0, 1].includes(exportStatus)) throw new Error("\u5BFC\u51FA\u540E\u64CD\u4F5C\u4E0D\u6B63\u786E");
+  const { rows } = await orderExportSelection(env, body, exportNum);
+  const ids = rows.map((r) => Number(r.id));
+  if (!ids.length) throw new Error("\u5F53\u524D\u7B5B\u9009\u6CA1\u6709\u53EF\u5BFC\u51FA\u7684\u8BA2\u5355");
+  const paidCount = rows.filter((r) => Number(r.status) === 1).length;
+  const deliveredCount = rows.filter((r) => Number(r.delivery_status) === 1).length;
+  return apiOk("success", {
+    count: ids.length,
+    total: ids.length,
+    has_filter: true,
+    paid_count: paidCount,
+    unpaid_count: rows.length - paidCount,
+    delivered_count: deliveredCount,
+    undelivered_count: rows.length - deliveredCount,
+    export_status: exportStatus,
+    preview_token: await orderIssueExportToken(manage, ids, { export_num: exportNum, export_status: exportStatus }),
+    expires_in: ORDER_EXPORT_TTL,
+    max_count: ORDER_EXPORT_MAX
+  });
+}
+async function orderExportSelection(env, body, exportNum) {
+  const wheres = [];
+  const params = [];
+  const addEqual = (key, col) => {
+    if (body[key] !== void 0 && body[key] !== "") {
+      wheres.push(`${col}=?`);
+      params.push(body[key]);
+    }
+  };
+  addEqual("equal-trade_no", "trade_no");
+  addEqual("equal-status", "status");
+  addEqual("equal-delivery_status", "delivery_status");
+  addEqual("equal-commodity_id", "commodity_id");
+  addEqual("equal-create_device", "create_device");
+  addEqual("equal-pay_id", "pay_id");
+  addEqual("equal-owner", "owner");
+  if (body["search-secret"] !== void 0 && String(body["search-secret"]).trim() !== "") {
+    wheres.push("secret LIKE ?");
+    params.push(`%${String(body["search-secret"]).trim()}%`);
+  }
+  if (body["equal-contact"] !== void 0 && String(body["equal-contact"]).trim() !== "") {
+    wheres.push("contact=?");
+    params.push(String(body["equal-contact"]).trim());
+  }
+  const start = body["betweenStart-create_time"], end = body["betweenEnd-create_time"];
+  if (start) {
+    wheres.push("create_time>=?");
+    params.push(Number(start));
+  }
+  if (end) {
+    wheres.push("create_time<=?");
+    params.push(Number(end));
+  }
+  const where = wheres.length ? " WHERE " + wheres.join(" AND ") : "";
+  const total = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_order${where}`, ...params);
+  const count = total ? Number(total.n) : 0;
+  if (count === 0) throw new Error("\u5F53\u524D\u7B5B\u9009\u6CA1\u6709\u53EF\u5BFC\u51FA\u7684\u8BA2\u5355");
+  const limit = exportNum > 0 ? Math.min(exportNum, count) : count;
+  if (limit > ORDER_EXPORT_MAX) throw new Error(`\u5F53\u524D\u8303\u56F4\u8FC7\u5927\uFF0C\u8BF7\u589E\u52A0\u7B5B\u9009\u6216\u586B\u5199\u4E0D\u8D85\u8FC7 ${ORDER_EXPORT_MAX} \u7684\u5BFC\u51FA\u6570\u91CF`);
+  const rows = await dbRows(env, `SELECT * FROM acg_order${where} ORDER BY id DESC LIMIT ?`, ...params, limit);
+  return { rows, count, limit };
+}
+async function orderExport(env, request, url, body = {}, manage) {
+  const exportNum = body.export_num === "" || body.export_num === null ? 0 : Number(body.export_num);
+  const exportStatus = Number(body.export_status) || 0;
+  const expectedCount = Number(body.expected_count);
+  if (!Number.isInteger(expectedCount) || expectedCount < 1 || expectedCount > ORDER_EXPORT_MAX) throw new Error("\u8BF7\u5148\u9884\u89C8\u5E76\u786E\u8BA4\u672C\u6B21\u8BA2\u5355\u5BFC\u51FA\u6570\u91CF");
+  const { rows, count, limit } = await orderExportSelection(env, body, exportNum);
+  const ids = rows.map((r) => Number(r.id));
+  if (count !== expectedCount) throw new Error("\u8BA2\u5355\u6570\u91CF\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u9884\u89C8\u5BFC\u51FA\u8303\u56F4");
+  await orderVerifyExportToken(manage, body.preview_token, ids, { export_num: exportNum, export_status: exportStatus });
+  if (exportStatus === 1) {
+    const required = "\u786E\u8BA4\u6C38\u4E45\u5220\u9664" + count + "\u7B14\u8BA2\u5355";
+    if (String(body.delete_confirmation || "").trim() !== required) throw new Error("\u8BF7\u5B8C\u6210\u9AD8\u5371\u786E\u8BA4\u540E\u518D\u5BFC\u51FA\u5E76\u5220\u9664\u8BA2\u5355");
+  }
+  const lines = [];
+  const header = ["\u8BA2\u5355\u53F7", "\u91D1\u989D", "\u5546\u54C1\u540D\u79F0", "\u6570\u91CF", "\u652F\u4ED8\u65B9\u5F0F", "\u4E0B\u5355\u65F6\u95F4", "\u4E0B\u5355IP", "\u4E0B\u5355\u8BBE\u5907", "\u652F\u4ED8\u65F6\u95F4", "\u8BA2\u5355\u72B6\u6001", "\u8054\u7CFB\u65B9\u5F0F", "\u53D1\u8D27\u72B6\u6001", "\u4F18\u60E0\u5238", "\u5BA2\u6237", "\u63A8\u5E7F\u4EBA", "\u5206\u7AD9", "\u5206\u7AD9\u624B\u7EED\u8D39", "\u63A5\u53E3\u624B\u7EED\u8D39", "\u63A8\u5E7F\u5206\u6210", "\u8FD4\u5229"];
+  const esc = (v) => {
+    const s = String(v ?? "");
+    return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+  };
+  lines.push(header.map(esc).join(","));
+  for (const r of rows) {
+    const deviceText = [0, 1, 2, 3].includes(Number(r.create_device)) ? ["PC", "\u5B89\u5353", "IOS", "iPad"][Number(r.create_device)] : "PC";
+    const statusText = Number(r.status) === 0 ? "\u672A\u652F\u4ED8" : Number(r.status) === 1 ? "\u5DF2\u652F\u4ED8" : "\u672A\u77E5";
+    const deliveryText = Number(r.delivery_status) === 0 ? "\u672A\u53D1\u8D27" : Number(r.delivery_status) === 1 ? "\u5DF2\u53D1\u8D27" : "\u672A\u77E5";
+    lines.push([r.trade_no, r.amount, "", r.card_num || 0, "", r.create_time || "", r.create_ip || "", deviceText, r.pay_time || "", statusText, r.contact || "", deliveryText, "", "", "", "", r.cost || 0, r.pay_cost || 0, r.divide_amount || 0, r.rebate || 0].map(esc).join(","));
+  }
+  const csv = "\uFEFF" + lines.join("\r\n");
+  if (exportStatus === 1) {
+    await dbRun(env, `DELETE FROM acg_order WHERE id IN (${ids.map(() => "?").join(",")})`, ...ids);
+  }
+  try {
+    await dbInsert(env, "acg_manage_log", { email: "admin", nickname: "", content: `[\u8BA2\u5355\u5BFC\u51FA]\u5BFC\u51FA\u5E76${exportStatus === 1 ? "\u6C38\u4E45\u5220\u9664" : ""}\u8BA2\u5355\uFF0C\u5171\u8BA1\uFF1A${count}`, create_time: now(), create_ip: requestInfo(request).ip, ua: "", risk: 0 });
+  } catch (e) {
+  }
+  return new Response(csv, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/csv; charset=UTF-8",
+      "Content-Disposition": `attachment; filename="order-export-${Date.now()}.csv"`,
+      "Cache-Control": "no-cache"
+    }
+  });
+}
+async function userData(env, request, url, body = {}) {
+  const page = Math.max(1, Number(body.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(body.limit) || 10));
+  const wheres = [];
+  const params = [];
+  for (const [key, col] of [["equal-id", "id"], ["equal-status", "status"], ["equal-pid", "pid"], ["equal-email", "email"], ["equal-phone", "phone"], ["equal-qq", "qq"], ["equal-login_ip", "login_ip"]]) {
+    if (body[key] !== void 0 && body[key] !== "") {
+      wheres.push(`${col}=?`);
+      params.push(String(body[key]));
+    }
+  }
+  if (body["search-username"] !== void 0 && String(body["search-username"]).trim() !== "") {
+    wheres.push("username LIKE ?");
+    params.push(`%${String(body["search-username"]).trim()}%`);
+  }
+  if (body["search-email"] !== void 0 && String(body["search-email"]).trim() !== "") {
+    wheres.push("email LIKE ?");
+    params.push(`%${String(body["search-email"]).trim()}%`);
+  }
+  if (body["search-phone"] !== void 0 && String(body["search-phone"]).trim() !== "") {
+    wheres.push("phone LIKE ?");
+    params.push(`%${String(body["search-phone"]).trim()}%`);
+  }
+  const where = wheres.length ? " WHERE " + wheres.join(" AND ") : "";
+  const total = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_user${where}`, ...params);
+  const count = total ? Number(total.n) : 0;
+  const sumRow = await dbFirst(env, `SELECT COALESCE(SUM(balance),0) AS balance, COALESCE(SUM(recharge),0) AS recharge FROM acg_user${where}`, ...params);
+  const rows = await dbRows(env, `SELECT * FROM acg_user${where} ORDER BY id DESC LIMIT ? OFFSET ?`, ...params, pageSize, (page - 1) * pageSize);
+  const list = [];
+  for (const r of rows) {
+    list.push({ ...r, password: void 0, salt: void 0, app_key: void 0, parent: r.pid ? await dbFirst(env, "SELECT id, username, avatar FROM acg_user WHERE id=?", r.pid) || null : null, group: null, businessLevel: null, business: null });
+  }
+  return apiOk("success", { list, page, limit: pageSize, count, records: count, balance: (sumRow && sumRow.balance) ?? 0, recharge: (sumRow && sumRow.recharge) ?? 0 });
+}
+async function userSave(env, request, url, body = {}) {
+  const id = Number(body.id) || 0;
+  if (id <= 0) return apiErr("\u8BE5\u7528\u6237\u4E0D\u5B58\u5728");
+  const user = await dbFirst(env, "SELECT * FROM acg_user WHERE id=?", id);
+  if (!user) return apiErr("\u8BE5\u7528\u6237\u4E0D\u5B58\u5728");
+  const data = {};
+  for (const f of ["avatar", "username", "email", "phone", "qq", "status", "pid"]) {
+    if (body[f] !== void 0) {
+      if (f === "status") {
+        const st = Number(body[f]);
+        if (![0, 1].includes(st)) return apiErr("\u4F1A\u5458\u72B6\u6001\u4E0D\u6B63\u786E");
+        data.status = st;
+      } else if (f === "pid") {
+        const p = Number(body[f]) || 0;
+        if (p < 0 || p === id) return apiErr("\u4E0A\u7EA7\u4F1A\u5458 ID \u4E0D\u6B63\u786E");
+        data.pid = p;
+      } else data[f] = String(body[f]);
+    }
+  }
+  if (body.password !== void 0 && String(body.password).trim() !== "") {
+    const pw = String(body.password);
+    if (pw.length < 6) return apiErr("\u5BC6\u7801\u5FC5\u987B6\u4F4D\u4EE5\u4E0A");
+    data.password = generatePassword(pw, user.salt);
+  }
+  if (Object.keys(data).length) await dbUpdate(env, "acg_user", data, "id=?", id);
+  try {
+    await dbInsert(env, "acg_manage_log", { email: "admin", nickname: "", content: `\u4FEE\u6539\u4E86\u4F1A\u5458(${user.username})\u7684\u4FE1\u606F\u3002`, create_time: now(), create_ip: requestInfo(request).ip, ua: "", risk: 0 });
+  } catch (e) {
+  }
+  return apiOk("\uFF08\uFF3E\u2200\uFF3E\uFF09\u4FDD\u5B58\u6210\u529F");
+}
+async function userRecharge(env, request, url, body = {}, manage, currency = 0) {
+  const id = Number(body.id) || 0;
+  const action = Number(body.action);
+  if (id < 1) return apiErr("\u7528\u6237\u4E0D\u5B58\u5728");
+  if (![1, 2].includes(action)) return apiErr("\u8BF7\u9009\u62E9\u589E\u52A0\u6216\u6263\u51CF");
+  const amount = String(body.amount || "").trim();
+  if (!/^\d+(?:\.\d{1,2})?$/.test(amount)) return apiErr("\u8BF7\u8F93\u5165\u5927\u4E8E 0 \u4E14\u6700\u591A\u4E24\u4F4D\u5C0F\u6570\u7684\u64CD\u4F5C\u6570\u91CF");
+  const amt = Number(amount);
+  if (!isFinite(amt) || amt <= 0 || amt > 9999999999e-2) return apiErr("\u64CD\u4F5C\u6570\u91CF\u5FC5\u987B\u5927\u4E8E 0 \u4E14\u4E0D\u8D85\u8FC7 99999999.99");
+  const log = String(body.log || "").trim();
+  if (log.length < 2 || log.length > 64) return apiErr("\u64CD\u4F5C\u539F\u56E0\u987B\u4E3A 2\u201364 \u4E2A\u5B57");
+  const total = Number(body.total) === 1;
+  const user = await dbFirst(env, "SELECT * FROM acg_user WHERE id=?", id);
+  if (!user) return apiErr("\u7528\u6237\u4E0D\u5B58\u5728");
+  const delta = action === 1 ? amt : -amt;
+  const col = currency === 1 ? "coin" : "balance";
+  const cur = Number(user[col] || 0);
+  const next = Math.round((cur + delta) * 100) / 100;
+  if (next < 0) return apiErr("\u7528\u6237\u4F59\u989D\u4E0D\u8DB3\uFF0C\u65E0\u6CD5\u64CD\u4F5C");
+  await dbRun(env, `UPDATE acg_user SET ${col}=? WHERE id=?`, next, id);
+  if (total) {
+    if (action === 1) {
+      if (currency === 1) await dbRun(env, "UPDATE acg_user SET total_coin=total_coin+? WHERE id=?", amt, id);
+      else await dbRun(env, "UPDATE acg_user SET recharge=recharge+? WHERE id=?", amt, id);
+    }
+  }
+  const billLog = currency === 1 ? `\u7BA1\u7406\u5458\u64CD\u4F5C\u786C\u5E01:${log}` : `\u7BA1\u7406\u5458\u64CD\u4F5C\u4F59\u989D:${log}`;
+  await dbInsert(env, "acg_bill", { owner: id, amount: amt, balance: next, type: action, currency, log: billLog, create_time: now() });
+  try {
+    await dbInsert(env, "acg_manage_log", { email: "admin", nickname: "", content: `\u4E3A\u4F1A\u5458(${user.username})\u8FDB\u884C\u4E86${currency === 1 ? "\u786C\u5E01" : "\u4F59\u989D"}\u53D8\u52A8\u64CD\u4F5C`, create_time: now(), create_ip: requestInfo(request).ip, ua: "", risk: 0 });
+  } catch (e) {
+  }
+  return apiOk("\u64CD\u4F5C\u6210\u529F");
+}
+async function userStatistics(env, request, url, body = {}) {
+  const id = Number(url.searchParams.get("id")) || Number(body.id) || 0;
+  if (id < 1) return apiErr("\u7528\u6237\u4E0D\u5B58\u5728");
+  const startOfDay = (d) => d.setHours(0, 0, 0, 0) / 1e3;
+  const endOfDay = (d) => d.setHours(23, 59, 59, 999) / 1e3;
+  const nowD = /* @__PURE__ */ new Date();
+  const todayStart = startOfDay(new Date(nowD)), todayEnd = endOfDay(new Date(nowD));
+  const yStart = startOfDay(new Date(nowD.getTime() - 864e5)), yEnd = endOfDay(new Date(nowD.getTime() - 864e5));
+  const wStart = startOfDay(new Date(nowD.getTime() - (nowD.getDay() || 7 - 7) * 864e5));
+  const wEnd = endOfDay(new Date(nowD));
+  const mStart = startOfDay(new Date(nowD.getFullYear(), nowD.getMonth(), 1));
+  const mEnd = endOfDay(new Date(nowD.getFullYear(), nowD.getMonth() + 1, 0));
+  const rangeSum = async (a, b) => {
+    const r = await dbFirst(env, "SELECT COALESCE(SUM(amount),0) AS s FROM acg_order WHERE user_id=? AND status=1 AND create_time>=? AND create_time<?", id, a, b);
+    return r && r.s || 0;
+  };
+  const data = {
+    today_order_amount: (await rangeSum(todayStart, todayEnd)).toFixed(2),
+    yesterday_order_amount: (await rangeSum(yStart, yEnd)).toFixed(2),
+    week_order_amount: (await rangeSum(wStart, wEnd)).toFixed(2),
+    month_order_amount: (await rangeSum(mStart, mEnd)).toFixed(2)
+  };
+  data.total_order_amount = (await rangeSum(0, 9999999999)).toFixed(2);
+  return apiOk("success", data);
+}
+async function userDel(env, request, url, body = {}) {
+  let list;
+  try {
+    list = intList(body.list, "\u4F1A\u5458ID");
+  } catch (e) {
+    return apiErr(e.message);
+  }
+  if (!list.length) return apiErr("\u8BF7\u9009\u62E9\u8981\u5220\u9664\u7684\u4F1A\u5458");
+  if (list.length > 1e3) return apiErr("\u5355\u6B21\u53EA\u80FD\u5220\u9664 1\u20131000 \u540D\u6709\u6548\u4F1A\u5458");
+  const where = `id IN (${list.map(() => "?").join(",")})`;
+  await dbRun(env, `DELETE FROM acg_user WHERE ${where}`, ...list);
+  await dbRun(env, "DELETE FROM acg_business WHERE user_id IN (" + list.map(() => "?").join(",") + ")", ...list);
+  try {
+    await dbInsert(env, "acg_manage_log", { email: "admin", nickname: "", content: `\u5220\u9664\u4E86\u4F1A\u5458\uFF0C\u5171\u8BA1\u5220\u9664\uFF1A${list.length}`, create_time: now(), create_ip: requestInfo(request).ip, ua: "", risk: 0 });
+  } catch (e) {
+  }
+  return apiOk("\uFF08\uFF3E\u2200\uFF3E\uFF09\u79FB\u9664\u6210\u529F", { count: list.length });
+}
+async function rechargeData(env, request, url, body = {}) {
+  const page = Math.max(1, Number(body.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(body.limit) || 10));
+  const wheres = [];
+  const params = [];
+  if (body["equal-status"] !== void 0 && body["equal-status"] !== "") {
+    wheres.push("status=?");
+    params.push(Number(body["equal-status"]));
+  }
+  if (body["equal-user_id"] !== void 0 && body["equal-user_id"] !== "") {
+    wheres.push("user_id=?");
+    params.push(Number(body["equal-user_id"]));
+  }
+  if (body["equal-trade_no"] !== void 0 && body["equal-trade_no"] !== "") {
+    wheres.push("trade_no=?");
+    params.push(String(body["equal-trade_no"]));
+  }
+  if (body["equal-create_ip"] !== void 0 && body["equal-create_ip"] !== "") {
+    wheres.push("create_ip=?");
+    params.push(String(body["equal-create_ip"]));
+  }
+  if (body["search-trade_no"] !== void 0 && String(body["search-trade_no"]).trim() !== "") {
+    wheres.push("trade_no LIKE ?");
+    params.push(`%${String(body["search-trade_no"]).trim()}%`);
+  }
+  if (body["equal-pay_id"] !== void 0 && body["equal-pay_id"] !== "") {
+    wheres.push("pay_id=?");
+    params.push(Number(body["equal-pay_id"]));
+  }
+  const where = wheres.length ? " WHERE " + wheres.join(" AND ") : "";
+  const total = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_user_recharge${where}`, ...params);
+  const count = total ? Number(total.n) : 0;
+  const sumRow = await dbFirst(env, `SELECT COALESCE(SUM(amount),0) AS order_amount FROM acg_user_recharge${where}`, ...params);
+  const rows = await dbRows(env, `SELECT * FROM acg_user_recharge${where} ORDER BY id DESC LIMIT ? OFFSET ?`, ...params, pageSize, (page - 1) * pageSize);
+  const list = [];
+  for (const r of rows) {
+    list.push({
+      ...r,
+      user: r.user_id ? await dbFirst(env, "SELECT id, username, avatar FROM acg_user WHERE id=?", r.user_id) || null : null,
+      pay: r.pay_id ? await dbFirst(env, "SELECT id, name, icon FROM acg_pay WHERE id=?", r.pay_id) || null : null
+    });
+  }
+  return apiOk("success", { list, page, limit: pageSize, count, records: count, order_amount: (sumRow && sumRow.order_amount) ?? 0 });
+}
+async function rechargeSuccess(env, request, url, body = {}) {
+  const id = Number(body.id) || 0;
+  if (id < 1) return apiErr("\u8BA2\u5355\u7F16\u53F7\u4E0D\u6B63\u786E");
+  const order = await dbFirst(env, "SELECT * FROM acg_user_recharge WHERE id=?", id);
+  if (!order) return apiErr("\u8BA2\u5355\u4E0D\u5B58\u5728");
+  if (Number(order.status) !== 0) return apiErr("\u8BE5\u8BA2\u5355\u5DF2\u652F\u4ED8\uFF0C\u65E0\u6CD5\u518D\u6B21\u8865\u5355");
+  const user = await dbFirst(env, "SELECT id, balance FROM acg_user WHERE id=?", order.user_id);
+  if (!user) return apiErr("\u8BA2\u5355\u4F1A\u5458\u4E0D\u5B58\u5728\uFF0C\u65E0\u6CD5\u8865\u5355");
+  const bal = Math.round((Number(user.balance) + Number(order.amount)) * 100) / 100;
+  await dbRun(env, "UPDATE acg_user SET balance=?, recharge=recharge+? WHERE id=?", bal, order.amount, order.user_id);
+  await dbRun(env, "UPDATE acg_user_recharge SET status=1, pay_time=? WHERE id=?", now(), id);
+  await dbInsert(env, "acg_bill", { owner: order.user_id, amount: Number(order.amount), balance: bal, type: 1, currency: 0, log: `\u5145\u503C\u6210\u529F[${order.trade_no}]`, create_time: now() });
+  try {
+    await dbInsert(env, "acg_manage_log", { email: "admin", nickname: "", content: `\u5145\u503C\u8BA2\u5355\u624B\u52A8\u8865\u5355\uFF0C\u8BA2\u5355\u53F7\uFF1A${order.trade_no}`, create_time: now(), create_ip: requestInfo(request).ip, ua: "", risk: 0 });
+  } catch (e) {
+  }
+  return apiOk("\u5DF2\u624B\u52A8\u786E\u8BA4");
+}
+async function rechargeClear(env, request, url, body = {}) {
+  const cutoff = now() - 1800;
+  await dbRun(env, "DELETE FROM acg_user_recharge WHERE create_time<? AND status=0", cutoff);
+  try {
+    await dbInsert(env, "acg_manage_log", { email: "admin", nickname: "", content: "\u8FDB\u884C\u4E86\u4E00\u952E\u6E05\u7406\u65E0\u7528\u5145\u503C\u8BA2\u5355\u64CD\u4F5C", create_time: now(), create_ip: requestInfo(request).ip, ua: "", risk: 0 });
+  } catch (e) {
+  }
+  return apiOk("\uFF08\uFF3E\u2200\uFF3E\uFF09\u6E05\u7406\u5B8C\u6210");
+}
 async function adminEndpoint(env, request, url, ctl, act, body) {
   if (ctl === "authentication" && act === "login") return adminLogin(env, request, url, body);
   const manage = await authenticateManage(env, request);
@@ -2154,6 +2595,38 @@ async function adminEndpoint(env, request, url, ctl, act, body) {
       return apiErr(e && e.message ? String(e.message) : "\u64CD\u4F5C\u5931\u8D25");
     }
   }
+  if (ctl === "order") {
+    try {
+      if (act === "data") return await orderData(env, request, url, body);
+      if (act === "save") return await orderSave(env, request, url, body);
+      if (act === "clear") return await orderClear(env, request, url, body);
+      if (act === "exportImpact") return await orderExportImpact(env, request, url, body, manage);
+      if (act === "export") return await orderExport(env, request, url, body, manage);
+    } catch (e) {
+      return apiErr(e && e.message ? String(e.message) : "\u64CD\u4F5C\u5931\u8D25");
+    }
+  }
+  if (ctl === "user") {
+    try {
+      if (act === "data") return await userData(env, request, url, body);
+      if (act === "save") return await userSave(env, request, url, body);
+      if (act === "recharge") return await userRecharge(env, request, url, body, manage, 0);
+      if (act === "coin") return await userRecharge(env, request, url, body, manage, 1);
+      if (act === "statistics") return await userStatistics(env, request, url, body);
+      if (act === "del") return await userDel(env, request, url, body);
+    } catch (e) {
+      return apiErr(e && e.message ? String(e.message) : "\u64CD\u4F5C\u5931\u8D25");
+    }
+  }
+  if (ctl === "recharge") {
+    try {
+      if (act === "data") return await rechargeData(env, request, url, body);
+      if (act === "success") return await rechargeSuccess(env, request, url, body);
+      if (act === "clear") return await rechargeClear(env, request, url, body);
+    } catch (e) {
+      return apiErr(e && e.message ? String(e.message) : "\u64CD\u4F5C\u5931\u8D25");
+    }
+  }
   return apiErr("\u63A5\u53E3\u4E0D\u5B58\u5728", 404);
 }
 
@@ -2174,11 +2647,11 @@ function adminVar(cfg = {}) {
   for (const [k, v] of Object.entries(vars)) {
     s += `setVar(${JSON.stringify(k)}, ${JSON.stringify(v)});`;
   }
-  s += "</script>";
+  s += "<\/script>";
   return s;
 }
 var cssLinks = (paths) => paths.map((p) => `<link rel="stylesheet" href="${p}"/>`).join("\n");
-var jsScripts = (paths) => paths.map((p) => `<script src="${p}"></script>`).join("\n");
+var jsScripts = (paths) => paths.map((p) => `<script src="${p}"><\/script>`).join("\n");
 function renderAdminLoginPage(cfg = {}) {
   const bg = cfg.background_url || "/assets/admin/img/bg.jpg";
   const shopName = cfg.shop_name || "acg-faka";
@@ -2202,7 +2675,7 @@ function renderAdminLoginPage(cfg = {}) {
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1"/>
     <title>\u767B\u5F55 - ${htmlEscape(shopName)}</title>
-    <script>(function(){try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;var e=document.documentElement;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);}catch(_){document.documentElement.setAttribute('data-theme','light');}})();</script>
+    <script>(function(){try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;var e=document.documentElement;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);}catch(_){document.documentElement.setAttribute('data-theme','light');}})();<\/script>
     ${cssLinks([
     "/assets/common/css/_.css",
     "/assets/admin/css/auth.css",
@@ -2219,7 +2692,7 @@ function renderAdminLoginPage(cfg = {}) {
     "/assets/common/css/md-tokens.css",
     "/assets/admin/css/material-auth.css"
   ])}
-    <script src="/assets/common/js/ready.js"></script>
+    <script src="/assets/common/js/ready.js"><\/script>
     ${adminVar(cfg)}
 </head>
 <body class="ay-bg" style="background-image: linear-gradient(180deg, rgb(255 255 255 / 0%), rgb(255 255 255 / 71%)), url('${htmlEscape(bg)}')">
@@ -2316,7 +2789,7 @@ function renderAdminLoginPage(cfg = {}) {
     </section>
 </main>
 
-<script>ready("/assets/admin/controller/auth/login.js");</script>
+<script>ready("/assets/admin/controller/auth/login.js");<\/script>
 ${jsScripts([
     "/assets/common/js/_.js",
     "/assets/common/js/util/dict.js",
@@ -2911,7 +3384,7 @@ function renderAdminShell(opts = {}) {
 <head>
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-    <script>(function(){var e=document.documentElement;try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);var m=localStorage.getItem('admin-layout-mode')==='desktop'?'desktop':((window.innerWidth||screen.width)<992?'mobile':'desktop');e.setAttribute('data-admin-layout',m);}catch(_){e.setAttribute('data-theme','light');e.setAttribute('data-admin-layout',(window.innerWidth||screen.width)<992?'mobile':'desktop');}})();</script>
+    <script>(function(){var e=document.documentElement;try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);var m=localStorage.getItem('admin-layout-mode')==='desktop'?'desktop':((window.innerWidth||screen.width)<992?'mobile':'desktop');e.setAttribute('data-admin-layout',m);}catch(_){e.setAttribute('data-theme','light');e.setAttribute('data-admin-layout',(window.innerWidth||screen.width)<992?'mobile':'desktop');}})();<\/script>
     <title>${htmlEscape(title)}-${htmlEscape(shopName)}</title>
     <link rel="shortcut icon" href="/favicon.ico"/>
     ${cssLinks([
@@ -2937,13 +3410,13 @@ function renderAdminShell(opts = {}) {
     "/assets/common/css/mdicon.css",
     "/assets/admin/css/mobile.css"
   ])}
-    <script src="/assets/common/js/ready.js"></script>
+    <script src="/assets/common/js/ready.js"><\/script>
     ${adminVar(cfg)}
 </head>
 <body id="kt_body"
       class="header-fixed header-tablet-and-mobile-fixed toolbar-enabled toolbar-fixed aside-enabled aside-fixed"
       style="--kt-toolbar-height:55px;--kt-toolbar-height-tablet-and-mobile:55px;background: url('${htmlEscape(cfg.background_url || "")}') fixed no-repeat;background-size: cover;">
-<script>(function(){try{if((!window.matchMedia||matchMedia('(min-width: 992px)').matches)&&localStorage.getItem('admin-aside-minimize')==='on'){document.body.setAttribute('data-kt-aside-minimize','on');}}catch(_){}})();</script>
+<script>(function(){try{if((!window.matchMedia||matchMedia('(min-width: 992px)').matches)&&localStorage.getItem('admin-aside-minimize')==='on'){document.body.setAttribute('data-kt-aside-minimize','on');}}catch(_){}})();<\/script>
 <div class="d-flex flex-column flex-root">
     <div class="page d-flex flex-row flex-column-fluid">
         <!--begin::Aside-->
@@ -3056,7 +3529,7 @@ ${adminFooterScripts()}
 }
 function renderAdminDashboardPage(cfg, manage) {
   const body = `
-<script src="/assets/static/echarts.min.js"></script>
+<script src="/assets/static/echarts.min.js"><\/script>
 <div class="dash">
   <div class="dash__grid">
     <aside class="dash__side">
@@ -3283,8 +3756,487 @@ function renderAdminDashboardPage(cfg, manage) {
     </div>
   </div>
 </div>
-<script>ready("/assets/admin/controller/dashboard/index.js");</script>`;
+<script>ready("/assets/admin/controller/dashboard/index.js");<\/script>`;
   return renderAdminShell({ cfg, manage, title: "\u63A7\u5236\u53F0", activePath: "/admin/dashboard/index", body });
+}
+function renderAdminOrderPage(cfg, manage) {
+  const body = `
+<div class="card mb-5 mb-xl-8">
+  <div class="card-header border-0">
+    <div class="card-toolbar d-flex flex-wrap">
+      <button class="btn btn-sm btn-light-primary order-export me-3"><i class="fa-duotone fa-regular fa-file-export"></i> \u5BFC\u51FA\u8BA2\u5355</button>
+      <button class="btn btn-sm btn-light-danger order-clear me-3"><i class="fa-duotone fa-regular fa-trash-can"></i> \u6E05\u7406\u672A\u652F\u4ED8</button>
+      <span class="align-self-center text-muted me-3 order-stat">\u5171 <b class="order_count">0</b> \u6761\uFF0C\u9500\u552E\u989D <b class="order_amount">\uFFE50.00</b>\uFF0C\u6210\u672C <b class="order_cost">\uFFE50.00</b></span>
+    </div>
+  </div>
+  <div class="card-body py-3">
+    <div class="row g-2 mb-3">
+      <div class="col-md-3"><input class="form-control order-f-trade" placeholder="\u8BA2\u5355\u53F7"></div>
+      <div class="col-md-2"><input class="form-control order-f-owner" placeholder="\u4F1A\u5458ID\uFF0C0=\u8BBF\u5BA2" inputmode="numeric"></div>
+      <div class="col-md-2"><select class="form-select order-f-status"><option value="">\u5168\u90E8\u652F\u4ED8\u72B6\u6001</option><option value="0">\u672A\u652F\u4ED8</option><option value="1">\u5DF2\u652F\u4ED8</option></select></div>
+      <div class="col-md-2"><select class="form-select order-f-delivery"><option value="">\u5168\u90E8\u53D1\u8D27\u72B6\u6001</option><option value="0">\u672A\u53D1\u8D27</option><option value="1">\u5DF2\u53D1\u8D27</option></select></div>
+      <div class="col-md-3"><input class="form-control order-f-secret" placeholder="\u5361\u5BC6\u4FE1\u606F(\u6A21\u7CCA)"></div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-row-bordered table-row-gray-200 align-middle gs-0 gy-3" id="order-table">
+        <thead><tr class="fw-bold text-muted">
+          <th style="width:40px"><input type="checkbox" class="crud-check-all"></th>
+          <th>\u8BA2\u5355\u53F7/\u4E0B\u5355\u65F6\u95F4</th><th>\u5BA2\u6237</th><th>\u5546\u54C1</th><th>\u6570\u91CF/\u91D1\u989D</th><th>\u53D1\u8D27\u65B9\u5F0F</th><th>\u652F\u4ED8</th><th>\u72B6\u6001</th><th>\u64CD\u4F5C</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="d-flex justify-content-end align-items-center mt-3">
+        <button class="btn btn-sm btn-secondary crud-prev me-2">\u4E0A\u4E00\u9875</button>
+        <span class="crud-pageinfo me-2"></span>
+        <button class="btn btn-sm btn-secondary crud-next">\u4E0B\u4E00\u9875</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" tabindex="-1" id="orderDeliverModal"><div class="modal-dialog modal-lg"><div class="modal-content">
+  <div class="modal-header py-3"><h5 class="modal-title">\u624B\u52A8\u53D1\u8D27</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <form class="modal-form"><div class="modal-body">
+    <div class="alert alert-warning mb-3 order-deliver-warn" hidden>\u6B64\u8BA2\u5355\u5DF2\u6709\u53D1\u8D27\u8BB0\u5F55\uFF0C\u672C\u6B21\u63D0\u4EA4\u4F1A\u8986\u76D6\u73B0\u6709\u53D1\u8D27\u5185\u5BB9\u3002</div>
+    <div class="mb-3"><label class="form-label">\u53D1\u8D27\u5185\u5BB9</label>
+      <textarea class="form-control" name="secret" rows="8" required placeholder="\u586B\u5199\u8981\u53D1\u8D27\u7684\u4FE1\u606F"></textarea></div>
+  </div><div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">\u53D6\u6D88</button>
+    <button type="submit" class="btn btn-primary">\u6838\u5BF9\u5E76\u53D1\u8D27</button>
+  </div></form>
+</div></div></div>
+<div class="modal fade" tabindex="-1" id="orderExportModal"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header py-3"><h5 class="modal-title">\u5BFC\u51FA\u8BA2\u5355</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <form class="export-form"><div class="modal-body">
+    <div class="alert alert-warning mb-3">\u7CFB\u7EDF\u4F1A\u5148\u901A\u8FC7 POST \u7CBE\u786E\u9884\u89C8\u5F53\u524D\u7B5B\u9009\u8303\u56F4\uFF0C\u518D\u751F\u6210\u6587\u4EF6\u3002\u5355\u6B21\u6700\u591A 5000 \u7B14\uFF1B\u9009\u62E9\u201C\u6C38\u4E45\u5220\u9664\u201D\u540E\u8FD8\u5FC5\u987B\u5B8C\u6210\u9AD8\u5371\u786E\u8BA4\u3002</div>
+    <div class="mb-3"><label class="form-label">\u5BFC\u51FA\u6570\u91CF <span class="text-muted">(0 \u6216\u7559\u7A7A\u8868\u793A\u5168\u90E8\uFF0C\u6700\u591A 5000 \u7B14)</span></label>
+      <input class="form-control" name="export_num" type="number" min="0" max="5000" value="0"></div>
+    <div class="mb-3"><label class="form-label">\u5BFC\u51FA\u540E\u6267\u884C</label>
+      <select class="form-select" name="export_status"><option value="0">\u4E0D\u6267\u884C\u4EFB\u4F55\u64CD\u4F5C</option><option value="1">\u5220\u9664\u5BFC\u51FA\u7684\u8BA2\u5355\uFF08\u9AD8\u5371/\u7269\u7406\u5220\u9664\uFF09</option></select></div>
+    <div class="order-export-preview mt-2"></div>
+  </div><div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">\u53D6\u6D88</button>
+    <button type="submit" class="btn btn-primary">\u9884\u89C8\u5BFC\u51FA\u8303\u56F4</button>
+  </div></form>
+</div></div></div>`;
+  const js = `
+  ready(() => {
+    const tbody = document.getElementById('order-table').querySelector('tbody');
+    const API = '/admin/api/order/';
+    let page = 1, pageSize = 10, deliverRow = null;
+    const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const sym = '\uFFE5';
+    const filters = () => {
+      const d = { page, limit: pageSize };
+      const t = document.querySelector('.order-f-trade').value.trim();
+      const o = document.querySelector('.order-f-owner').value.trim();
+      const s = document.querySelector('.order-f-status').value;
+      const dv = document.querySelector('.order-f-delivery').value;
+      const sec = document.querySelector('.order-f-secret').value.trim();
+      if (t) d['equal-trade_no'] = t;
+      if (o) d['equal-owner'] = o;
+      if (s !== '') d['equal-status'] = s;
+      if (dv !== '') d['equal-delivery_status'] = dv;
+      if (sec) d['search-secret'] = sec;
+      return d;
+    };
+    function load() {
+      util.post({ url: API + 'data', data: filters(), loader: false,
+        done: res => {
+          tbody.innerHTML = '';
+          (res.data.list || []).forEach(o => {
+            const p = o.pay || {};
+            const c = o.commodity || {};
+            const u = o.owner || o.substation_user || {};
+            const amount = Number(o.amount || 0);
+            const statusTxt = Number(o.status) === 1 ? '<span class="badge badge-light-success">\u5DF2\u652F\u4ED8</span>' : '<span class="badge badge-light-secondary">\u672A\u652F\u4ED8</span>';
+            const dlvTxt = Number(o.delivery_status) === 1 ? '<span class="badge badge-light-success">\u5DF2\u53D1\u8D27</span>' : '<span class="badge badge-light-warning">\u672A\u53D1\u8D27</span>';
+            const dlvWay = Number(c.delivery_way) === 1 ? '\u624B\u52A8' : '\u81EA\u52A8';
+            let ops = '';
+            if (Number(c.delivery_way) === 0 && Number(o.delivery_status) === 1) {
+              ops += '<button class="btn btn-sm btn-light-primary row-secret me-1">\u67E5\u770B\u5361\u5BC6</button>';
+            }
+            if (Number(c.delivery_way) === 1 && Number(o.status) === 1) {
+              ops += '<button class="btn btn-sm btn-light-success row-deliver me-1">\u624B\u52A8\u53D1\u8D27</button>';
+            }
+            const tr = document.createElement('tr');
+            tr.dataset.id = o.id; tr.dataset.tradeNo = o.trade_no; tr.dataset.ownerName = (u.username || '-'); tr.dataset.contact = o.contact || '';
+            tr.innerHTML = '<td><input type="checkbox" class="crud-check"></td>' +
+              '<td><div>' + esc(o.trade_no) + '</div><small class="text-muted">' + (o.create_time ? new Date(o.create_time * 1000).toLocaleString() : '-') + '</small></td>' +
+              '<td>' + (o.owner_id ? esc(u.username || ('#'+o.owner_id)) : esc(o.contact || '\u6E38\u5BA2')) + '</td>' +
+              '<td>' + esc(c.name || ('#'+o.commodity_id)) + '</td>' +
+              '<td>' + (o.card_num || 1) + ' / ' + sym + amount.toFixed(2) + '</td>' +
+              '<td>' + dlvWay + '</td>' +
+              '<td>' + esc(p.name || (o.pay_id ? ('#'+o.pay_id) : '-')) + '</td>' +
+              '<td>' + statusTxt + ' ' + dlvTxt + '</td>' +
+              '<td>' + ops + '</td>';
+            tbody.appendChild(tr);
+          });
+          document.querySelector('.order_count').textContent = res.data.count || 0;
+          document.querySelector('.order_amount').textContent = sym + Number(res.data.order_amount || 0).toFixed(2);
+          document.querySelector('.order_cost').textContent = sym + Number(res.data.order_cost || 0).toFixed(2);
+          document.querySelector('.crud-pageinfo').textContent = '\u7B2C ' + page + ' \u9875 / \u5171 ' + (res.data.count || 0) + ' \u6761';
+        },
+        error: res => message.error(res.msg) });
+    }
+    document.querySelector('.crud-check-all').addEventListener('change', e => tbody.querySelectorAll('.crud-check').forEach(x => x.checked = e.target.checked));
+    ['.order-f-trade','.order-f-owner','.order-f-status','.order-f-delivery','.order-f-secret'].forEach(sel => {
+      document.querySelector(sel).addEventListener('change', () => { page = 1; load(); });
+      document.querySelector(sel).addEventListener('input', () => { page = 1; load(); });
+    });
+    document.querySelector('.crud-prev').addEventListener('click', () => { if (page > 1) { page--; load(); } });
+    document.querySelector('.crud-next').addEventListener('click', () => { page++; load(); });
+
+    // \u624B\u52A8\u53D1\u8D27
+    tbody.addEventListener('click', e => {
+      const tr = e.target.closest('tr'); if (!tr) return;
+      if (e.target.closest('.row-secret')) {
+        const sec = tr.querySelector('small[data-secret]');
+        const txt = sec ? sec.dataset.secret : '';
+        if (!txt) { return util.post({ url: API + 'data', data: { page:1, limit:1, 'equal-trade_no': tr.dataset.tradeNo }, loader: false, done: r => { const row = (r.data.list||[])[0]; if (row) window.prompt('\u5361\u5BC6\u5185\u5BB9', row.secret); }, error: () => {} }); }
+        window.prompt('\u5361\u5BC6\u5185\u5BB9', txt);
+        return;
+      }
+      if (e.target.closest('.row-deliver')) {
+        deliverRow = tr;
+        const hasSecret = Number(tr.dataset.hasSecret) === 1;
+        document.querySelector('.order-deliver-warn').hidden = !hasSecret;
+        (window.bootstrap && bootstrap.Modal.getOrCreateInstance(document.getElementById('orderDeliverModal'))).show();
+      }
+    });
+    document.querySelector('#orderDeliverModal .modal-form').addEventListener('submit', e => {
+      e.preventDefault();
+      if (!deliverRow) return;
+      const id = deliverRow.dataset.id;
+      const secret = document.querySelector('#orderDeliverModal textarea[name=secret]').value;
+      util.post({ url: API + 'save', data: { id, secret, overwrite_confirmed: document.querySelector('.order-deliver-warn').hidden ? 0 : 1 },
+        done: res => { (window.bootstrap && bootstrap.Modal.getInstance(document.getElementById('orderDeliverModal'))).hide(); message.alert(res.msg || '\u8BA2\u5355\u53D1\u8D27\u4FE1\u606F\u5DF2\u4FDD\u5B58\u3002', 'success'); load(); },
+        error: res => message.error(res.msg) });
+    });
+
+    // \u6E05\u7406\u672A\u652F\u4ED8
+    document.querySelector('.order-clear').addEventListener('click', () => {
+      if (!confirm('\u53EA\u4F1A\u7269\u7406\u5220\u9664 30 \u5206\u949F\u524D\u4ECD\u672A\u652F\u4ED8\u7684\u8BA2\u5355\uFF1B\u5DF2\u652F\u4ED8\u8BA2\u5355\u4E0D\u4F1A\u53D7\u5F71\u54CD\u3002\u786E\u8BA4\u6E05\u7406\u5417\uFF1F')) return;
+      util.post({ url: API + 'clear', done: res => { message.success(res.msg); load(); }, error: res => message.error(res.msg) });
+    });
+
+    // \u5BFC\u51FA\u8BA2\u5355
+    let previewToken = '', previewCount = 0, previewData = null, exportFilter = {};
+    function downloadExport(deleteConfirmation) {
+      const payload = Object.assign({}, exportFilter, { expected_count: previewCount, preview_token: previewToken });
+      if (deleteConfirmation) payload.delete_confirmation = deleteConfirmation;
+      fetch(API + 'export', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+        .then(r => {
+          const ct = r.headers.get('content-type') || '';
+          if (ct.includes('application/json')) return r.json().then(j => { throw new Error(j.msg || '\u5BFC\u51FA\u5931\u8D25'); });
+          return r.blob().then(blob => {
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url; a.download = '\u8BA2\u5355\u5BFC\u51FA-' + previewCount + '-' + new Date().toISOString().slice(0,10) + '.csv';
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            message.success('\u5DF2\u5BFC\u51FA ' + previewCount + ' \u7B14\u8BA2\u5355');
+            load();
+          });
+        })
+        .catch(err => message.error(err.message));
+    }
+    document.querySelector('#orderExportModal .export-form').addEventListener('submit', e => {
+      e.preventDefault();
+      const num = document.querySelector('#orderExportModal input[name=export_num]').value;
+      const st = document.querySelector('#orderExportModal select[name=export_status]').value;
+      previewToken = ''; previewCount = 0; previewData = null;
+      exportFilter = Object.assign({}, filters(), { export_num: num === '' || num === null ? 0 : Number(num), export_status: Number(st) });
+      delete exportFilter.page; delete exportFilter.limit;
+      util.post({ url: API + 'exportImpact', data: exportFilter, loader: false, done: res => {
+        const impact = res.data || {};
+        previewToken = impact.preview_token || '';
+        previewCount = Number(impact.count || 0);
+        document.querySelector('.order-export-preview').innerHTML = '<div class="alert alert-info">\u5171\u547D\u4E2D <b>' + previewCount + '</b> \u7B14\uFF08\u5DF2\u652F\u4ED8 ' + (impact.paid_count||0) + '\u3001\u672A\u652F\u4ED8 ' + (impact.unpaid_count||0) + '\uFF09\u3002</div>';
+        if (!previewToken || previewCount < 1) return;
+        (window.bootstrap && bootstrap.Modal.getOrCreateInstance(document.getElementById('orderExportModal'))).hide();
+        if (Number(st) === 1) {
+          const phrase = '\u786E\u8BA4\u6C38\u4E45\u5220\u9664' + previewCount + '\u7B14\u8BA2\u5355';
+          if (!confirm('\u4E0B\u8F7D\u8BF7\u6C42\u6210\u529F\u540E\uFF0C\u7CFB\u7EDF\u4F1A\u7269\u7406\u5220\u9664\u4E0A\u8FF0 ' + previewCount + ' \u7B14\u8BA2\u5355\u53CA\u5176\u5386\u53F2\u8BB0\u5F55\uFF0C\u65E0\u6CD5\u6062\u590D\u3002\\n\\n\u8BF7\u8F93\u5165\u786E\u8BA4\u77ED\u8BED\uFF1A' + phrase)) return;
+          const typed = window.prompt('\u8BF7\u8F93\u5165\uFF1A' + phrase);
+          if (typed !== phrase) { message.error('\u786E\u8BA4\u77ED\u8BED\u4E0D\u5339\u914D\uFF0C\u5DF2\u53D6\u6D88\u5220\u9664'); return; }
+          downloadExport(phrase);
+        } else {
+          if (confirm('\u672C\u6B21\u53EA\u4E0B\u8F7D CSV\uFF0C\u4E0D\u4FEE\u6539\u6216\u5220\u9664\u8BA2\u5355\u3002\u786E\u8BA4\u5BFC\u51FA ' + previewCount + ' \u7B14\uFF1F')) downloadExport('');
+        }
+      }, error: res => message.error(res.msg) });
+    });
+    document.querySelector('.order-export').addEventListener('click', () => {
+      document.querySelector('.order-export-preview').innerHTML = '';
+      (window.bootstrap && bootstrap.Modal.getOrCreateInstance(document.getElementById('orderExportModal'))).show();
+    });
+
+    load();
+  });`;
+  return renderCrudPage({ cfg, manage, title: "\u8BA2\u5355\u7BA1\u7406", activePath: "/admin/order/index", body, readyJs: js });
+}
+function renderAdminUserPage(cfg, manage) {
+  const body = `
+<div class="card mb-5 mb-xl-8">
+  <div class="card-header border-0">
+    <div class="card-toolbar d-flex flex-wrap">
+      <button class="btn btn-sm btn-light-danger user-del me-3"><i class="fa-duotone fa-regular fa-trash-can"></i> \u79FB\u9664\u9009\u4E2D</button>
+      <span class="align-self-center text-muted me-3 user-stat">\u5171 <b class="user_count">0</b> \u4EBA\uFF0C\u4F59\u989D\u5408\u8BA1 <b class="user_balance">\uFFE50.00</b>\uFF0C\u5145\u503C\u5408\u8BA1 <b class="user_recharge">\uFFE50.00</b></span>
+    </div>
+  </div>
+  <div class="card-body py-3">
+    <div class="row g-2 mb-3">
+      <div class="col-md-3"><input class="form-control user-f-username" placeholder="\u7528\u6237\u540D(\u6A21\u7CCA)"></div>
+      <div class="col-md-2"><input class="form-control user-f-id" placeholder="UID" inputmode="numeric"></div>
+      <div class="col-md-2"><input class="form-control user-f-email" placeholder="\u90AE\u7BB1"></div>
+      <div class="col-md-2"><input class="form-control user-f-qq" placeholder="QQ\u53F7" inputmode="numeric"></div>
+      <div class="col-md-2"><select class="form-select user-f-status"><option value="">\u5168\u90E8\u72B6\u6001</option><option value="1">\u6B63\u5E38</option><option value="0">\u5DF2\u5C01\u7981</option></select></div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-row-bordered table-row-gray-200 align-middle gs-0 gy-3" id="user-table">
+        <thead><tr class="fw-bold text-muted">
+          <th style="width:40px"><input type="checkbox" class="crud-check-all"></th>
+          <th>UID/\u7528\u6237\u540D</th><th>\u4F59\u989D</th><th>\u786C\u5E01</th><th>\u5145\u503C\u7D2F\u8BA1</th><th>\u72B6\u6001</th><th>\u6CE8\u518C\u65F6\u95F4/IP</th><th>\u64CD\u4F5C</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="d-flex justify-content-end align-items-center mt-3">
+        <button class="btn btn-sm btn-secondary crud-prev me-2">\u4E0A\u4E00\u9875</button>
+        <span class="crud-pageinfo me-2"></span>
+        <button class="btn btn-sm btn-secondary crud-next">\u4E0B\u4E00\u9875</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" tabindex="-1" id="userAdjustModal"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header py-3"><h5 class="modal-title">\u4F59\u989D/\u786C\u5E01\u8C03\u6574</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <form class="adjust-form"><div class="modal-body">
+    <div class="mb-3"><label class="form-label">\u64CD\u4F5C</label>
+      <select class="form-select" name="action"><option value="1">\u589E\u52A0</option><option value="2">\u6263\u51CF</option></select></div>
+    <div class="mb-3"><label class="form-label">\u7C7B\u578B</label>
+      <select class="form-select" name="currency"><option value="0">\u4F59\u989D</option><option value="1">\u786C\u5E01</option></select></div>
+    <div class="mb-3"><label class="form-label">\u6570\u91CF</label>
+      <input class="form-control" name="amount" type="number" step="0.01" min="0.01" required></div>
+    <div class="mb-3"><label class="form-label">\u64CD\u4F5C\u539F\u56E0</label>
+      <input class="form-control" name="log" required maxlength="64" placeholder="2-64 \u4E2A\u5B57"></div>
+    <div class="form-check mb-3"><input class="form-check-input" type="checkbox" name="total" value="1" id="adj-total">
+      <label class="form-check-label" for="adj-total">\u8BA1\u5165\u7D2F\u8BA1\u5145\u503C/\u786C\u5E01 (\u4EC5\u589E\u52A0\u65F6)</label></div>
+  </div><div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">\u53D6\u6D88</button>
+    <button type="submit" class="btn btn-primary">\u786E\u8BA4\u64CD\u4F5C</button>
+  </div></form>
+</div></div></div>
+<div class="modal fade" tabindex="-1" id="userStatModal"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header py-3"><h5 class="modal-title">\u4F1A\u5458\u4EA4\u6613\u7EDF\u8BA1</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body user-stat-body py-3"></div>
+  <div class="modal-footer"><button type="button" class="btn btn-secondary" data-bs-dismiss="modal">\u5173\u95ED</button></div>
+</div></div></div>`;
+  const js = `
+  ready(() => {
+    const tbody = document.getElementById('user-table').querySelector('tbody');
+    const API = '/admin/api/user/';
+    let page = 1, pageSize = 10, adjustId = 0;
+    const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const sym = '\uFFE5';
+    const filters = () => {
+      const d = { page, limit: pageSize };
+      const u = document.querySelector('.user-f-username').value.trim();
+      const id = document.querySelector('.user-f-id').value.trim();
+      const em = document.querySelector('.user-f-email').value.trim();
+      const qq = document.querySelector('.user-f-qq').value.trim();
+      const st = document.querySelector('.user-f-status').value;
+      if (u) d['search-username'] = u;
+      if (id) d['equal-id'] = id;
+      if (em) d['equal-email'] = em;
+      if (qq) d['equal-qq'] = qq;
+      if (st !== '') d['equal-status'] = st;
+      return d;
+    };
+    function load() {
+      util.post({ url: API + 'data', data: filters(), loader: false,
+        done: res => {
+          tbody.innerHTML = '';
+          (res.data.list || []).forEach(u => {
+            const stTxt = Number(u.status) === 1 ? '<span class="badge badge-light-success">\u6B63\u5E38</span>' : '<span class="badge badge-light-danger">\u5DF2\u5C01\u7981</span>';
+            const tr = document.createElement('tr');
+            tr.dataset.id = u.id; tr.dataset.name = u.username;
+            tr.innerHTML = '<td><input type="checkbox" class="crud-check"></td>' +
+              '<td><div>' + u.id + ' / ' + esc(u.username) + '</div><small class="text-muted">' + esc(u.email || '') + '</small></td>' +
+              '<td>' + sym + Number(u.balance || 0).toFixed(2) + '</td>' +
+              '<td>' + Number(u.coin || 0) + '</td>' +
+              '<td>' + sym + Number(u.recharge || 0).toFixed(2) + (Number(u.total_coin) > 0 ? ' / \u5E01' + u.total_coin : '') + '</td>' +
+              '<td>' + stTxt + '</td>' +
+              '<td><small>' + (u.create_time ? new Date(u.create_time * 1000).toLocaleString() : '-') + '</small><br><small class="text-muted">' + esc(u.login_ip || '') + '</small></td>' +
+              '<td><button class="btn btn-sm btn-light-primary row-adjust me-1">\u8C03\u6574</button>' +
+              '<button class="btn btn-sm btn-light-info row-stat me-1">\u7EDF\u8BA1</button>' +
+              (Number(u.status) === 1 ? '<button class="btn btn-sm btn-light-warning row-ban me-1">\u5C01\u7981</button>' : '<button class="btn btn-sm btn-light-success row-unban me-1">\u89E3\u5C01</button>') +
+              '<button class="btn btn-sm btn-light-danger row-del">\u5220\u9664</button></td>';
+            tbody.appendChild(tr);
+          });
+          document.querySelector('.user_count').textContent = res.data.count || 0;
+          document.querySelector('.user_balance').textContent = sym + Number(res.data.balance || 0).toFixed(2);
+          document.querySelector('.user_recharge').textContent = sym + Number(res.data.recharge || 0).toFixed(2);
+          document.querySelector('.crud-pageinfo').textContent = '\u7B2C ' + page + ' \u9875 / \u5171 ' + (res.data.count || 0) + ' \u6761';
+        },
+        error: res => message.error(res.msg) });
+    }
+    document.querySelector('.crud-check-all').addEventListener('change', e => tbody.querySelectorAll('.crud-check').forEach(x => x.checked = e.target.checked));
+    ['.user-f-username','.user-f-id','.user-f-email','.user-f-qq','.user-f-status'].forEach(sel => {
+      document.querySelector(sel).addEventListener('change', () => { page = 1; load(); });
+      document.querySelector(sel).addEventListener('input', () => { page = 1; load(); });
+    });
+    document.querySelector('.crud-prev').addEventListener('click', () => { if (page > 1) { page--; load(); } });
+    document.querySelector('.crud-next').addEventListener('click', () => { page++; load(); });
+
+    tbody.addEventListener('click', e => {
+      const tr = e.target.closest('tr'); if (!tr) return;
+      if (e.target.closest('.row-adjust')) {
+        adjustId = tr.dataset.id;
+        (window.bootstrap && bootstrap.Modal.getOrCreateInstance(document.getElementById('userAdjustModal'))).show();
+      } else if (e.target.closest('.row-stat')) {
+        util.get(API + 'statistics?id=' + tr.dataset.id, res => {
+          const d = res.data || {};
+          document.querySelector('.user-stat-body').innerHTML =
+            '<table class="table table-bordered align-middle mb-0"><tbody>' +
+            '<tr><td>\u4ECA\u65E5\u4EA4\u6613\u989D</td><td>' + sym + d.today_order_amount + '</td></tr>' +
+            '<tr><td>\u6628\u65E5\u4EA4\u6613\u989D</td><td>' + sym + d.yesterday_order_amount + '</td></tr>' +
+            '<tr><td>\u672C\u5468\u4EA4\u6613\u989D</td><td>' + sym + d.week_order_amount + '</td></tr>' +
+            '<tr><td>\u672C\u6708\u4EA4\u6613\u989D</td><td>' + sym + d.month_order_amount + '</td></tr>' +
+            '<tr><td>\u7D2F\u8BA1\u4EA4\u6613\u989D</td><td>' + sym + d.total_order_amount + '</td></tr>' +
+            '</tbody></table>';
+          (window.bootstrap && bootstrap.Modal.getOrCreateInstance(document.getElementById('userStatModal'))).show();
+        });
+      } else if (e.target.closest('.row-ban')) {
+        if (!confirm('\u786E\u8BA4\u5C01\u7981\u7528\u6237 ' + tr.dataset.name + ' ?')) return;
+        util.post({ url: API + 'save', data: { id: tr.dataset.id, status: 0 }, done: load, error: res => message.error(res.msg) });
+      } else if (e.target.closest('.row-unban')) {
+        if (!confirm('\u786E\u8BA4\u89E3\u5C01\u7528\u6237 ' + tr.dataset.name + ' ?')) return;
+        util.post({ url: API + 'save', data: { id: tr.dataset.id, status: 1 }, done: load, error: res => message.error(res.msg) });
+      } else if (e.target.closest('.row-del')) {
+        if (!confirm('\u786E\u8BA4\u6C38\u4E45\u5220\u9664\u7528\u6237 ' + tr.dataset.name + ' ?\uFF08\u5C06\u540C\u6B65\u6E05\u7406\u5176\u4E0B\u7EA7\u5206\u7AD9\u7B49\u5173\u8054\u6570\u636E\uFF09')) return;
+        util.post({ url: API + 'del', data: { list: tr.dataset.id }, done: res => { message.success(res.msg); load(); }, error: res => message.error(res.msg) });
+      }
+    });
+    document.querySelector('#userAdjustModal .adjust-form').addEventListener('submit', e => {
+      e.preventDefault();
+      if (!adjustId) return;
+      const f = new FormData(e.target);
+      const data = { id: adjustId, action: Number(f.get('action')), currency: Number(f.get('currency')), amount: f.get('amount'), log: f.get('log') };
+      if (f.get('total')) data.total = 1;
+      util.post({ url: API + 'recharge', data, done: res => { (window.bootstrap && bootstrap.Modal.getInstance(document.getElementById('userAdjustModal'))).hide(); message.success(res.msg); load(); }, error: res => message.error(res.msg) });
+    });
+    document.querySelector('.user-del').addEventListener('click', () => {
+      const ids = [...tbody.querySelectorAll('.crud-check:checked')].map(x => x.closest('tr').dataset.id);
+      if (!ids.length) { message.error('\u8BF7\u81F3\u5C11\u52FE\u9009 1 \u4E2A\u4F1A\u5458\uFF01'); return; }
+      if (!confirm('\u786E\u8BA4\u6C38\u4E45\u5220\u9664\u9009\u4E2D\u7684 ' + ids.length + ' \u4E2A\u4F1A\u5458\uFF1F')) return;
+      util.post({ url: API + 'del', data: { list: ids.join(',') }, done: res => { message.success(res.msg); load(); }, error: res => message.error(res.msg) });
+    });
+
+    load();
+  });`;
+  return renderCrudPage({ cfg, manage, title: "\u4F1A\u5458\u7BA1\u7406", activePath: "/admin/user/index", body, readyJs: js });
+}
+function renderAdminRechargePage(cfg, manage) {
+  const body = `
+<div class="card mb-5 mb-xl-8">
+  <div class="card-header border-0">
+    <div class="card-toolbar d-flex flex-wrap">
+      <button class="btn btn-sm btn-light-danger recharge-clear me-3"><i class="fa-duotone fa-regular fa-trash-can"></i> \u6E05\u7406\u672A\u652F\u4ED8</button>
+      <span class="align-self-center text-muted me-3 recharge-stat">\u5171 <b class="recharge_count">0</b> \u5355\uFF0C\u91D1\u989D <b class="recharge_amount">\uFFE50.00</b></span>
+    </div>
+  </div>
+  <div class="card-body py-3">
+    <div class="row g-2 mb-3">
+      <div class="col-md-3"><input class="form-control rc-f-trade" placeholder="\u8BA2\u5355\u53F7"></div>
+      <div class="col-md-2"><input class="form-control rc-f-user" placeholder="\u4F1A\u5458ID" inputmode="numeric"></div>
+      <div class="col-md-2"><select class="form-select rc-f-status"><option value="">\u5168\u90E8\u72B6\u6001</option><option value="0">\u672A\u652F\u4ED8</option><option value="1">\u5DF2\u652F\u4ED8</option></select></div>
+      <div class="col-md-2"><input class="form-control rc-f-ip" placeholder="IP\u5730\u5740"></div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-row-bordered table-row-gray-200 align-middle gs-0 gy-3" id="recharge-table">
+        <thead><tr class="fw-bold text-muted">
+          <th>\u8BA2\u5355\u53F7</th><th>\u4F1A\u5458</th><th>\u91D1\u989D</th><th>\u652F\u4ED8</th><th>\u4E0B\u5355\u65F6\u95F4</th><th>IP</th><th>\u72B6\u6001</th><th>\u652F\u4ED8\u65F6\u95F4</th><th>\u64CD\u4F5C</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="d-flex justify-content-end align-items-center mt-3">
+        <button class="btn btn-sm btn-secondary crud-prev me-2">\u4E0A\u4E00\u9875</button>
+        <span class="crud-pageinfo me-2"></span>
+        <button class="btn btn-sm btn-secondary crud-next">\u4E0B\u4E00\u9875</button>
+      </div>
+    </div>
+  </div>
+</div>`;
+  const js = `
+  ready(() => {
+    const tbody = document.getElementById('recharge-table').querySelector('tbody');
+    const API = '/admin/api/recharge/';
+    let page = 1, pageSize = 10;
+    const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const sym = '\uFFE5';
+    const filters = () => {
+      const d = { page, limit: pageSize };
+      const t = document.querySelector('.rc-f-trade').value.trim();
+      const u = document.querySelector('.rc-f-user').value.trim();
+      const s = document.querySelector('.rc-f-status').value;
+      const ip = document.querySelector('.rc-f-ip').value.trim();
+      if (t) d['equal-trade_no'] = t;
+      if (u) d['equal-user_id'] = u;
+      if (s !== '') d['equal-status'] = s;
+      if (ip) d['equal-create_ip'] = ip;
+      return d;
+    };
+    function load() {
+      util.post({ url: API + 'data', data: filters(), loader: false,
+        done: res => {
+          tbody.innerHTML = '';
+          (res.data.list || []).forEach(o => {
+            const p = o.pay || {};
+            const u = o.user || {};
+            const stTxt = Number(o.status) === 1 ? '<span class="badge badge-light-success">\u5DF2\u652F\u4ED8</span>' : '<span class="badge badge-light-secondary">\u672A\u652F\u4ED8</span>';
+            const tr = document.createElement('tr');
+            tr.dataset.id = o.id; tr.dataset.tradeNo = o.trade_no; tr.dataset.userName = (u.username || ('#'+o.user_id)); tr.dataset.amount = o.amount; tr.dataset.payName = (p.name || '-');
+            tr.innerHTML = '<td>' + esc(o.trade_no) + '</td>' +
+              '<td>' + esc(u.username || ('#'+o.user_id)) + '</td>' +
+              '<td>' + sym + Number(o.amount || 0).toFixed(2) + '</td>' +
+              '<td>' + esc(p.name || '-') + '</td>' +
+              '<td>' + (o.create_time ? new Date(o.create_time * 1000).toLocaleString() : '-') + '</td>' +
+              '<td>' + esc(o.create_ip || '') + '</td>' +
+              '<td>' + stTxt + '</td>' +
+              '<td>' + (o.pay_time ? new Date(o.pay_time * 1000).toLocaleString() : '-') + '</td>' +
+              '<td>' + (Number(o.status) === 0 ? '<button class="btn btn-sm btn-light-success row-supplement">\u8865\u5355</button>' : '') + '</td>';
+            tbody.appendChild(tr);
+          });
+          document.querySelector('.recharge_count').textContent = res.data.count || 0;
+          document.querySelector('.recharge_amount').textContent = sym + Number(res.data.order_amount || 0).toFixed(2);
+          document.querySelector('.crud-pageinfo').textContent = '\u7B2C ' + page + ' \u9875 / \u5171 ' + (res.data.count || 0) + ' \u6761';
+        },
+        error: res => message.error(res.msg) });
+    }
+    document.querySelector('.crud-prev').addEventListener('click', () => { if (page > 1) { page--; load(); } });
+    document.querySelector('.crud-next').addEventListener('click', () => { page++; load(); });
+    ['.rc-f-trade','.rc-f-user','.rc-f-status','.rc-f-ip'].forEach(sel => {
+      document.querySelector(sel).addEventListener('change', () => { page = 1; load(); });
+      document.querySelector(sel).addEventListener('input', () => { page = 1; load(); });
+    });
+
+    tbody.addEventListener('click', e => {
+      const tr = e.target.closest('tr'); if (!tr || !e.target.closest('.row-supplement')) return;
+      if (!confirm('\u8865\u5355\u4F1A\u628A\u5145\u503C\u8BA2\u5355\u6807\u8BB0\u4E3A\u5DF2\u652F\u4ED8\uFF0C\u5E76\u7ACB\u5373\u589E\u52A0\u4F1A\u5458\u4F59\u989D\u3002\\n\\n\u8BA2\u5355\u53F7\uFF1A' + tr.dataset.tradeNo + '\\n\u4F1A\u5458\uFF1A' + tr.dataset.userName + '\\n\u91D1\u989D\uFF1A' + sym + tr.dataset.amount + '\\n\\n\u8BE5\u64CD\u4F5C\u4F1A\u771F\u5B9E\u5165\u8D26\u4E14\u65E0\u6CD5\u5728\u672C\u9875\u9762\u64A4\u9500\u3002')) return;
+      util.post({ url: API + 'success', data: { id: tr.dataset.id }, done: res => { message.success(res.msg); load(); }, error: res => message.error(res.msg) });
+    });
+
+    document.querySelector('.recharge-clear').addEventListener('click', () => {
+      if (!confirm('\u53EA\u4F1A\u7269\u7406\u5220\u9664 30 \u5206\u949F\u524D\u4ECD\u672A\u652F\u4ED8\u7684\u5145\u503C\u8BA2\u5355\uFF1B\u5DF2\u652F\u4ED8\u8BA2\u5355\u4E0D\u4F1A\u53D7\u5F71\u54CD\u3002\u786E\u8BA4\u6E05\u7406\u5417\uFF1F')) return;
+      util.post({ url: API + 'clear', done: res => { message.success(res.msg); load(); }, error: res => message.error(res.msg) });
+    });
+
+    load();
+  });`;
+  return renderCrudPage({ cfg, manage, title: "\u5145\u503C\u8BA2\u5355", activePath: "/admin/recharge/order", body, readyJs: js });
 }
 
 // pages.js
@@ -3859,7 +4811,7 @@ function renderHeader(v, extraScripts = "") {
     <link href="${favicon}?v=${app.version}" rel="icon">
     <title>${htmlEscape(title)} - ${htmlEscape(config.shop_name)}</title>
     ${CSS_FILES.map((f) => `<link href="${f}" rel="stylesheet">`).join("")}
-    <script src="/assets/common/js/ready.js"></script>
+    <script src="/assets/common/js/ready.js"><\/script>
     ${extraScripts}
 </head>
 <body style="background-size: cover;background-image: linear-gradient(180deg, rgb(255 255 255 / 0%), rgb(255 255 255 / 71%)), url('${htmlEscape(config.background_url || "")}')">
@@ -3906,7 +4858,7 @@ function renderHeader(v, extraScripts = "") {
 function renderFooter(v) {
   return `</div>
 ${v.setting && v.setting.icp ? `<footer>${htmlEscape(v.setting.icp)}</footer>` : ""}
-${JS_FILES.map((f) => `<script src="${f}"></script>`).join("")}
+${JS_FILES.map((f) => `<script src="${f}"><\/script>`).join("")}
 </body>
 </html>`;
 }
@@ -4148,7 +5100,7 @@ function pageIndex(v) {
     </div>
   </div>
 </main>
-<script src="/assets/user/controller/index/index.js"></script>`;
+<script src="/assets/user/controller/index/index.js"><\/script>`;
 }
 function pageItem(v) {
   const { item, config } = v;
@@ -4277,7 +5229,7 @@ function pageItem(v) {
 
 
 </main>
-<script src="/assets/user/controller/index/item.js"></script>`;
+<script src="/assets/user/controller/index/item.js"><\/script>`;
 }
 function pageQuery(v) {
   return `<main class="container py-4">
@@ -4302,7 +5254,7 @@ function pageQuery(v) {
         </div>
     </div>
 </main>
-<script src="/assets/user/controller/index/query.js"></script>`;
+<script src="/assets/user/controller/index/query.js"><\/script>`;
 }
 function pageClosed(v) {
   return `<main class="container py-5">
@@ -4425,6 +5377,15 @@ async function route(env, request, url, ctx) {
     if (s === "/admin/card/index") {
       const cid2 = Number(url.searchParams.get("commodity_id")) || 0;
       return pageRes(renderAdminCardPage(cfg, manage, cid2));
+    }
+    if (s === "/admin/order/index") {
+      return pageRes(renderAdminOrderPage(cfg, manage));
+    }
+    if (s === "/admin/user/index") {
+      return pageRes(renderAdminUserPage(cfg, manage));
+    }
+    if (s === "/admin/recharge/order") {
+      return pageRes(renderAdminRechargePage(cfg, manage));
     }
     return pageRes(renderAdminShell({ cfg, manage, title: "\u5EFA\u8BBE\u4E2D", activePath: s }, "text/html"));
   }

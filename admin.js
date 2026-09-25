@@ -939,6 +939,383 @@ export async function cardDel(env, request, url, body = {}) {
   return apiOk('（＾∀＾）移除成功');
 }
 
+// ============================================================
+// 订单管理 (对齐 Admin/Api/Order)
+// ============================================================
+export async function orderData(env, request, url, body = {}) {
+  const page = Math.max(1, Number(body.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(body.limit) || 10));
+  const wheres = [];
+  const params = [];
+  // 支持原版 SearchFilter 风格: equal-xxx / search-xxx / betweenStart-xxx / betweenEnd-xxx
+  const addEqual = (key, col) => { if (body[key] !== undefined && body[key] !== '') { wheres.push(`${col}=?`); params.push(body[key]); } };
+  addEqual('equal-trade_no', 'trade_no');
+  addEqual('equal-status', 'status');
+  addEqual('equal-delivery_status', 'delivery_status');
+  addEqual('equal-commodity_id', 'commodity_id');
+  addEqual('equal-create_device', 'create_device');
+  addEqual('equal-pay_id', 'pay_id');
+  addEqual('equal-owner', 'owner');
+  if (body['search-secret'] !== undefined && String(body['search-secret']).trim() !== '') {
+    wheres.push('secret LIKE ?'); params.push(`%${String(body['search-secret']).trim()}%`);
+  }
+  if (body['equal-contact'] !== undefined && String(body['equal-contact']).trim() !== '') {
+    wheres.push('contact=?'); params.push(String(body['equal-contact']).trim());
+  }
+  const start = body['betweenStart-create_time'], end = body['betweenEnd-create_time'];
+  if (start) { wheres.push('create_time>=?'); params.push(Number(start)); }
+  if (end) { wheres.push('create_time<=?'); params.push(Number(end)); }
+  const where = wheres.length ? ' WHERE ' + wheres.join(' AND ') : '';
+  const total = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_order${where}`, ...params);
+  const count = total ? Number(total.n) : 0;
+  const sumRow = await dbFirst(env, `SELECT COALESCE(SUM(amount),0) AS total_amount, COALESCE(SUM(pay_cost),0) AS total_cost FROM acg_order${where}`, ...params);
+  const rows = await dbRows(env, `SELECT * FROM acg_order${where} ORDER BY id DESC LIMIT ? OFFSET ?`, ...params, pageSize, (page - 1) * pageSize);
+  const list = [];
+  for (const r of rows) {
+    list.push({
+      ...r,
+      coupon: r.coupon_id ? (await dbFirst(env, 'SELECT id, code FROM acg_coupon WHERE id=?', r.coupon_id)) || null : null,
+      owner: r.owner ? (await dbFirst(env, 'SELECT id, username, avatar, recharge FROM acg_user WHERE id=?', r.owner)) || null : null,
+      user: r.user_id ? (await dbFirst(env, 'SELECT id, username, avatar, recharge FROM acg_user WHERE id=?', r.user_id)) || null : null,
+      promote: r.from ? (await dbFirst(env, 'SELECT id, username, avatar, recharge FROM acg_user WHERE id=?', r.from)) || null : null,
+      commodity: r.commodity_id ? (await dbFirst(env, 'SELECT id, name, cover, price, delivery_way, contact_type FROM acg_commodity WHERE id=?', r.commodity_id)) || null : null,
+      pay: r.pay_id ? (await dbFirst(env, 'SELECT id, name, icon FROM acg_pay WHERE id=?', r.pay_id)) || null : null,
+      substationUser: r.substation_user_id ? (await dbFirst(env, 'SELECT id, username, avatar, recharge FROM acg_user WHERE id=?', r.substation_user_id)) || null : null,
+      card: r.card_id ? (await dbFirst(env, 'SELECT id, secret, draft, status FROM acg_card WHERE id=?', r.card_id)) || null : null,
+    });
+  }
+  return apiOk('success', { list, page, limit: pageSize, count, records: count, order_amount: (sumRow && sumRow.total_amount) ?? 0, order_cost: (sumRow && sumRow.total_cost) ?? 0 });
+}
+
+// 手动发货(仅已支付 + 手工发货商品)
+export async function orderSave(env, request, url, body = {}) {
+  const id = Number(body.id) || 0;
+  const secret = String(body.secret || '').trim();
+  if (id < 1) return apiErr('订单 ID 不正确，请刷新后重试');
+  if (secret === '' || secret === '0') return apiErr('请填写有效的发货内容，不能仅为空白或"0"');
+  const overwriteConfirmed = body.overwrite_confirmed === true || body.overwrite_confirmed === 'true' || body.overwrite_confirmed === '1';
+  const order = await dbFirst(env, 'SELECT * FROM acg_order WHERE id=?', id);
+  if (!order) return apiErr('订单不存在，请刷新后重试');
+  if (Number(order.status) !== 1) return apiErr('仅已支付订单可以手动发货');
+  const commodity = await dbFirst(env, 'SELECT id, delivery_way FROM acg_commodity WHERE id=?', order.commodity_id);
+  if (!commodity) return apiErr('订单对应商品不存在，无法手动发货');
+  if (Number(commodity.delivery_way) !== 1) return apiErr('该订单不是手动发货商品，不能修改发货内容');
+  const hasExisting = Number(order.delivery_status) === 1 || String(order.secret || '').trim() !== '';
+  if (hasExisting && !overwriteConfirmed) return apiErr('此订单已有发货记录，请明确确认覆盖后重试');
+  await dbRun(env, 'UPDATE acg_order SET secret=?, delivery_status=1 WHERE id=?', secret, id);
+  try { await dbInsert(env, 'acg_manage_log', { email: 'admin', nickname: '', content: `[手动发货](${id})修改了发货信息`, create_time: now(), create_ip: requestInfo(request).ip, ua: '', risk: 0 }); } catch (e) {}
+  return apiOk('（＾∀＾）发货成功');
+}
+
+// 一键清理 30 分钟前未支付订单
+export async function orderClear(env, request, url, body = {}) {
+  const cutoff = now() - 1800;
+  const r = await dbRun(env, 'DELETE FROM acg_order WHERE create_time<? AND status=0', cutoff);
+  try { await dbInsert(env, 'acg_manage_log', { email: 'admin', nickname: '', content: '进行了一键清理无用商品订单操作', create_time: now(), create_ip: requestInfo(request).ip, ua: '', risk: 0 }); } catch (e) {}
+  return apiOk('（＾∀＾）清理完成');
+}
+
+const ORDER_EXPORT_TTL = 180;
+const ORDER_EXPORT_MAX = 5000;
+async function orderExportTokenKey(manage) {
+  return sha256hex(`order-export-preview-v1|${manage.password}`);
+}
+async function orderExportFingerprint(ids) { return sha256hex(ids.join(',')); }
+async function orderIssueExportToken(manage, ids, options) {
+  const iat = Math.floor(Date.now() / 1000);
+  const exp = iat + ORDER_EXPORT_TTL;
+  const payload = { fingerprint: await orderExportFingerprint(ids), count: ids.length, export_num: options.export_num, export_status: options.export_status, manage_id: Number(manage.id) || 0, session: await sha256hex(manage.sid || ''), iat, exp };
+  const body = b64urlEncode(JSON.stringify(payload));
+  const sig = await sha256hex(`${body}|${await orderExportTokenKey(manage)}`);
+  return body + '.' + sig;
+}
+async function orderVerifyExportToken(manage, token, ids, options) {
+  if (typeof token !== 'string' || !token.includes('.')) throw new Error('请先预览并确认订单导出范围');
+  const [body, sig] = token.split('.');
+  const expected = await sha256hex(`${body}|${await orderExportTokenKey(manage)}`);
+  const nowSec = Math.floor(Date.now() / 1000);
+  let payload = null;
+  try {
+    let b64 = String(body).replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) b64 += '=';
+    payload = JSON.parse(decodeURIComponent(escape(atob(b64))));
+  } catch (e) { throw new Error('订单导出预览凭证无效，请重新预览'); }
+  if (sig !== expected || !payload) throw new Error('订单导出预览凭证无效，请重新预览');
+  if (Number(payload.exp) < nowSec || Number(payload.exp) > Number(payload.iat) + ORDER_EXPORT_TTL) throw new Error('订单导出预览已过期，请重新预览');
+  if (Number(payload.manage_id) !== Number(manage.id) || payload.session !== await sha256hex(manage.sid || '')) throw new Error('订单导出预览凭证无效，请重新预览');
+  if (Number(payload.count) !== ids.length || payload.fingerprint !== await orderExportFingerprint(ids)) throw new Error('订单导出范围或数据已变化，请重新预览');
+  if (Number(payload.export_num) !== Number(options.export_num) || Number(payload.export_status) !== Number(options.export_status)) throw new Error('订单导出范围或数据已变化，请重新预览');
+}
+
+// 导出预览(只读影响) — 返回 count/total/paid/delivered + preview_token
+export async function orderExportImpact(env, request, url, body = {}, manage) {
+  const exportNum = body.export_num === '' || body.export_num === null ? 0 : Number(body.export_num);
+  if (!Number.isInteger(exportNum) || exportNum < 0 || exportNum > ORDER_EXPORT_MAX) throw new Error(`导出数量必须是 0 到 ${ORDER_EXPORT_MAX} 的整数`);
+  const exportStatus = Number(body.export_status) || 0;
+  if (![0, 1].includes(exportStatus)) throw new Error('导出后操作不正确');
+  // 构造与 data 一致的筛选范围
+  const { rows } = await orderExportSelection(env, body, exportNum);
+  const ids = rows.map(r => Number(r.id));
+  if (!ids.length) throw new Error('当前筛选没有可导出的订单');
+  const paidCount = rows.filter(r => Number(r.status) === 1).length;
+  const deliveredCount = rows.filter(r => Number(r.delivery_status) === 1).length;
+  return apiOk('success', {
+    count: ids.length,
+    total: ids.length,
+    has_filter: true,
+    paid_count: paidCount,
+    unpaid_count: rows.length - paidCount,
+    delivered_count: deliveredCount,
+    undelivered_count: rows.length - deliveredCount,
+    export_status: exportStatus,
+    preview_token: await orderIssueExportToken(manage, ids, { export_num: exportNum, export_status: exportStatus }),
+    expires_in: ORDER_EXPORT_TTL,
+    max_count: ORDER_EXPORT_MAX,
+  });
+}
+
+async function orderExportSelection(env, body, exportNum) {
+  const wheres = [];
+  const params = [];
+  const addEqual = (key, col) => { if (body[key] !== undefined && body[key] !== '') { wheres.push(`${col}=?`); params.push(body[key]); } };
+  addEqual('equal-trade_no', 'trade_no');
+  addEqual('equal-status', 'status');
+  addEqual('equal-delivery_status', 'delivery_status');
+  addEqual('equal-commodity_id', 'commodity_id');
+  addEqual('equal-create_device', 'create_device');
+  addEqual('equal-pay_id', 'pay_id');
+  addEqual('equal-owner', 'owner');
+  if (body['search-secret'] !== undefined && String(body['search-secret']).trim() !== '') { wheres.push('secret LIKE ?'); params.push(`%${String(body['search-secret']).trim()}%`); }
+  if (body['equal-contact'] !== undefined && String(body['equal-contact']).trim() !== '') { wheres.push('contact=?'); params.push(String(body['equal-contact']).trim()); }
+  const start = body['betweenStart-create_time'], end = body['betweenEnd-create_time'];
+  if (start) { wheres.push('create_time>=?'); params.push(Number(start)); }
+  if (end) { wheres.push('create_time<=?'); params.push(Number(end)); }
+  const where = wheres.length ? ' WHERE ' + wheres.join(' AND ') : '';
+  const total = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_order${where}`, ...params);
+  const count = total ? Number(total.n) : 0;
+  if (count === 0) throw new Error('当前筛选没有可导出的订单');
+  const limit = exportNum > 0 ? Math.min(exportNum, count) : count;
+  if (limit > ORDER_EXPORT_MAX) throw new Error(`当前范围过大，请增加筛选或填写不超过 ${ORDER_EXPORT_MAX} 的导出数量`);
+  const rows = await dbRows(env, `SELECT * FROM acg_order${where} ORDER BY id DESC LIMIT ?`, ...params, limit);
+  return { rows, count, limit };
+}
+
+// 导出 CSV(可选删除)
+export async function orderExport(env, request, url, body = {}, manage) {
+  const exportNum = body.export_num === '' || body.export_num === null ? 0 : Number(body.export_num);
+  const exportStatus = Number(body.export_status) || 0;
+  const expectedCount = Number(body.expected_count);
+  if (!Number.isInteger(expectedCount) || expectedCount < 1 || expectedCount > ORDER_EXPORT_MAX) throw new Error('请先预览并确认本次订单导出数量');
+  const { rows, count, limit } = await orderExportSelection(env, body, exportNum);
+  const ids = rows.map(r => Number(r.id));
+  if (count !== expectedCount) throw new Error('订单数量已变化，请重新预览导出范围');
+  await orderVerifyExportToken(manage, body.preview_token, ids, { export_num: exportNum, export_status: exportStatus });
+  if (exportStatus === 1) {
+    const required = '确认永久删除' + count + '笔订单';
+    if (String(body.delete_confirmation || '').trim() !== required) throw new Error('请完成高危确认后再导出并删除订单');
+  }
+  // 生成 CSV
+  const lines = [];
+  const header = ['订单号', '金额', '商品名称', '数量', '支付方式', '下单时间', '下单IP', '下单设备', '支付时间', '订单状态', '联系方式', '发货状态', '优惠券', '客户', '推广人', '分站', '分站手续费', '接口手续费', '推广分成', '返利'];
+  const esc = (v) => { const s = String(v ?? ''); return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  lines.push(header.map(esc).join(','));
+  for (const r of rows) {
+    const deviceText = [0, 1, 2, 3].includes(Number(r.create_device)) ? ['PC', '安卓', 'IOS', 'iPad'][Number(r.create_device)] : 'PC';
+    const statusText = Number(r.status) === 0 ? '未支付' : Number(r.status) === 1 ? '已支付' : '未知';
+    const deliveryText = Number(r.delivery_status) === 0 ? '未发货' : Number(r.delivery_status) === 1 ? '已发货' : '未知';
+    lines.push([r.trade_no, r.amount, '', r.card_num || 0, '', r.create_time || '', r.create_ip || '', deviceText, r.pay_time || '', statusText, r.contact || '', deliveryText, '', '', '', '', r.cost || 0, r.pay_cost || 0, r.divide_amount || 0, r.rebate || 0].map(esc).join(','));
+  }
+  const csv = '\uFEFF' + lines.join('\r\n');
+  if (exportStatus === 1) {
+    await dbRun(env, `DELETE FROM acg_order WHERE id IN (${ids.map(() => '?').join(',')})`, ...ids);
+  }
+  try { await dbInsert(env, 'acg_manage_log', { email: 'admin', nickname: '', content: `[订单导出]导出并${exportStatus === 1 ? '永久删除' : ''}订单，共计：${count}`, create_time: now(), create_ip: requestInfo(request).ip, ua: '', risk: 0 }); } catch (e) {}
+  return new Response(csv, {
+    status: 200,
+    headers: {
+      'Content-Type': 'text/csv; charset=UTF-8',
+      'Content-Disposition': `attachment; filename="order-export-${Date.now()}.csv"`,
+      'Cache-Control': 'no-cache',
+    },
+  });
+}
+
+// ============================================================
+// 用户管理 (对齐 Admin/Api/User)
+// ============================================================
+export async function userData(env, request, url, body = {}) {
+  const page = Math.max(1, Number(body.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(body.limit) || 10));
+  const wheres = [];
+  const params = [];
+  for (const [key, col] of [['equal-id', 'id'], ['equal-status', 'status'], ['equal-pid', 'pid'], ['equal-email', 'email'], ['equal-phone', 'phone'], ['equal-qq', 'qq'], ['equal-login_ip', 'login_ip']]) {
+    if (body[key] !== undefined && body[key] !== '') { wheres.push(`${col}=?`); params.push(String(body[key])); }
+  }
+  if (body['search-username'] !== undefined && String(body['search-username']).trim() !== '') { wheres.push('username LIKE ?'); params.push(`%${String(body['search-username']).trim()}%`); }
+  if (body['search-email'] !== undefined && String(body['search-email']).trim() !== '') { wheres.push('email LIKE ?'); params.push(`%${String(body['search-email']).trim()}%`); }
+  if (body['search-phone'] !== undefined && String(body['search-phone']).trim() !== '') { wheres.push('phone LIKE ?'); params.push(`%${String(body['search-phone']).trim()}%`); }
+  const where = wheres.length ? ' WHERE ' + wheres.join(' AND ') : '';
+  const total = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_user${where}`, ...params);
+  const count = total ? Number(total.n) : 0;
+  const sumRow = await dbFirst(env, `SELECT COALESCE(SUM(balance),0) AS balance, COALESCE(SUM(recharge),0) AS recharge FROM acg_user${where}`, ...params);
+  const rows = await dbRows(env, `SELECT * FROM acg_user${where} ORDER BY id DESC LIMIT ? OFFSET ?`, ...params, pageSize, (page - 1) * pageSize);
+  const list = [];
+  for (const r of rows) {
+    list.push({ ...r, password: undefined, salt: undefined, app_key: undefined, parent: r.pid ? (await dbFirst(env, 'SELECT id, username, avatar FROM acg_user WHERE id=?', r.pid)) || null : null, group: null, businessLevel: null, business: null });
+  }
+  return apiOk('success', { list, page, limit: pageSize, count, records: count, balance: (sumRow && sumRow.balance) ?? 0, recharge: (sumRow && sumRow.recharge) ?? 0 });
+}
+
+// 修改会员资料(站长专属语义简化: 允许改资料/密码/状态/上级)
+export async function userSave(env, request, url, body = {}) {
+  const id = Number(body.id) || 0;
+  if (id <= 0) return apiErr('该用户不存在');
+  const user = await dbFirst(env, 'SELECT * FROM acg_user WHERE id=?', id);
+  if (!user) return apiErr('该用户不存在');
+  const data = {};
+  for (const f of ['avatar', 'username', 'email', 'phone', 'qq', 'status', 'pid']) {
+    if (body[f] !== undefined) {
+      if (f === 'status') { const st = Number(body[f]); if (![0, 1].includes(st)) return apiErr('会员状态不正确'); data.status = st; }
+      else if (f === 'pid') { const p = Number(body[f]) || 0; if (p < 0 || p === id) return apiErr('上级会员 ID 不正确'); data.pid = p; }
+      else data[f] = String(body[f]);
+    }
+  }
+  if (body.password !== undefined && String(body.password).trim() !== '') {
+    const pw = String(body.password);
+    if (pw.length < 6) return apiErr('密码必须6位以上');
+    data.password = generatePassword(pw, user.salt);
+  }
+  if (Object.keys(data).length) await dbUpdate(env, 'acg_user', data, 'id=?', id);
+  try { await dbInsert(env, 'acg_manage_log', { email: 'admin', nickname: '', content: `修改了会员(${user.username})的信息。`, create_time: now(), create_ip: requestInfo(request).ip, ua: '', risk: 0 }); } catch (e) {}
+  return apiOk('（＾∀＾）保存成功');
+}
+
+// 余额变动 (currency 0=余额 1=硬币; 对齐 changeAccountBalance)
+export async function userRecharge(env, request, url, body = {}, manage, currency = 0) {
+  const id = Number(body.id) || 0;
+  const action = Number(body.action);
+  if (id < 1) return apiErr('用户不存在');
+  if (![1, 2].includes(action)) return apiErr('请选择增加或扣减');
+  const amount = String(body.amount || '').trim();
+  if (!/^\d+(?:\.\d{1,2})?$/.test(amount)) return apiErr('请输入大于 0 且最多两位小数的操作数量');
+  const amt = Number(amount);
+  if (!isFinite(amt) || amt <= 0 || amt > 99999999.99) return apiErr('操作数量必须大于 0 且不超过 99999999.99');
+  const log = String(body.log || '').trim();
+  if (log.length < 2 || log.length > 64) return apiErr('操作原因须为 2–64 个字');
+  const total = Number(body.total) === 1;
+  const user = await dbFirst(env, 'SELECT * FROM acg_user WHERE id=?', id);
+  if (!user) return apiErr('用户不存在');
+  // user.status 1=正常; 直接按 id 更新
+  const delta = action === 1 ? amt : -amt;
+  const col = currency === 1 ? 'coin' : 'balance';
+  const cur = Number(user[col] || 0);
+  const next = Math.round((cur + delta) * 100) / 100;
+  if (next < 0) return apiErr('用户余额不足，无法操作');
+  await dbRun(env, `UPDATE acg_user SET ${col}=? WHERE id=?`, next, id);
+  if (total) {
+    if (action === 1) {
+      if (currency === 1) await dbRun(env, 'UPDATE acg_user SET total_coin=total_coin+? WHERE id=?', amt, id);
+      else await dbRun(env, 'UPDATE acg_user SET recharge=recharge+? WHERE id=?', amt, id);
+    }
+  }
+  const billLog = currency === 1 ? `管理员操作硬币:${log}` : `管理员操作余额:${log}`;
+  await dbInsert(env, 'acg_bill', { owner: id, amount: amt, balance: next, type: action, currency, log: billLog, create_time: now() });
+  try { await dbInsert(env, 'acg_manage_log', { email: 'admin', nickname: '', content: `为会员(${user.username})进行了${currency === 1 ? '硬币' : '余额'}变动操作`, create_time: now(), create_ip: requestInfo(request).ip, ua: '', risk: 0 }); } catch (e) {}
+  return apiOk('操作成功');
+}
+
+// 会员交易统计
+export async function userStatistics(env, request, url, body = {}) {
+  const id = Number(url.searchParams.get('id')) || Number(body.id) || 0;
+  if (id < 1) return apiErr('用户不存在');
+  const startOfDay = (d) => d.setHours(0, 0, 0, 0) / 1000;
+  const endOfDay = (d) => d.setHours(23, 59, 59, 999) / 1000;
+  const nowD = new Date();
+  const todayStart = startOfDay(new Date(nowD)), todayEnd = endOfDay(new Date(nowD));
+  const yStart = startOfDay(new Date(nowD.getTime() - 86400000)), yEnd = endOfDay(new Date(nowD.getTime() - 86400000));
+  const wStart = startOfDay(new Date(nowD.getTime() - (nowD.getDay() || 7 - 7) * 86400000));
+  const wEnd = endOfDay(new Date(nowD));
+  const mStart = startOfDay(new Date(nowD.getFullYear(), nowD.getMonth(), 1));
+  const mEnd = endOfDay(new Date(nowD.getFullYear(), nowD.getMonth() + 1, 0));
+  const rangeSum = async (a, b) => { const r = await dbFirst(env, 'SELECT COALESCE(SUM(amount),0) AS s FROM acg_order WHERE user_id=? AND status=1 AND create_time>=? AND create_time<?', id, a, b); return (r && r.s) || 0; };
+  const data = {
+    today_order_amount: (await rangeSum(todayStart, todayEnd)).toFixed(2),
+    yesterday_order_amount: (await rangeSum(yStart, yEnd)).toFixed(2),
+    week_order_amount: (await rangeSum(wStart, wEnd)).toFixed(2),
+    month_order_amount: (await rangeSum(mStart, mEnd)).toFixed(2),
+  };
+  data.total_order_amount = (await rangeSum(0, 9999999999)).toFixed(2);
+  return apiOk('success', data);
+}
+
+// 删除会员
+export async function userDel(env, request, url, body = {}) {
+  let list;
+  try { list = intList(body.list, '会员ID'); } catch (e) { return apiErr(e.message); }
+  if (!list.length) return apiErr('请选择要删除的会员');
+  if (list.length > 1000) return apiErr('单次只能删除 1–1000 名有效会员');
+  const where = `id IN (${list.map(() => '?').join(',')})`;
+  await dbRun(env, `DELETE FROM acg_user WHERE ${where}`, ...list);
+  await dbRun(env, 'DELETE FROM acg_business WHERE user_id IN (' + list.map(() => '?').join(',') + ')', ...list);
+  try { await dbInsert(env, 'acg_manage_log', { email: 'admin', nickname: '', content: `删除了会员，共计删除：${list.length}`, create_time: now(), create_ip: requestInfo(request).ip, ua: '', risk: 0 }); } catch (e) {}
+  return apiOk('（＾∀＾）移除成功', { count: list.length });
+}
+
+// ============================================================
+// 充值订单管理 (对齐 Admin/Api/RechargeOrder)
+// ============================================================
+export async function rechargeData(env, request, url, body = {}) {
+  const page = Math.max(1, Number(body.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(body.limit) || 10));
+  const wheres = [];
+  const params = [];
+  if (body['equal-status'] !== undefined && body['equal-status'] !== '') { wheres.push('status=?'); params.push(Number(body['equal-status'])); }
+  if (body['equal-user_id'] !== undefined && body['equal-user_id'] !== '') { wheres.push('user_id=?'); params.push(Number(body['equal-user_id'])); }
+  if (body['equal-trade_no'] !== undefined && body['equal-trade_no'] !== '') { wheres.push('trade_no=?'); params.push(String(body['equal-trade_no'])); }
+  if (body['equal-create_ip'] !== undefined && body['equal-create_ip'] !== '') { wheres.push('create_ip=?'); params.push(String(body['equal-create_ip'])); }
+  if (body['search-trade_no'] !== undefined && String(body['search-trade_no']).trim() !== '') { wheres.push('trade_no LIKE ?'); params.push(`%${String(body['search-trade_no']).trim()}%`); }
+  if (body['equal-pay_id'] !== undefined && body['equal-pay_id'] !== '') { wheres.push('pay_id=?'); params.push(Number(body['equal-pay_id'])); }
+  const where = wheres.length ? ' WHERE ' + wheres.join(' AND ') : '';
+  const total = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_user_recharge${where}`, ...params);
+  const count = total ? Number(total.n) : 0;
+  const sumRow = await dbFirst(env, `SELECT COALESCE(SUM(amount),0) AS order_amount FROM acg_user_recharge${where}`, ...params);
+  const rows = await dbRows(env, `SELECT * FROM acg_user_recharge${where} ORDER BY id DESC LIMIT ? OFFSET ?`, ...params, pageSize, (page - 1) * pageSize);
+  const list = [];
+  for (const r of rows) {
+    list.push({
+      ...r,
+      user: r.user_id ? (await dbFirst(env, 'SELECT id, username, avatar FROM acg_user WHERE id=?', r.user_id)) || null : null,
+      pay: r.pay_id ? (await dbFirst(env, 'SELECT id, name, icon FROM acg_pay WHERE id=?', r.pay_id)) || null : null,
+    });
+  }
+  return apiOk('success', { list, page, limit: pageSize, count, records: count, order_amount: (sumRow && sumRow.order_amount) ?? 0 });
+}
+
+// 手动补单(将 status 0 的充值订单标记为已支付并加余额)
+export async function rechargeSuccess(env, request, url, body = {}) {
+  const id = Number(body.id) || 0;
+  if (id < 1) return apiErr('订单编号不正确');
+  const order = await dbFirst(env, 'SELECT * FROM acg_user_recharge WHERE id=?', id);
+  if (!order) return apiErr('订单不存在');
+  if (Number(order.status) !== 0) return apiErr('该订单已支付，无法再次补单');
+  const user = await dbFirst(env, 'SELECT id, balance FROM acg_user WHERE id=?', order.user_id);
+  if (!user) return apiErr('订单会员不存在，无法补单');
+  const bal = Math.round((Number(user.balance) + Number(order.amount)) * 100) / 100;
+  await dbRun(env, 'UPDATE acg_user SET balance=?, recharge=recharge+? WHERE id=?', bal, order.amount, order.user_id);
+  await dbRun(env, 'UPDATE acg_user_recharge SET status=1, pay_time=? WHERE id=?', now(), id);
+  await dbInsert(env, 'acg_bill', { owner: order.user_id, amount: Number(order.amount), balance: bal, type: 1, currency: 0, log: `充值成功[${order.trade_no}]`, create_time: now() });
+  try { await dbInsert(env, 'acg_manage_log', { email: 'admin', nickname: '', content: `充值订单手动补单，订单号：${order.trade_no}`, create_time: now(), create_ip: requestInfo(request).ip, ua: '', risk: 0 }); } catch (e) {}
+  return apiOk('已手动确认');
+}
+
+// 清理 30 分钟前未支付充值订单
+export async function rechargeClear(env, request, url, body = {}) {
+  const cutoff = now() - 1800;
+  await dbRun(env, 'DELETE FROM acg_user_recharge WHERE create_time<? AND status=0', cutoff);
+  try { await dbInsert(env, 'acg_manage_log', { email: 'admin', nickname: '', content: '进行了一键清理无用充值订单操作', create_time: now(), create_ip: requestInfo(request).ip, ua: '', risk: 0 }); } catch (e) {}
+  return apiOk('（＾∀＾）清理完成');
+}
+
 export async function adminEndpoint(env, request, url, ctl, act, body) {
   if (ctl === 'authentication' && act === 'login') return adminLogin(env, request, url, body);
   // 以下接口需要登录
@@ -986,6 +1363,41 @@ export async function adminEndpoint(env, request, url, ctl, act, body) {
       if (act === 'lock') return await cardLock(env, request, url, body, true);
       if (act === 'unlock') return await cardLock(env, request, url, body, false);
       if (act === 'del') return await cardDel(env, request, url, body);
+    } catch (e) {
+      return apiErr(e && e.message ? String(e.message) : '操作失败');
+    }
+  }
+  // 订单
+  if (ctl === 'order') {
+    try {
+      if (act === 'data') return await orderData(env, request, url, body);
+      if (act === 'save') return await orderSave(env, request, url, body);
+      if (act === 'clear') return await orderClear(env, request, url, body);
+      if (act === 'exportImpact') return await orderExportImpact(env, request, url, body, manage);
+      if (act === 'export') return await orderExport(env, request, url, body, manage);
+    } catch (e) {
+      return apiErr(e && e.message ? String(e.message) : '操作失败');
+    }
+  }
+  // 用户
+  if (ctl === 'user') {
+    try {
+      if (act === 'data') return await userData(env, request, url, body);
+      if (act === 'save') return await userSave(env, request, url, body);
+      if (act === 'recharge') return await userRecharge(env, request, url, body, manage, 0);
+      if (act === 'coin') return await userRecharge(env, request, url, body, manage, 1);
+      if (act === 'statistics') return await userStatistics(env, request, url, body);
+      if (act === 'del') return await userDel(env, request, url, body);
+    } catch (e) {
+      return apiErr(e && e.message ? String(e.message) : '操作失败');
+    }
+  }
+  // 充值订单
+  if (ctl === 'recharge') {
+    try {
+      if (act === 'data') return await rechargeData(env, request, url, body);
+      if (act === 'success') return await rechargeSuccess(env, request, url, body);
+      if (act === 'clear') return await rechargeClear(env, request, url, body);
     } catch (e) {
       return apiErr(e && e.message ? String(e.message) : '操作失败');
     }
