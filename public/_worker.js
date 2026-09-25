@@ -1171,13 +1171,13 @@ function renderAuthHeader(v) {
     <link href="${favicon}?v=${app.version}" rel="icon">
     <title>${htmlEscape(title)} - ${htmlEscape(config.shop_name)}</title>
     ${CSS_AUTH.map((f) => `<link href="${f}" rel="stylesheet">`).join("")}
-    <script src="/assets/common/js/ready.js"><\/script>
+    <script src="/assets/common/js/ready.js"></script>
     ${indexVar(0, config)}
 </head>
 <body style="background-size: cover;background-image: linear-gradient(180deg, rgb(255 255 255 / 0%), rgb(255 255 255 / 71%)), url('${htmlEscape(config.background_url || "")}')">`;
 }
 function renderAuthFooter() {
-  return `${JS_AUTH.map((f) => `<script src="${f}"><\/script>`).join("")}
+  return `${JS_AUTH.map((f) => `<script src="${f}"></script>`).join("")}
 </body>
 </html>`;
 }
@@ -1241,7 +1241,7 @@ function pageLogin(v) {
         ${regLink}
     </div>
 </main>
-<script src="/assets/user/controller/auth/login.js"><\/script>`;
+<script src="/assets/user/controller/auth/login.js"></script>`;
 }
 function pageRegister(v) {
   const { config } = v;
@@ -1333,7 +1333,7 @@ function pageRegister(v) {
 
     </div>
 </main>
-<script src="/assets/user/controller/auth/register.js"><\/script>`;
+<script src="/assets/user/controller/auth/register.js"></script>`;
 }
 function userCenterShell(v, body) {
   const { config, user } = v;
@@ -1438,7 +1438,7 @@ function pagePurchaseRecord(v) {
         tbody.innerHTML = html;
       });
     })();
-    <\/script>`;
+    </script>`;
   return userCenterShell(v, body);
 }
 function pageRecharge(v) {
@@ -1489,7 +1489,7 @@ function pageRecharge(v) {
             })
             .catch(function(){ alert('\u7F51\u7EDC\u9519\u8BEF'); btn.disabled = false; });
         });
-        <\/script>` : `<div class="text-muted">\u5145\u503C\u529F\u80FD\u672A\u5F00\u542F</div>`}
+        </script>` : `<div class="text-muted">\u5145\u503C\u529F\u80FD\u672A\u5F00\u542F</div>`}
       </div>
     </div>`;
   return userCenterShell(v, body);
@@ -1536,7 +1536,7 @@ function pageSecurity(v) {
             })
             .catch(function(){ btn.disabled = false; alert('\u7F51\u7EDC\u9519\u8BEF'); });
         });
-        <\/script>
+        </script>
       </div>
     </div>`;
   return userCenterShell(v, body);
@@ -1570,7 +1570,7 @@ function pageBill(v) {
         tbody.innerHTML = html;
       });
     })();
-    <\/script>`;
+    </script>`;
   return userCenterShell(v, body);
 }
 
