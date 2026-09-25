@@ -1892,3 +1892,277 @@ export function renderAdminCouponPage(cfg, manage) {
 
   return renderCrudPage({ cfg, manage, title: '优惠券', activePath: '/admin/coupon/index', body, readyJs: js });
 }
+
+// 工单管理
+export function renderAdminTicketPage(cfg, manage) {
+  const body = `
+<div class="row g-5 mb-5 gx-5 gy-3">
+  <div class="col-sm-6 col-xl-2"><div class="ticket-stat-card pending_admin card card-flush py-4 px-4">
+    <div class="d-flex flex-wrap gap-3 justify-content-between align-items-center">
+      <div><div class="fs-7 fw-bold text-muted">待客服回复</div><div class="fs-2hx fw-bolder text-danger ticket-stat-num" data-stat="pending_admin">0</div></div>
+      <div class="symbol symbol-32px symbol-circle bg-light-danger text-danger"><span class="fs-3 fw-bolder">待</span></div>
+    </div></div></div>
+  <div class="col-sm-6 col-xl-2"><div class="ticket-stat-card pending_user card card-flush py-4 px-4">
+    <div class="d-flex flex-wrap gap-3 justify-content-between align-items-center">
+      <div><div class="fs-7 fw-bold text-muted">待用户回复</div><div class="fs-2hx fw-bolder text-warning ticket-stat-num" data-stat="pending_user">0</div></div>
+      <div class="symbol symbol-32px symbol-circle bg-light-warning text-warning"><span class="fs-3 fw-bolder">待</span></div>
+    </div></div></div>
+  <div class="col-sm-6 col-xl-2"><div class="ticket-stat-card resolved card card-flush py-4 px-4">
+    <div class="d-flex flex-wrap gap-3 justify-content-between align-items-center">
+      <div><div class="fs-7 fw-bold text-muted">已解决</div><div class="fs-2hx fw-bolder text-success ticket-stat-num" data-stat="resolved">0</div></div>
+      <div class="symbol symbol-32px symbol-circle bg-light-success text-success"><span class="fs-3 fw-bolder">解</span></div>
+    </div></div></div>
+  <div class="col-sm-6 col-xl-2"><div class="ticket-stat-card closed card card-flush py-4 px-4">
+    <div class="d-flex flex-wrap gap-3 justify-content-between align-items-center">
+      <div><div class="fs-7 fw-bold text-muted">已关闭</div><div class="fs-2hx fw-bolder text-muted ticket-stat-num" data-stat="closed">0</div></div>
+      <div class="symbol symbol-32px symbol-circle bg-light-secondary text-secondary"><span class="fs-3 fw-bolder">关</span></div>
+    </div></div></div>
+  <div class="col-sm-6 col-xl-2"><div class="ticket-stat-card today card card-flush py-4 px-4">
+    <div class="d-flex flex-wrap gap-3 justify-content-between align-items-center">
+      <div><div class="fs-7 fw-bold text-muted">今日新增</div><div class="fs-2hx fw-bolder text-primary ticket-stat-num" data-stat="today">0</div></div>
+      <div class="symbol symbol-32px symbol-circle bg-light-primary text-primary"><span class="fs-3 fw-bolder">今</span></div>
+    </div></div></div>
+  <div class="col-sm-6 col-xl-2"><div class="ticket-stat-card total card card-flush py-4 px-4">
+    <div class="d-flex flex-wrap gap-3 justify-content-between align-items-center">
+      <div><div class="fs-7 fw-bold text-muted">工单总数</div><div class="fs-2hx fw-bolder ticket-stat-num" data-stat="total">0</div></div>
+      <div class="symbol symbol-32px symbol-circle bg-light-info text-info"><span class="fs-3 fw-bolder">总</span></div>
+    </div></div></div>
+</div>
+<div class="card mb-5 mb-xl-8">
+  <div class="card-header border-0 py-4">
+    <div class="card-title">
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        <select class="form-select form-select-sm w-auto tk-f-status"><option value="">全部状态</option><option value="0">待客服回复</option><option value="1">待用户回复</option><option value="2">已解决</option><option value="3">已关闭</option></select>
+        <select class="form-select form-select-sm w-auto tk-f-type"><option value="">全部类型</option><option value="0">售前咨询</option><option value="1">售后支持</option></select>
+        <select class="form-select form-select-sm w-auto tk-f-priority"><option value="">全部优先级</option><option value="2">高</option><option value="1">中</option><option value="0">低</option></select>
+        <select class="form-select form-select-sm w-auto tk-f-uid" title="按用户ID"><option value="">全部用户</option></select>
+        <input class="form-control form-control-sm w-auto tk-f-keyword" placeholder="单号/标题/商品/订单号/用户名">
+        <button class="btn btn-sm btn-light-primary tk-search"><i class="fa-duotone fa-regular fa-magnifying-glass"></i> 搜索</button>
+      </div>
+    </div>
+    <div class="card-toolbar">
+      <button class="btn btn-sm btn-light-danger tk-del-all me-3"><i class="fa-duotone fa-regular fa-trash-can"></i> 删除选中</button>
+      <button class="btn btn-sm btn-light-primary tk-refresh"><i class="fa-duotone fa-regular fa-rotate"></i> 刷新</button>
+    </div>
+  </div>
+  <div class="card-body py-3">
+    <div class="table-responsive">
+      <table class="table table-row-bordered table-row-gray-200 align-middle gs-0 gy-3" id="ticket-table">
+        <thead><tr class="fw-bold text-muted">
+          <th style="width:40px"><input type="checkbox" class="crud-check-all"></th>
+          <th>工单号</th><th>标题</th><th>用户</th><th>类型</th><th>优先级</th><th>状态</th><th>最后消息</th><th>最后时间</th><th>操作</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="d-flex flex-stack flex-wrap pt-5">
+      <div class="fs-7 fw-bold text-muted crud-pageinfo">第 1 页 / 共 0 条</div>
+      <div class="d-flex align-items-center">
+        <button class="btn btn-sm btn-light crud-prev me-2">上一页</button>
+        <button class="btn btn-sm btn-light crud-next">下一页</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" tabindex="-1" id="ticketModal"><div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+  <div class="modal-header py-3">
+    <h5 class="modal-title ticket-title">工单详情</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body">
+    <div class="row g-3 mb-4">
+      <div class="col-md-3"><label class="form-label text-muted">工单号</label><div class="fw-bolder ticket-meta-no">-</div></div>
+      <div class="col-md-3"><label class="form-label text-muted">用户</label><div class="fw-bolder ticket-meta-user">-</div></div>
+      <div class="col-md-2"><label class="form-label text-muted">类型</label><div class="fw-bolder ticket-meta-type">-</div></div>
+      <div class="col-md-2"><label class="form-label text-muted">优先级</label><div class="fw-bolder ticket-meta-priority">-</div></div>
+      <div class="col-md-2"><label class="form-label text-muted">状态</label><div class="fw-bolder ticket-meta-status">-</div></div>
+      <div class="col-md-6"><label class="form-label text-muted">商品</label><div class="ticket-meta-commodity">-</div></div>
+      <div class="col-md-6"><label class="form-label text-muted">关联订单</label><div class="ticket-meta-order">-</div></div>
+      <div class="col-md-6"><label class="form-label text-muted">创建时间</label><div class="ticket-meta-created">-</div></div>
+      <div class="col-md-6"><label class="form-label text-muted">关闭时间</label><div class="ticket-meta-closed">-</div></div>
+    </div>
+    <div class="separator border-2 my-4"></div>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <div class="fs-6 fw-bold">会话消息</div>
+      <div><button class="btn btn-sm btn-light-primary tk-history-prev">加载更早</button></div>
+    </div>
+    <div class="ticket-messages bg-light rounded p-3 mb-4" style="max-height:420px;overflow-y:auto"></div>
+    <div class="separator border-2 my-4"></div>
+    <label class="form-label fw-bold">回复内容</label>
+    <textarea class="form-control ticket-reply-content mb-3" rows="3" placeholder="请输入回复内容..."></textarea>
+    <div class="text-muted fs-8 mb-3">允许少量 HTML；回复图片功能在当前环境不可用。</div>
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn btn-light-danger ticket-delete me-auto" data-bs-dismiss="modal">删除工单</button>
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+    <button type="button" class="btn btn-light-warning ticket-close">关闭工单</button>
+    <button type="button" class="btn btn-light-success ticket-resolve">回复并解决</button>
+    <button type="button" class="btn btn-primary ticket-reply">回复</button>
+  </div>
+</div></div></div>`;
+
+  const js = `
+  ready(() => {
+    const tbody = document.getElementById('ticket-table').querySelector('tbody');
+    const API = '/admin/api/ticket/';
+    let page = 1, pageSize = 20, currentId = 0;
+    const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const badge = (txt, kind) => '<span class="badge badge-light-' + kind + '">' + txt + '</span>';
+    const statusBadge = st => Number(st) === 0 ? badge('待客服回复', 'danger') : Number(st) === 1 ? badge('待用户回复', 'warning') : Number(st) === 2 ? badge('已解决', 'success') : badge('已关闭', 'secondary');
+    const typeBadge = t => Number(t) === 1 ? badge('售后支持', 'info') : badge('售前咨询', 'primary');
+    const priorityBadge = p => Number(p) === 2 ? badge('高', 'danger') : Number(p) === 1 ? badge('中', 'warning') : badge('低', 'secondary');
+    const senderBadge = s => Number(s) === 1 ? badge('管理员', 'primary') : Number(s) === 2 ? badge('系统', 'dark') : badge('用户', 'info');
+    const filters = () => {
+      const d = { page, limit: pageSize };
+      const st = document.querySelector('.tk-f-status').value;
+      const ty = document.querySelector('.tk-f-type').value;
+      const pr = document.querySelector('.tk-f-priority').value;
+      const uid = document.querySelector('.tk-f-uid').value;
+      const kw = document.querySelector('.tk-f-keyword').value.trim();
+      if (st !== '') d['equal-status'] = st;
+      if (ty !== '') d['equal-type'] = ty;
+      if (pr !== '') d['equal-priority'] = pr;
+      if (uid !== '') d['equal-user_id'] = uid;
+      if (kw) d.keyword = kw;
+      return d;
+    };
+    function load() {
+      util.post({ url: API + 'data', data: filters(), loader: false,
+        done: res => {
+          const d = res.data || {};
+          const st = d.stats || {};
+          [['pending_admin','pending_admin'],['pending_user','pending_user'],['resolved','resolved'],['closed','closed'],['today','today']].forEach(([attr]) => {
+            document.querySelector('.ticket-stat-num[data-stat="' + attr + '"]').textContent = Number(st[attr] || 0);
+          });
+          document.querySelector('.ticket-stat-num[data-stat="total"]').textContent = Number(d.count || 0);
+          tbody.innerHTML = '';
+          (d.list || []).forEach(t => {
+            const tr = document.createElement('tr');
+            tr.dataset.id = t.id;
+            tr.innerHTML = '<td><input type="checkbox" class="crud-check"></td>' +
+              '<td><code>' + esc(t.ticket_no) + '</code></td>' +
+              '<td class="fw-bold">' + esc(t.title) + '</td>' +
+              '<td>' + (t.user ? esc(t.user.username) : '#' + t.user_id) + '</td>' +
+              '<td>' + typeBadge(t.type) + '</td>' +
+              '<td>' + priorityBadge(t.priority) + '</td>' +
+              '<td>' + statusBadge(t.status) + (Number(t.manage_unread) > 0 ? ' <span class="badge badge-light-dark">新</span>' : '') + '</td>' +
+              '<td><div class="text-truncate" style="max-width:240px">' + (t.last_sender_text ? senderBadge(t.last_sender_type) + ' ' : '') + esc(t.last_message_excerpt || '-') + '</div></td>' +
+              '<td><small>' + (t.last_message_time ? new Date(t.last_message_time * 1000).toLocaleString() : '-') + '</small></td>' +
+              '<td><div class="d-flex gap-1">' +
+              '<button class="btn btn-sm btn-light-primary row-view">详情</button>' +
+              '<button class="btn btn-sm btn-light-danger row-del">删除</button>' +
+              '</div></td>';
+            tbody.appendChild(tr);
+          });
+          document.querySelector('.crud-pageinfo').textContent = '第 ' + page + ' 页 / 共 ' + (d.count || 0) + ' 条';
+        },
+        error: res => message.error(res.msg) });
+    }
+    function selected() { return [...tbody.querySelectorAll('.crud-check:checked')].map(x => x.closest('tr').dataset.id); }
+    function messageItem(m) {
+      const wrap = document.createElement('div');
+      wrap.className = 'd-flex gap-2 mb-3' + (Number(m.sender_type) === 1 ? ' flex-row-reverse' : '');
+      wrap.innerHTML = '<div class="border rounded p-3 bg-white" style="max-width:80%">' +
+        '<div class="d-flex justify-content-between align-items-center gap-3 mb-1">' +
+        '<span class="fw-bold fs-8">' + senderBadge(m.sender_type) + ' ' + esc(m.sender_name) + '</span>' +
+        '<small class="text-muted">' + new Date(Number(m.create_time) * 1000).toLocaleString() + '</small></div>' +
+        '<div class="ticket-message-content">' + (m.content || '') + '</div></div>';
+      return wrap;
+    }
+    function openDetail(id) {
+      currentId = Number(id);
+      util.post({ url: API + 'detail', data: { id: currentId, limit: 30 }, loader: false, done: res => {
+        const t = res.data.ticket;
+        document.querySelector('.ticket-title').textContent = '工单详情 - ' + t.ticket_no;
+        document.querySelector('.ticket-meta-no').textContent = t.ticket_no;
+        document.querySelector('.ticket-meta-user').textContent = t.user_id + (t.user ? ' (' + esc(t.user.username) + ')' : '');
+        document.querySelector('.ticket-meta-type').textContent = t.type_text;
+        document.querySelector('.ticket-meta-priority').textContent = t.priority_text;
+        document.querySelector('.ticket-meta-status').innerHTML = statusBadge(t.status);
+        document.querySelector('.ticket-meta-commodity').textContent = t.commodity_name ? esc(t.commodity_name) + (t.commodity ? ' (ID ' + t.commodity.id + ')' : '') : '无';
+        document.querySelector('.ticket-meta-order').innerHTML = t.order ? (esc(t.order.trade_no) + '<small class="text-muted ms-2">¥' + Number(t.order.amount || 0).toFixed(2) + '</small>') : (t.order_trade_no ? esc(t.order_trade_no) + ' <span class="badge badge-light-warning">' + (t.order_verification_pending ? '待核验' : '') + '</span>' : '无关联订单');
+        document.querySelector('.ticket-meta-created').textContent = t.create_time ? new Date(t.create_time * 1000).toLocaleString() : '-';
+        document.querySelector('.ticket-meta-closed').textContent = t.closed_time ? new Date(t.closed_time * 1000).toLocaleString() : '-';
+        const box = document.querySelector('.ticket-messages');
+        box.innerHTML = '';
+        (res.data.messages || []).forEach(m => box.appendChild(messageItem(m)));
+        box.scrollTop = box.scrollHeight;
+        document.querySelector('.tk-history-prev').style.display = res.data.has_more ? '' : 'none';
+        document.querySelector('.ticket-reply').disabled = Number(t.status) >= 2;
+        document.querySelector('.ticket-resolve').disabled = Number(t.status) >= 2;
+        document.querySelector('.ticket-close').disabled = Number(t.status) >= 2;
+        document.querySelector('.ticket-delete').dataset.id = t.id;
+        (window.bootstrap && bootstrap.Modal.getOrCreateInstance(document.getElementById('ticketModal'))).show();
+      }, error: res => message.error(res.msg) });
+    }
+    function loadHistory() {
+      if (!currentId) return;
+      const box = document.querySelector('.ticket-messages');
+      const first = box.querySelector('.ticket-message-content');
+      let beforeId = 0;
+      const firstMsg = box.querySelector('[data-mid]');
+      if (firstMsg) beforeId = Number(firstMsg.dataset.mid);
+      util.post({ url: API + 'messages', data: { id: currentId, before_id: beforeId, limit: 30 }, loader: false, done: res => {
+        const items = res.data.list || [];
+        const list = document.createElement('div');
+        let before = 0;
+        items.forEach(m => {
+          const el = messageItem(m);
+          el.setAttribute('data-mid', m.id);
+          list.appendChild(el);
+          before = m.id;
+        });
+        box.insertBefore(list.firstChild ? list : document.createTextNode(''), box.firstChild);
+        if (items.length) {
+          const all = box.querySelectorAll('[data-mid]');
+          all.forEach(el => el.removeAttribute('data-mid'));
+          const arr = [...all].map(el => Number(el.dataset.mid));
+        }
+        document.querySelector('.tk-history-prev').style.display = res.data.has_more ? '' : 'none';
+        box.scrollTop = box.scrollHeight;
+      }, error: res => message.error(res.msg) });
+    }
+    function setReplyDraft(kind) {
+      if (kind === 'resolve') document.querySelector('.ticket-reply-content').value = '';
+    }
+    function doReply(mode) {
+      const content = document.querySelector('.ticket-reply-content').value.trim();
+      if (!currentId) return;
+      if (!content && mode !== 'resolve') { message.error('请输入回复内容'); return; }
+      util.post({ url: API + 'reply', data: { id: currentId, content, mode }, done: res => {
+        message.success(res.msg);
+        document.querySelector('.ticket-reply-content').value = '';
+        openDetail(currentId);
+        load();
+      }, error: res => message.error(res.msg) });
+    }
+    function confirmDel(ids, tip) {
+      if (!ids.length) { message.error('请选择要删除的工单'); return; }
+      if (!confirm((tip || '确认删除 ') + ids.length + ' 个工单（含全部消息）？')) return;
+      util.post({ url: API + 'del', data: { list: ids }, done: r => { message.success(r.msg); if (currentId) { currentId = 0; bootstrap.Modal.getOrCreateInstance(document.getElementById('ticketModal')).hide(); } load(); }, error: r => message.error(r.msg) });
+    }
+    document.querySelector('.crud-check-all').addEventListener('change', e => tbody.querySelectorAll('.crud-check').forEach(x => x.checked = e.target.checked));
+    document.querySelector('.tk-search').addEventListener('click', () => { page = 1; load(); });
+    document.querySelector('.tk-refresh').addEventListener('click', () => load());
+    document.querySelector('.tk-f-keyword').addEventListener('keydown', e => { if (e.key === 'Enter') { page = 1; load(); } });
+    document.querySelector('.crud-prev').addEventListener('click', () => { if (page > 1) { page--; load(); } });
+    document.querySelector('.crud-next').addEventListener('click', () => { page++; load(); });
+    document.querySelector('.tk-del-all').addEventListener('click', () => confirmDel(selected(), '确认删除选中工单 '));
+    document.querySelector('.ticket-reply').addEventListener('click', () => doReply('reply'));
+    document.querySelector('.ticket-resolve').addEventListener('click', () => { if (confirm('回复并标记为已解决？')) doReply('resolve'); });
+    document.querySelector('.ticket-close').addEventListener('click', () => {
+      if (!confirm('确认关闭工单？关闭后用户无法继续回复。')) return;
+      util.post({ url: API + 'close', data: { id: currentId }, done: r => { message.success(r.msg); openDetail(currentId); load(); }, error: r => message.error(r.msg) });
+    });
+    document.querySelector('.ticket-delete').addEventListener('click', () => confirmDel([currentId], '确认删除该工单 '));
+    document.querySelector('.tk-history-prev').addEventListener('click', () => loadHistory());
+    tbody.addEventListener('click', e => {
+      const tr = e.target.closest('tr'); if (!tr) return;
+      const id = tr.dataset.id;
+      if (e.target.closest('.row-view')) openDetail(id);
+      else if (e.target.closest('.row-del')) confirmDel([id], '确认删除工单 ');
+    });
+    load();
+  });`;
+
+  return renderCrudPage({ cfg, manage, title: '工单管理', activePath: '/admin/ticket/index', body, readyJs: js });
+}

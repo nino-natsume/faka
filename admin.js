@@ -1560,6 +1560,296 @@ export async function couponExport(env, request, url, body = {}, manage) {
   return new Response(content, { status: 200, headers: { 'Content-Type': 'text/plain; charset=UTF-8', 'Content-Disposition': `attachment; filename=coupons-${count}-${stamp}.txt` } });
 }
 
+// ============================================================
+// 工单管理 (后台) — 对齐原版 Ticket.php + Ticket Service
+//   data/detail/messages/reply/close/del/badge/upload
+// 状态: 0=待客服回复 1=待用户回复 2=已解决 3=已关闭
+// 类型: 0=售前咨询 1=售后支持; 优先级: 0=低 1=中 2=高
+// 排序: CASE status WHEN 0 THEN 0 WHEN 1 THEN 1 ELSE 2 END, priority DESC, last_message_time DESC, id DESC
+// ============================================================
+const TICKET_MAX_EXCERPTS = 120;
+
+async function ticketStats(env, baseWhere = '', ...baseParams) {
+  const counts = { pending_admin: 0, pending_user: 0, resolved: 0, closed: 0, today: 0 };
+  const rows = await dbRows(env, `SELECT status, COUNT(*) AS n FROM acg_ticket${baseWhere} GROUP BY status`, ...baseParams);
+  for (const r of rows) {
+    const st = Number(r.status);
+    if (st === 0) counts.pending_admin = Number(r.n);
+    else if (st === 1) counts.pending_user = Number(r.n);
+    else if (st === 2) counts.resolved = Number(r.n);
+    else if (st === 3) counts.closed = Number(r.n);
+  }
+  const nowD = new Date();
+  const dayStart = Math.floor(new Date(nowD.getFullYear(), nowD.getMonth(), nowD.getDate()).getTime() / 1000);
+  const dayEnd = dayStart + 86400 - 1;
+  const todayRow = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_ticket${baseWhere ? baseWhere + ' AND ' : ' WHERE '}create_time BETWEEN ? AND ?`, ...baseParams, dayStart, dayEnd);
+  counts.today = todayRow ? Number(todayRow.n) : 0;
+  return counts;
+}
+
+function ticketTypeText(t) { return Number(t) === 1 ? '售后支持' : '售前咨询'; }
+function ticketPriorityText(p) { return Number(p) === 2 ? '高' : (Number(p) === 1 ? '中' : '低'); }
+function ticketStatusText(s) {
+  const v = Number(s);
+  if (v === 1) return '待用户回复';
+  if (v === 2) return '已解决';
+  if (v === 3) return '已关闭';
+  return '待客服回复';
+}
+function ticketSenderText(s) {
+  const v = Number(s);
+  if (v === 1) return '管理员';
+  if (v === 2) return '系统';
+  return '用户';
+}
+function ticketOrderSourceText(src) {
+  if (Number(src) === 1) return '会员订单';
+  if (Number(src) === 2) return '游客订单（待人工核验）';
+  return '无关联订单';
+}
+function ticketExcerpt(content) {
+  const c = String(content || '');
+  const plain = c.replace(/<img\b[^>]*>/gi, ' [图片] ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  return plain.length > TICKET_MAX_EXCERPTS ? plain.slice(0, TICKET_MAX_EXCERPTS) : plain;
+}
+function ticketParseTime(v) {
+  if (v === undefined || v === null || v === '') return null;
+  const s = String(v).trim();
+  if (/^\d{13}$/.test(s)) return Math.floor(Number(s) / 1000);
+  if (/^\d{10}$/.test(s)) return Number(s);
+  const ts = Date.parse(s.replace('T', ' ').replace(/-/g, '/'));
+  return isNaN(ts) ? null : Math.floor(ts / 1000);
+}
+
+async function ticketApplyFilters(env, body = {}) {
+  const wheres = [];
+  const params = [];
+  const statusVal = body['equal-status'] !== undefined && body['equal-status'] !== '' ? body['equal-status'] : body.status;
+  if (statusVal !== undefined && statusVal !== '' && [0, 1, 2, 3].includes(Number(statusVal))) { wheres.push('status=?'); params.push(String(Number(statusVal))); }
+  const typeVal = body['equal-type'] !== undefined && body['equal-type'] !== '' ? body['equal-type'] : body.type;
+  if (typeVal !== undefined && typeVal !== '' && [0, 1].includes(Number(typeVal))) { wheres.push('type=?'); params.push(String(Number(typeVal))); }
+  const priorityVal = body['equal-priority'] !== undefined && body['equal-priority'] !== '' ? body['equal-priority'] : body.priority;
+  if (priorityVal !== undefined && priorityVal !== '' && [0, 1, 2].includes(Number(priorityVal))) { wheres.push('priority=?'); params.push(String(Number(priorityVal))); }
+  const userIdVal = body['equal-user_id'] !== undefined && body['equal-user_id'] !== '' ? body['equal-user_id'] : body.user_id;
+  if (userIdVal !== undefined && userIdVal !== '' && Number(userIdVal) > 0) { wheres.push('user_id=?'); params.push(String(Number(userIdVal))); }
+  const tradeNo = String(body.order_trade_no || '').trim();
+  if (tradeNo !== '') { wheres.push('order_trade_no LIKE ?'); params.push(`%${tradeNo}%`); }
+  const startTs = ticketParseTime(body['betweenStart-create_time'] ?? body.create_time_start);
+  if (startTs !== null) { wheres.push('create_time >= ?'); params.push(String(startTs)); }
+  const endTs = ticketParseTime(body['betweenEnd-create_time'] ?? body.create_time_end);
+  if (endTs !== null) { wheres.push('create_time <= ?'); params.push(String(endTs)); }
+  const keyword = String(body.keyword ?? body.keywords ?? '').trim();
+  if (keyword !== '') {
+    const kw = `%${keyword}%`;
+    wheres.push(`(ticket_no LIKE ? OR title LIKE ? OR commodity_name LIKE ? OR order_trade_no LIKE ? OR user_id IN (SELECT id FROM acg_user WHERE username LIKE ?))`);
+    params.push(kw, kw, kw, kw, kw);
+  }
+  return { where: wheres.length ? ' WHERE ' + wheres.join(' AND ') : '', params };
+}
+
+async function ticketNormalize(env, r, { detail = false } = {}) {
+  const user = r.user_id ? await dbFirst(env, 'SELECT id, username, avatar FROM acg_user WHERE id=?', r.user_id) : null;
+  const commodity = r.commodity_id ? await dbFirst(env, 'SELECT id, name, cover FROM acg_commodity WHERE id=?', r.commodity_id) : null;
+  const order = r.order_id ? await dbFirst(env, 'SELECT id, owner, trade_no, amount, card_num, status, delivery_status, create_time, pay_time FROM acg_order WHERE id=?', r.order_id) : null;
+  const closedBy = r.closed_by ? await dbFirst(env, 'SELECT id, nickname, avatar FROM acg_manage WHERE id=?', r.closed_by) : null;
+  const guestRedacted = Number(r.order_source) === 2;
+  const commodityData = !guestRedacted && commodity ? { id: Number(commodity.id), name: String(r.commodity_name || commodity.name || ''), cover: String(commodity.cover || '') } : null;
+  let orderData = null;
+  if (order && !guestRedacted) {
+    orderData = {
+      id: Number(order.id), trade_no: String(order.trade_no), create_time: order.create_time,
+      amount: Number(order.amount ?? 0), card_num: Number(order.card_num || 0),
+      status: Number(order.status ?? 0), delivery_status: Number(order.delivery_status ?? 0), pay_time: order.pay_time,
+    };
+  }
+  const d = {
+    id: Number(r.id),
+    ticket_no: String(r.ticket_no),
+    user_id: Number(r.user_id),
+    type: Number(r.type),
+    type_text: ticketTypeText(r.type),
+    priority: Number(r.priority ?? 1),
+    priority_text: ticketPriorityText(r.priority),
+    status: Number(r.status ?? 0),
+    status_text: ticketStatusText(r.status),
+    title: String(r.title || ''),
+    commodity_id: guestRedacted ? null : (r.commodity_id ?? null),
+    commodity_name: guestRedacted ? null : (r.commodity_name ?? null),
+    order_id: guestRedacted ? null : (r.order_id ?? null),
+    order_trade_no: String(r.order_trade_no || ''),
+    order_source: Number(r.order_source ?? 0),
+    order_source_text: ticketOrderSourceText(r.order_source),
+    order_verification_pending: guestRedacted,
+    last_message_id: r.last_message_id ?? null,
+    last_sender_type: r.last_sender_type ?? null,
+    last_sender_text: ticketSenderText(r.last_sender_type),
+    last_message_excerpt: String(r.last_message_excerpt || ''),
+    last_message_time: r.last_message_time ?? null,
+    user_unread: Number(r.user_unread ?? 0),
+    manage_unread: Number(r.manage_unread ?? 0),
+    closed_by: r.closed_by ?? null,
+    closed_time: r.closed_time ?? null,
+    create_time: r.create_time,
+    update_time: r.update_time,
+    user: user ? { id: Number(user.id), username: String(user.username || ''), avatar: String(user.avatar || '') } : null,
+    commodity: commodityData,
+    order: orderData,
+    context: {
+      commodity: commodityData,
+      commodity_name: guestRedacted ? null : (r.commodity_name ?? null),
+      order: orderData,
+      order_trade_no: String(r.order_trade_no || ''),
+      order_source: Number(r.order_source ?? 0),
+      order_source_text: ticketOrderSourceText(r.order_source),
+      order_verification_pending: guestRedacted,
+    },
+    closed_by_manage: closedBy ? { id: Number(closedBy.id), nickname: String(closedBy.nickname || ''), avatar: String(closedBy.avatar || '') } : null,
+  };
+  if (detail) {
+    d.proof_upload_id = r.proof_upload_id ?? null;
+    d.proof_path = String(r.proof_path || '');
+    d.proof = r.proof_path ? { upload_id: r.proof_upload_id ?? null, url: String(r.proof_path) } : null;
+  }
+  return d;
+}
+
+function ticketNormalizeMessage(m) {
+  return {
+    id: Number(m.id),
+    sender_type: Number(m.sender_type),
+    sender_name: String(m.sender_name || ''),
+    kind: Number(m.kind ?? 0),
+    content: String(m.content ?? ''),
+    create_time: m.create_time,
+  };
+}
+
+// 工单列表
+export async function ticketData(env, request, url, body = {}) {
+  const page = Math.max(1, Number(body.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(body.limit) || 20));
+  const { where, params } = await ticketApplyFilters(env, body);
+  const stats = await ticketStats(env, where, ...params);
+  const total = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_ticket${where}`, ...params);
+  const count = total ? Number(total.n) : 0;
+  const rows = await dbRows(env, `SELECT * FROM acg_ticket${where} ORDER BY CASE status WHEN 0 THEN 0 WHEN 1 THEN 1 ELSE 2 END, priority DESC, last_message_time DESC, id DESC LIMIT ? OFFSET ?`, ...params, pageSize, (page - 1) * pageSize);
+  const list = [];
+  for (const r of rows) list.push(await ticketNormalize(env, r));
+  return apiOk('success', { list, page, limit: pageSize, count, records: count, total: count, stats });
+}
+
+// 工单详情 + 最近消息
+export async function ticketDetail(env, request, url, body = {}) {
+  const id = Number(body.id) || 0;
+  if (id <= 0) throw new Error('请选择工单');
+  const r = await dbFirst(env, 'SELECT * FROM acg_ticket WHERE id=?', id);
+  if (!r) throw new Error('工单不存在');
+  const limit = Math.min(100, Math.max(1, Number(body.limit) || 30));
+  const msgRows = await dbRows(env, 'SELECT * FROM acg_ticket_message WHERE ticket_id=? ORDER BY id DESC LIMIT ?', id, limit + 1);
+  let hasMore = msgRows.length > limit;
+  if (hasMore) msgRows.pop();
+  msgRows.reverse();
+  await dbRun(env, 'UPDATE acg_ticket SET manage_unread=0 WHERE id=?', id);
+  return apiOk('success', { ticket: await ticketNormalize(env, r, { detail: true }), messages: msgRows.map(ticketNormalizeMessage), has_more: hasMore });
+}
+
+// 增量消息
+export async function ticketMessages(env, request, url, body = {}) {
+  const id = Number(body.id) || 0;
+  if (id <= 0) throw new Error('请选择工单');
+  const r = await dbFirst(env, 'SELECT * FROM acg_ticket WHERE id=?', id);
+  if (!r) throw new Error('工单不存在');
+  const afterId = Math.max(0, Number(body.after_id) || 0);
+  const beforeId = Math.max(0, Number(body.before_id) || 0);
+  const limit = Math.min(100, Math.max(1, Number(body.limit) || 50));
+  await dbRun(env, 'UPDATE acg_ticket SET manage_unread=0 WHERE id=?', id);
+  if (beforeId > 0) {
+    let items = await dbRows(env, 'SELECT * FROM acg_ticket_message WHERE ticket_id=? AND id < ? ORDER BY id DESC LIMIT ?', id, beforeId, limit + 1);
+    let hasMore = items.length > limit;
+    if (hasMore) items.pop();
+    items.reverse();
+    return apiOk('success', { list: items.map(ticketNormalizeMessage), status: Number(r.status ?? 0), last_message_time: r.last_message_time, has_more: hasMore });
+  }
+  const items = await dbRows(env, 'SELECT * FROM acg_ticket_message WHERE ticket_id=? AND id > ? ORDER BY id ASC LIMIT ?', id, afterId, limit);
+  return apiOk('success', { list: items.map(ticketNormalizeMessage), status: Number(r.status ?? 0), last_message_time: r.last_message_time, has_more: false });
+}
+
+// 回复 / 解决
+export async function ticketReply(env, request, url, body = {}, manage) {
+  const id = Number(body.id) || 0;
+  const content = String(body.content || '').trim();
+  const mode = String(body.mode || 'reply').toLowerCase();
+  if (id <= 0) throw new Error('请选择工单');
+  if (!['reply', 'resolve'].includes(mode)) throw new Error('未知的回复方式');
+  const ticket = await dbFirst(env, 'SELECT * FROM acg_ticket WHERE id=?', id);
+  if (!ticket) throw new Error('工单不存在');
+  if (Number(ticket.status) >= 2) throw new Error('工单已结束，无法继续回复');
+  const clean = String(content).replace(/<img[^>]*src=(["'])(\/assets\/cache\/(?:user\/[0-9]+|general)\/ticket\/[A-Za-z0-9._-]+)\1[^>]*>/gi, '$2');
+  if (content === '') throw new Error('回复内容为空或过长');
+  const plain = ticketExcerpt(content);
+  if (plain === '') throw new Error('请填写内容或插入图片');
+  const name = String(manage.nickname || manage.email || '管理员');
+  const kind = mode === 'resolve' ? 1 : 0;
+  const lastId = await dbInsert(env, 'acg_ticket_message', { ticket_id: id, sender_type: 1, sender_id: Number(manage.id), sender_name: String(name).slice(0, 32), kind, content, create_ip: requestInfo(request).ip, create_time: now() });
+  const newStatus = mode === 'resolve' ? 2 : 1;
+  const closedBy = mode === 'resolve' ? Number(manage.id) : ticket.closed_by;
+  const closedTime = mode === 'resolve' ? now() : ticket.closed_time;
+  await dbUpdate(env, 'acg_ticket', { last_message_id: lastId, last_sender_type: 1, last_message_excerpt: ticketExcerpt(content), last_message_time: now(), update_time: now(), status: newStatus, closed_by: closedBy, closed_time: closedTime, manage_unread: 0, user_unread: Math.min(4294967295, Number(ticket.user_unread || 0) + 1) }, 'id=?', id);
+  const fresh = await dbFirst(env, 'SELECT * FROM acg_ticket WHERE id=?', id);
+  const msg = await dbFirst(env, 'SELECT * FROM acg_ticket_message WHERE id=?', lastId);
+  try { await dbInsert(env, 'acg_manage_log', { email: 'admin', nickname: '', content: `[${mode === 'resolve' ? '回复并解决了' : '回复了'}工单(${String(ticket.ticket_no)})]`, create_time: now(), create_ip: requestInfo(request).ip, ua: '', risk: 0 }); } catch (e) {}
+  return apiOk(mode === 'resolve' ? '回复并解决问题成功' : '回复成功', { message: ticketNormalizeMessage(msg), status: Number(fresh.status), last_message_time: fresh.last_message_time });
+}
+
+// 关闭工单
+export async function ticketClose(env, request, url, body = {}, manage) {
+  const id = Number(body.id) || 0;
+  if (id <= 0) throw new Error('请选择工单');
+  const ticket = await dbFirst(env, 'SELECT * FROM acg_ticket WHERE id=?', id);
+  if (!ticket) throw new Error('工单不存在');
+  if (Number(ticket.status) >= 2) throw new Error('工单已经结束');
+  const name = String(manage.nickname || manage.email || '管理员');
+  const content = '工单已由 ' + String(name).replace(/<[^>]+>/g, '') + ' 关闭。';
+  const lastId = await dbInsert(env, 'acg_ticket_message', { ticket_id: id, sender_type: 1, sender_id: Number(manage.id), sender_name: String(name).slice(0, 32), kind: 2, content, create_ip: requestInfo(request).ip, create_time: now() });
+  await dbUpdate(env, 'acg_ticket', { last_message_id: lastId, last_sender_type: 1, last_message_excerpt: ticketExcerpt(content), last_message_time: now(), update_time: now(), status: 3, closed_by: Number(manage.id), closed_time: now(), manage_unread: 0, user_unread: Math.min(4294967295, Number(ticket.user_unread || 0) + 1) }, 'id=?', id);
+  const fresh = await dbFirst(env, 'SELECT * FROM acg_ticket WHERE id=?', id);
+  const msg = await dbFirst(env, 'SELECT * FROM acg_ticket_message WHERE id=?', lastId);
+  try { await dbInsert(env, 'acg_manage_log', { email: 'admin', nickname: '', content: `[关闭工单]关闭了工单(${String(ticket.ticket_no)})`, create_time: now(), create_ip: requestInfo(request).ip, ua: '', risk: 0 }); } catch (e) {}
+  return apiOk('工单已关闭', { message: ticketNormalizeMessage(msg), status: Number(fresh.status), last_message_time: fresh.last_message_time });
+}
+
+// 删除工单 (连消息)
+export async function ticketDel(env, request, url, body = {}) {
+  const raw = body.list;
+  const ids = Array.isArray(raw) ? raw.map(v => Number(v)).filter(v => Number.isInteger(v) && v > 0) : String(raw || '').split(',').map(v => Number(v.trim())).filter(v => Number.isInteger(v) && v > 0);
+  const uniq = [...new Set(ids)];
+  if (!uniq.length) throw new Error('请选择要删除的工单');
+  if (uniq.length > 100) throw new Error('一次最多删除 100 个工单');
+  const ph = uniq.map(() => '?').join(',');
+  const found = await dbRows(env, `SELECT id, ticket_no FROM acg_ticket WHERE id IN (${ph})`, ...uniq);
+  if (!found.length) throw new Error('工单不存在或已被删除');
+  const foundIds = found.map(f => Number(f.id));
+  const ph2 = foundIds.map(() => '?').join(',');
+  const msgCountRow = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_ticket_message WHERE ticket_id IN (${ph2})`, ...foundIds);
+  const msgCount = msgCountRow ? Number(msgCountRow.n) : 0;
+  const msgRes = await dbRun(env, `DELETE FROM acg_ticket_message WHERE ticket_id IN (${ph2})`, ...foundIds);
+  await dbRun(env, `DELETE FROM acg_ticket WHERE id IN (${ph2})`, ...foundIds);
+  const ticketCount = foundIds.length;
+  try { await dbInsert(env, 'acg_manage_log', { email: 'admin', nickname: '', content: `[删除工单]已删除 ${ticketCount} 个工单及 ${msgCount} 条消息`, create_time: now(), create_ip: requestInfo(request).ip, ua: '', risk: 0 }); } catch (e) {}
+  return apiOk(`已删除 ${ticketCount} 个工单，关联 ${msgCount} 条消息`, { ticket_count: ticketCount, message_count: msgCount, file_count: 0, kept_count: 0 });
+}
+
+// 待客服工单数 (badge)
+export async function ticketBadge(env, request, url) {
+  const row = await dbFirst(env, 'SELECT COUNT(*) AS n FROM acg_ticket WHERE status=0');
+  return apiOk('success', { count: row ? Number(row.n) : 0 });
+}
+
+// 工单图片上传 (当前环境无持久化文件存储)
+export async function ticketUpload(env, request, url, body = {}, manage) {
+  throw new Error('当前环境未提供持久化文件存储，暂不支持图片上传');
+}
+
 export async function adminEndpoint(env, request, url, ctl, act, body) {
   if (ctl === 'authentication' && act === 'login') return adminLogin(env, request, url, body);
   // 以下接口需要登录
@@ -1658,6 +1948,21 @@ export async function adminEndpoint(env, request, url, ctl, act, body) {
       if (act === 'del') return await couponDel(env, request, url, body, manage);
       if (act === 'exportImpact') return await couponExportImpact(env, request, url, body);
       if (act === 'export') return await couponExport(env, request, url, body, manage);
+    } catch (e) {
+      return apiErr(e && e.message ? String(e.message) : '操作失败');
+    }
+  }
+  // �?
+  if (ctl === 'ticket') {
+    try {
+      if (act === 'data') return await ticketData(env, request, url, body);
+      if (act === 'detail') return await ticketDetail(env, request, url, body);
+      if (act === 'messages') return await ticketMessages(env, request, url, body);
+      if (act === 'reply') return await ticketReply(env, request, url, body, manage);
+      if (act === 'close') return await ticketClose(env, request, url, body, manage);
+      if (act === 'del') return await ticketDel(env, request, url, body, manage);
+      if (act === 'badge') return await ticketBadge(env, request, url);
+      if (act === 'upload') return await ticketUpload(env, request, url, body, manage);
     } catch (e) {
       return apiErr(e && e.message ? String(e.message) : '操作失败');
     }

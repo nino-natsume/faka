@@ -1,5 +1,3 @@
-// DCSHOP faka - Pages 单文件入口 (由 worker.js+admin.js+lib.js 自动打包生成, 勿手改)
-
 // lib.js
 var now = () => Math.floor(Date.now() / 1e3);
 var randStr = (len = 32) => {
@@ -329,10 +327,10 @@ function indexVar(catId, cfg) {
     CURRENCY: { code: cfg.currency_code || "CNY", symbol: cfg.currency_symbol || "\xA5", rate: Number(cfg.currency_rate || 1), decimals: Number(cfg.currency_decimals || 2) },
     CAT_ID: Number(catId) || 0
   };
-  return `<script>window._data_var=${JSON.stringify(data)};</script>${langDictScript()}`;
+  return `<script>window._data_var=${JSON.stringify(data)};<\/script>${langDictScript()}`;
 }
 function itemVar(item) {
-  return `<script>window._data_var._var_item=${JSON.stringify(item)};</script>`;
+  return `<script>window._data_var._var_item=${JSON.stringify(item)};<\/script>`;
 }
 function generateTradeNo() {
   let s = String(1 + Math.floor(Math.random() * 9));
@@ -2803,6 +2801,306 @@ async function couponExport(env, request, url, body = {}, manage) {
   const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}-${String(d.getHours()).padStart(2, "0")}${String(d.getMinutes()).padStart(2, "0")}${String(d.getSeconds()).padStart(2, "0")}`;
   return new Response(content, { status: 200, headers: { "Content-Type": "text/plain; charset=UTF-8", "Content-Disposition": `attachment; filename=coupons-${count}-${stamp}.txt` } });
 }
+var TICKET_MAX_EXCERPTS = 120;
+async function ticketStats(env, baseWhere = "", ...baseParams) {
+  const counts = { pending_admin: 0, pending_user: 0, resolved: 0, closed: 0, today: 0 };
+  const rows = await dbRows(env, `SELECT status, COUNT(*) AS n FROM acg_ticket${baseWhere} GROUP BY status`, ...baseParams);
+  for (const r of rows) {
+    const st = Number(r.status);
+    if (st === 0) counts.pending_admin = Number(r.n);
+    else if (st === 1) counts.pending_user = Number(r.n);
+    else if (st === 2) counts.resolved = Number(r.n);
+    else if (st === 3) counts.closed = Number(r.n);
+  }
+  const nowD = /* @__PURE__ */ new Date();
+  const dayStart = Math.floor(new Date(nowD.getFullYear(), nowD.getMonth(), nowD.getDate()).getTime() / 1e3);
+  const dayEnd = dayStart + 86400 - 1;
+  const todayRow = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_ticket${baseWhere ? baseWhere + " AND " : " WHERE "}create_time BETWEEN ? AND ?`, ...baseParams, dayStart, dayEnd);
+  counts.today = todayRow ? Number(todayRow.n) : 0;
+  return counts;
+}
+function ticketTypeText(t) {
+  return Number(t) === 1 ? "\u552E\u540E\u652F\u6301" : "\u552E\u524D\u54A8\u8BE2";
+}
+function ticketPriorityText(p) {
+  return Number(p) === 2 ? "\u9AD8" : Number(p) === 1 ? "\u4E2D" : "\u4F4E";
+}
+function ticketStatusText(s) {
+  const v = Number(s);
+  if (v === 1) return "\u5F85\u7528\u6237\u56DE\u590D";
+  if (v === 2) return "\u5DF2\u89E3\u51B3";
+  if (v === 3) return "\u5DF2\u5173\u95ED";
+  return "\u5F85\u5BA2\u670D\u56DE\u590D";
+}
+function ticketSenderText(s) {
+  const v = Number(s);
+  if (v === 1) return "\u7BA1\u7406\u5458";
+  if (v === 2) return "\u7CFB\u7EDF";
+  return "\u7528\u6237";
+}
+function ticketOrderSourceText(src) {
+  if (Number(src) === 1) return "\u4F1A\u5458\u8BA2\u5355";
+  if (Number(src) === 2) return "\u6E38\u5BA2\u8BA2\u5355\uFF08\u5F85\u4EBA\u5DE5\u6838\u9A8C\uFF09";
+  return "\u65E0\u5173\u8054\u8BA2\u5355";
+}
+function ticketExcerpt(content) {
+  const c = String(content || "");
+  const plain = c.replace(/<img\b[^>]*>/gi, " [\u56FE\u7247] ").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  return plain.length > TICKET_MAX_EXCERPTS ? plain.slice(0, TICKET_MAX_EXCERPTS) : plain;
+}
+function ticketParseTime(v) {
+  if (v === void 0 || v === null || v === "") return null;
+  const s = String(v).trim();
+  if (/^\d{13}$/.test(s)) return Math.floor(Number(s) / 1e3);
+  if (/^\d{10}$/.test(s)) return Number(s);
+  const ts = Date.parse(s.replace("T", " ").replace(/-/g, "/"));
+  return isNaN(ts) ? null : Math.floor(ts / 1e3);
+}
+async function ticketApplyFilters(env, body = {}) {
+  const wheres = [];
+  const params = [];
+  const statusVal = body["equal-status"] !== void 0 && body["equal-status"] !== "" ? body["equal-status"] : body.status;
+  if (statusVal !== void 0 && statusVal !== "" && [0, 1, 2, 3].includes(Number(statusVal))) {
+    wheres.push("status=?");
+    params.push(String(Number(statusVal)));
+  }
+  const typeVal = body["equal-type"] !== void 0 && body["equal-type"] !== "" ? body["equal-type"] : body.type;
+  if (typeVal !== void 0 && typeVal !== "" && [0, 1].includes(Number(typeVal))) {
+    wheres.push("type=?");
+    params.push(String(Number(typeVal)));
+  }
+  const priorityVal = body["equal-priority"] !== void 0 && body["equal-priority"] !== "" ? body["equal-priority"] : body.priority;
+  if (priorityVal !== void 0 && priorityVal !== "" && [0, 1, 2].includes(Number(priorityVal))) {
+    wheres.push("priority=?");
+    params.push(String(Number(priorityVal)));
+  }
+  const userIdVal = body["equal-user_id"] !== void 0 && body["equal-user_id"] !== "" ? body["equal-user_id"] : body.user_id;
+  if (userIdVal !== void 0 && userIdVal !== "" && Number(userIdVal) > 0) {
+    wheres.push("user_id=?");
+    params.push(String(Number(userIdVal)));
+  }
+  const tradeNo = String(body.order_trade_no || "").trim();
+  if (tradeNo !== "") {
+    wheres.push("order_trade_no LIKE ?");
+    params.push(`%${tradeNo}%`);
+  }
+  const startTs = ticketParseTime(body["betweenStart-create_time"] ?? body.create_time_start);
+  if (startTs !== null) {
+    wheres.push("create_time >= ?");
+    params.push(String(startTs));
+  }
+  const endTs = ticketParseTime(body["betweenEnd-create_time"] ?? body.create_time_end);
+  if (endTs !== null) {
+    wheres.push("create_time <= ?");
+    params.push(String(endTs));
+  }
+  const keyword = String(body.keyword ?? body.keywords ?? "").trim();
+  if (keyword !== "") {
+    const kw = `%${keyword}%`;
+    wheres.push(`(ticket_no LIKE ? OR title LIKE ? OR commodity_name LIKE ? OR order_trade_no LIKE ? OR user_id IN (SELECT id FROM acg_user WHERE username LIKE ?))`);
+    params.push(kw, kw, kw, kw, kw);
+  }
+  return { where: wheres.length ? " WHERE " + wheres.join(" AND ") : "", params };
+}
+async function ticketNormalize(env, r, { detail = false } = {}) {
+  const user = r.user_id ? await dbFirst(env, "SELECT id, username, avatar FROM acg_user WHERE id=?", r.user_id) : null;
+  const commodity = r.commodity_id ? await dbFirst(env, "SELECT id, name, cover FROM acg_commodity WHERE id=?", r.commodity_id) : null;
+  const order = r.order_id ? await dbFirst(env, "SELECT id, owner, trade_no, amount, card_num, status, delivery_status, create_time, pay_time FROM acg_order WHERE id=?", r.order_id) : null;
+  const closedBy = r.closed_by ? await dbFirst(env, "SELECT id, nickname, avatar FROM acg_manage WHERE id=?", r.closed_by) : null;
+  const guestRedacted = Number(r.order_source) === 2;
+  const commodityData2 = !guestRedacted && commodity ? { id: Number(commodity.id), name: String(r.commodity_name || commodity.name || ""), cover: String(commodity.cover || "") } : null;
+  let orderData2 = null;
+  if (order && !guestRedacted) {
+    orderData2 = {
+      id: Number(order.id),
+      trade_no: String(order.trade_no),
+      create_time: order.create_time,
+      amount: Number(order.amount ?? 0),
+      card_num: Number(order.card_num || 0),
+      status: Number(order.status ?? 0),
+      delivery_status: Number(order.delivery_status ?? 0),
+      pay_time: order.pay_time
+    };
+  }
+  const d = {
+    id: Number(r.id),
+    ticket_no: String(r.ticket_no),
+    user_id: Number(r.user_id),
+    type: Number(r.type),
+    type_text: ticketTypeText(r.type),
+    priority: Number(r.priority ?? 1),
+    priority_text: ticketPriorityText(r.priority),
+    status: Number(r.status ?? 0),
+    status_text: ticketStatusText(r.status),
+    title: String(r.title || ""),
+    commodity_id: guestRedacted ? null : r.commodity_id ?? null,
+    commodity_name: guestRedacted ? null : r.commodity_name ?? null,
+    order_id: guestRedacted ? null : r.order_id ?? null,
+    order_trade_no: String(r.order_trade_no || ""),
+    order_source: Number(r.order_source ?? 0),
+    order_source_text: ticketOrderSourceText(r.order_source),
+    order_verification_pending: guestRedacted,
+    last_message_id: r.last_message_id ?? null,
+    last_sender_type: r.last_sender_type ?? null,
+    last_sender_text: ticketSenderText(r.last_sender_type),
+    last_message_excerpt: String(r.last_message_excerpt || ""),
+    last_message_time: r.last_message_time ?? null,
+    user_unread: Number(r.user_unread ?? 0),
+    manage_unread: Number(r.manage_unread ?? 0),
+    closed_by: r.closed_by ?? null,
+    closed_time: r.closed_time ?? null,
+    create_time: r.create_time,
+    update_time: r.update_time,
+    user: user ? { id: Number(user.id), username: String(user.username || ""), avatar: String(user.avatar || "") } : null,
+    commodity: commodityData2,
+    order: orderData2,
+    context: {
+      commodity: commodityData2,
+      commodity_name: guestRedacted ? null : r.commodity_name ?? null,
+      order: orderData2,
+      order_trade_no: String(r.order_trade_no || ""),
+      order_source: Number(r.order_source ?? 0),
+      order_source_text: ticketOrderSourceText(r.order_source),
+      order_verification_pending: guestRedacted
+    },
+    closed_by_manage: closedBy ? { id: Number(closedBy.id), nickname: String(closedBy.nickname || ""), avatar: String(closedBy.avatar || "") } : null
+  };
+  if (detail) {
+    d.proof_upload_id = r.proof_upload_id ?? null;
+    d.proof_path = String(r.proof_path || "");
+    d.proof = r.proof_path ? { upload_id: r.proof_upload_id ?? null, url: String(r.proof_path) } : null;
+  }
+  return d;
+}
+function ticketNormalizeMessage(m) {
+  return {
+    id: Number(m.id),
+    sender_type: Number(m.sender_type),
+    sender_name: String(m.sender_name || ""),
+    kind: Number(m.kind ?? 0),
+    content: String(m.content ?? ""),
+    create_time: m.create_time
+  };
+}
+async function ticketData(env, request, url, body = {}) {
+  const page = Math.max(1, Number(body.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(body.limit) || 20));
+  const { where, params } = await ticketApplyFilters(env, body);
+  const stats = await ticketStats(env, where, ...params);
+  const total = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_ticket${where}`, ...params);
+  const count = total ? Number(total.n) : 0;
+  const rows = await dbRows(env, `SELECT * FROM acg_ticket${where} ORDER BY CASE status WHEN 0 THEN 0 WHEN 1 THEN 1 ELSE 2 END, priority DESC, last_message_time DESC, id DESC LIMIT ? OFFSET ?`, ...params, pageSize, (page - 1) * pageSize);
+  const list = [];
+  for (const r of rows) list.push(await ticketNormalize(env, r));
+  return apiOk("success", { list, page, limit: pageSize, count, records: count, total: count, stats });
+}
+async function ticketDetail(env, request, url, body = {}) {
+  const id = Number(body.id) || 0;
+  if (id <= 0) throw new Error("\u8BF7\u9009\u62E9\u5DE5\u5355");
+  const r = await dbFirst(env, "SELECT * FROM acg_ticket WHERE id=?", id);
+  if (!r) throw new Error("\u5DE5\u5355\u4E0D\u5B58\u5728");
+  const limit = Math.min(100, Math.max(1, Number(body.limit) || 30));
+  const msgRows = await dbRows(env, "SELECT * FROM acg_ticket_message WHERE ticket_id=? ORDER BY id DESC LIMIT ?", id, limit + 1);
+  let hasMore = msgRows.length > limit;
+  if (hasMore) msgRows.pop();
+  msgRows.reverse();
+  await dbRun(env, "UPDATE acg_ticket SET manage_unread=0 WHERE id=?", id);
+  return apiOk("success", { ticket: await ticketNormalize(env, r, { detail: true }), messages: msgRows.map(ticketNormalizeMessage), has_more: hasMore });
+}
+async function ticketMessages(env, request, url, body = {}) {
+  const id = Number(body.id) || 0;
+  if (id <= 0) throw new Error("\u8BF7\u9009\u62E9\u5DE5\u5355");
+  const r = await dbFirst(env, "SELECT * FROM acg_ticket WHERE id=?", id);
+  if (!r) throw new Error("\u5DE5\u5355\u4E0D\u5B58\u5728");
+  const afterId = Math.max(0, Number(body.after_id) || 0);
+  const beforeId = Math.max(0, Number(body.before_id) || 0);
+  const limit = Math.min(100, Math.max(1, Number(body.limit) || 50));
+  await dbRun(env, "UPDATE acg_ticket SET manage_unread=0 WHERE id=?", id);
+  if (beforeId > 0) {
+    let items2 = await dbRows(env, "SELECT * FROM acg_ticket_message WHERE ticket_id=? AND id < ? ORDER BY id DESC LIMIT ?", id, beforeId, limit + 1);
+    let hasMore = items2.length > limit;
+    if (hasMore) items2.pop();
+    items2.reverse();
+    return apiOk("success", { list: items2.map(ticketNormalizeMessage), status: Number(r.status ?? 0), last_message_time: r.last_message_time, has_more: hasMore });
+  }
+  const items = await dbRows(env, "SELECT * FROM acg_ticket_message WHERE ticket_id=? AND id > ? ORDER BY id ASC LIMIT ?", id, afterId, limit);
+  return apiOk("success", { list: items.map(ticketNormalizeMessage), status: Number(r.status ?? 0), last_message_time: r.last_message_time, has_more: false });
+}
+async function ticketReply(env, request, url, body = {}, manage) {
+  const id = Number(body.id) || 0;
+  const content = String(body.content || "").trim();
+  const mode = String(body.mode || "reply").toLowerCase();
+  if (id <= 0) throw new Error("\u8BF7\u9009\u62E9\u5DE5\u5355");
+  if (!["reply", "resolve"].includes(mode)) throw new Error("\u672A\u77E5\u7684\u56DE\u590D\u65B9\u5F0F");
+  const ticket = await dbFirst(env, "SELECT * FROM acg_ticket WHERE id=?", id);
+  if (!ticket) throw new Error("\u5DE5\u5355\u4E0D\u5B58\u5728");
+  if (Number(ticket.status) >= 2) throw new Error("\u5DE5\u5355\u5DF2\u7ED3\u675F\uFF0C\u65E0\u6CD5\u7EE7\u7EED\u56DE\u590D");
+  const clean = String(content).replace(/<img[^>]*src=(["'])(\/assets\/cache\/(?:user\/[0-9]+|general)\/ticket\/[A-Za-z0-9._-]+)\1[^>]*>/gi, "$2");
+  if (content === "") throw new Error("\u56DE\u590D\u5185\u5BB9\u4E3A\u7A7A\u6216\u8FC7\u957F");
+  const plain = ticketExcerpt(content);
+  if (plain === "") throw new Error("\u8BF7\u586B\u5199\u5185\u5BB9\u6216\u63D2\u5165\u56FE\u7247");
+  const name = String(manage.nickname || manage.email || "\u7BA1\u7406\u5458");
+  const kind = mode === "resolve" ? 1 : 0;
+  const lastId = await dbInsert(env, "acg_ticket_message", { ticket_id: id, sender_type: 1, sender_id: Number(manage.id), sender_name: String(name).slice(0, 32), kind, content, create_ip: requestInfo(request).ip, create_time: now() });
+  const newStatus = mode === "resolve" ? 2 : 1;
+  const closedBy = mode === "resolve" ? Number(manage.id) : ticket.closed_by;
+  const closedTime = mode === "resolve" ? now() : ticket.closed_time;
+  await dbUpdate(env, "acg_ticket", { last_message_id: lastId, last_sender_type: 1, last_message_excerpt: ticketExcerpt(content), last_message_time: now(), update_time: now(), status: newStatus, closed_by: closedBy, closed_time: closedTime, manage_unread: 0, user_unread: Math.min(4294967295, Number(ticket.user_unread || 0) + 1) }, "id=?", id);
+  const fresh = await dbFirst(env, "SELECT * FROM acg_ticket WHERE id=?", id);
+  const msg = await dbFirst(env, "SELECT * FROM acg_ticket_message WHERE id=?", lastId);
+  try {
+    await dbInsert(env, "acg_manage_log", { email: "admin", nickname: "", content: `[${mode === "resolve" ? "\u56DE\u590D\u5E76\u89E3\u51B3\u4E86" : "\u56DE\u590D\u4E86"}\u5DE5\u5355(${String(ticket.ticket_no)})]`, create_time: now(), create_ip: requestInfo(request).ip, ua: "", risk: 0 });
+  } catch (e) {
+  }
+  return apiOk(mode === "resolve" ? "\u56DE\u590D\u5E76\u89E3\u51B3\u95EE\u9898\u6210\u529F" : "\u56DE\u590D\u6210\u529F", { message: ticketNormalizeMessage(msg), status: Number(fresh.status), last_message_time: fresh.last_message_time });
+}
+async function ticketClose(env, request, url, body = {}, manage) {
+  const id = Number(body.id) || 0;
+  if (id <= 0) throw new Error("\u8BF7\u9009\u62E9\u5DE5\u5355");
+  const ticket = await dbFirst(env, "SELECT * FROM acg_ticket WHERE id=?", id);
+  if (!ticket) throw new Error("\u5DE5\u5355\u4E0D\u5B58\u5728");
+  if (Number(ticket.status) >= 2) throw new Error("\u5DE5\u5355\u5DF2\u7ECF\u7ED3\u675F");
+  const name = String(manage.nickname || manage.email || "\u7BA1\u7406\u5458");
+  const content = "\u5DE5\u5355\u5DF2\u7531 " + String(name).replace(/<[^>]+>/g, "") + " \u5173\u95ED\u3002";
+  const lastId = await dbInsert(env, "acg_ticket_message", { ticket_id: id, sender_type: 1, sender_id: Number(manage.id), sender_name: String(name).slice(0, 32), kind: 2, content, create_ip: requestInfo(request).ip, create_time: now() });
+  await dbUpdate(env, "acg_ticket", { last_message_id: lastId, last_sender_type: 1, last_message_excerpt: ticketExcerpt(content), last_message_time: now(), update_time: now(), status: 3, closed_by: Number(manage.id), closed_time: now(), manage_unread: 0, user_unread: Math.min(4294967295, Number(ticket.user_unread || 0) + 1) }, "id=?", id);
+  const fresh = await dbFirst(env, "SELECT * FROM acg_ticket WHERE id=?", id);
+  const msg = await dbFirst(env, "SELECT * FROM acg_ticket_message WHERE id=?", lastId);
+  try {
+    await dbInsert(env, "acg_manage_log", { email: "admin", nickname: "", content: `[\u5173\u95ED\u5DE5\u5355]\u5173\u95ED\u4E86\u5DE5\u5355(${String(ticket.ticket_no)})`, create_time: now(), create_ip: requestInfo(request).ip, ua: "", risk: 0 });
+  } catch (e) {
+  }
+  return apiOk("\u5DE5\u5355\u5DF2\u5173\u95ED", { message: ticketNormalizeMessage(msg), status: Number(fresh.status), last_message_time: fresh.last_message_time });
+}
+async function ticketDel(env, request, url, body = {}) {
+  const raw = body.list;
+  const ids = Array.isArray(raw) ? raw.map((v) => Number(v)).filter((v) => Number.isInteger(v) && v > 0) : String(raw || "").split(",").map((v) => Number(v.trim())).filter((v) => Number.isInteger(v) && v > 0);
+  const uniq = [...new Set(ids)];
+  if (!uniq.length) throw new Error("\u8BF7\u9009\u62E9\u8981\u5220\u9664\u7684\u5DE5\u5355");
+  if (uniq.length > 100) throw new Error("\u4E00\u6B21\u6700\u591A\u5220\u9664 100 \u4E2A\u5DE5\u5355");
+  const ph = uniq.map(() => "?").join(",");
+  const found = await dbRows(env, `SELECT id, ticket_no FROM acg_ticket WHERE id IN (${ph})`, ...uniq);
+  if (!found.length) throw new Error("\u5DE5\u5355\u4E0D\u5B58\u5728\u6216\u5DF2\u88AB\u5220\u9664");
+  const foundIds = found.map((f) => Number(f.id));
+  const ph2 = foundIds.map(() => "?").join(",");
+  const msgCountRow = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_ticket_message WHERE ticket_id IN (${ph2})`, ...foundIds);
+  const msgCount = msgCountRow ? Number(msgCountRow.n) : 0;
+  const msgRes = await dbRun(env, `DELETE FROM acg_ticket_message WHERE ticket_id IN (${ph2})`, ...foundIds);
+  await dbRun(env, `DELETE FROM acg_ticket WHERE id IN (${ph2})`, ...foundIds);
+  const ticketCount = foundIds.length;
+  try {
+    await dbInsert(env, "acg_manage_log", { email: "admin", nickname: "", content: `[\u5220\u9664\u5DE5\u5355]\u5DF2\u5220\u9664 ${ticketCount} \u4E2A\u5DE5\u5355\u53CA ${msgCount} \u6761\u6D88\u606F`, create_time: now(), create_ip: requestInfo(request).ip, ua: "", risk: 0 });
+  } catch (e) {
+  }
+  return apiOk(`\u5DF2\u5220\u9664 ${ticketCount} \u4E2A\u5DE5\u5355\uFF0C\u5173\u8054 ${msgCount} \u6761\u6D88\u606F`, { ticket_count: ticketCount, message_count: msgCount, file_count: 0, kept_count: 0 });
+}
+async function ticketBadge(env, request, url) {
+  const row = await dbFirst(env, "SELECT COUNT(*) AS n FROM acg_ticket WHERE status=0");
+  return apiOk("success", { count: row ? Number(row.n) : 0 });
+}
+async function ticketUpload(env, request, url, body = {}, manage) {
+  throw new Error("\u5F53\u524D\u73AF\u5883\u672A\u63D0\u4F9B\u6301\u4E45\u5316\u6587\u4EF6\u5B58\u50A8\uFF0C\u6682\u4E0D\u652F\u6301\u56FE\u7247\u4E0A\u4F20");
+}
 async function adminEndpoint(env, request, url, ctl, act, body) {
   if (ctl === "authentication" && act === "login") return adminLogin(env, request, url, body);
   const manage = await authenticateManage(env, request);
@@ -2896,6 +3194,20 @@ async function adminEndpoint(env, request, url, ctl, act, body) {
       return apiErr(e && e.message ? String(e.message) : "\u64CD\u4F5C\u5931\u8D25");
     }
   }
+  if (ctl === "ticket") {
+    try {
+      if (act === "data") return await ticketData(env, request, url, body);
+      if (act === "detail") return await ticketDetail(env, request, url, body);
+      if (act === "messages") return await ticketMessages(env, request, url, body);
+      if (act === "reply") return await ticketReply(env, request, url, body, manage);
+      if (act === "close") return await ticketClose(env, request, url, body, manage);
+      if (act === "del") return await ticketDel(env, request, url, body, manage);
+      if (act === "badge") return await ticketBadge(env, request, url);
+      if (act === "upload") return await ticketUpload(env, request, url, body, manage);
+    } catch (e) {
+      return apiErr(e && e.message ? String(e.message) : "\u64CD\u4F5C\u5931\u8D25");
+    }
+  }
   return apiErr("\u63A5\u53E3\u4E0D\u5B58\u5728", 404);
 }
 
@@ -2916,11 +3228,11 @@ function adminVar(cfg = {}) {
   for (const [k, v] of Object.entries(vars)) {
     s += `setVar(${JSON.stringify(k)}, ${JSON.stringify(v)});`;
   }
-  s += "</script>";
+  s += "<\/script>";
   return s;
 }
 var cssLinks = (paths) => paths.map((p) => `<link rel="stylesheet" href="${p}"/>`).join("\n");
-var jsScripts = (paths) => paths.map((p) => `<script src="${p}"></script>`).join("\n");
+var jsScripts = (paths) => paths.map((p) => `<script src="${p}"><\/script>`).join("\n");
 function renderAdminLoginPage(cfg = {}) {
   const bg = cfg.background_url || "/assets/admin/img/bg.jpg";
   const shopName = cfg.shop_name || "acg-faka";
@@ -2944,7 +3256,7 @@ function renderAdminLoginPage(cfg = {}) {
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1"/>
     <title>\u767B\u5F55 - ${htmlEscape(shopName)}</title>
-    <script>(function(){try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;var e=document.documentElement;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);}catch(_){document.documentElement.setAttribute('data-theme','light');}})();</script>
+    <script>(function(){try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;var e=document.documentElement;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);}catch(_){document.documentElement.setAttribute('data-theme','light');}})();<\/script>
     ${cssLinks([
     "/assets/common/css/_.css",
     "/assets/admin/css/auth.css",
@@ -2961,7 +3273,7 @@ function renderAdminLoginPage(cfg = {}) {
     "/assets/common/css/md-tokens.css",
     "/assets/admin/css/material-auth.css"
   ])}
-    <script src="/assets/common/js/ready.js"></script>
+    <script src="/assets/common/js/ready.js"><\/script>
     ${adminVar(cfg)}
 </head>
 <body class="ay-bg" style="background-image: linear-gradient(180deg, rgb(255 255 255 / 0%), rgb(255 255 255 / 71%)), url('${htmlEscape(bg)}')">
@@ -3058,7 +3370,7 @@ function renderAdminLoginPage(cfg = {}) {
     </section>
 </main>
 
-<script>ready("/assets/admin/controller/auth/login.js");</script>
+<script>ready("/assets/admin/controller/auth/login.js");<\/script>
 ${jsScripts([
     "/assets/common/js/_.js",
     "/assets/common/js/util/dict.js",
@@ -3653,7 +3965,7 @@ function renderAdminShell(opts = {}) {
 <head>
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-    <script>(function(){var e=document.documentElement;try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);var m=localStorage.getItem('admin-layout-mode')==='desktop'?'desktop':((window.innerWidth||screen.width)<992?'mobile':'desktop');e.setAttribute('data-admin-layout',m);}catch(_){e.setAttribute('data-theme','light');e.setAttribute('data-admin-layout',(window.innerWidth||screen.width)<992?'mobile':'desktop');}})();</script>
+    <script>(function(){var e=document.documentElement;try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);var m=localStorage.getItem('admin-layout-mode')==='desktop'?'desktop':((window.innerWidth||screen.width)<992?'mobile':'desktop');e.setAttribute('data-admin-layout',m);}catch(_){e.setAttribute('data-theme','light');e.setAttribute('data-admin-layout',(window.innerWidth||screen.width)<992?'mobile':'desktop');}})();<\/script>
     <title>${htmlEscape(title)}-${htmlEscape(shopName)}</title>
     <link rel="shortcut icon" href="/favicon.ico"/>
     ${cssLinks([
@@ -3679,13 +3991,13 @@ function renderAdminShell(opts = {}) {
     "/assets/common/css/mdicon.css",
     "/assets/admin/css/mobile.css"
   ])}
-    <script src="/assets/common/js/ready.js"></script>
+    <script src="/assets/common/js/ready.js"><\/script>
     ${adminVar(cfg)}
 </head>
 <body id="kt_body"
       class="header-fixed header-tablet-and-mobile-fixed toolbar-enabled toolbar-fixed aside-enabled aside-fixed"
       style="--kt-toolbar-height:55px;--kt-toolbar-height-tablet-and-mobile:55px;background: url('${htmlEscape(cfg.background_url || "")}') fixed no-repeat;background-size: cover;">
-<script>(function(){try{if((!window.matchMedia||matchMedia('(min-width: 992px)').matches)&&localStorage.getItem('admin-aside-minimize')==='on'){document.body.setAttribute('data-kt-aside-minimize','on');}}catch(_){}})();</script>
+<script>(function(){try{if((!window.matchMedia||matchMedia('(min-width: 992px)').matches)&&localStorage.getItem('admin-aside-minimize')==='on'){document.body.setAttribute('data-kt-aside-minimize','on');}}catch(_){}})();<\/script>
 <div class="d-flex flex-column flex-root">
     <div class="page d-flex flex-row flex-column-fluid">
         <!--begin::Aside-->
@@ -3798,7 +4110,7 @@ ${adminFooterScripts()}
 }
 function renderAdminDashboardPage(cfg, manage) {
   const body = `
-<script src="/assets/static/echarts.min.js"></script>
+<script src="/assets/static/echarts.min.js"><\/script>
 <div class="dash">
   <div class="dash__grid">
     <aside class="dash__side">
@@ -4025,7 +4337,7 @@ function renderAdminDashboardPage(cfg, manage) {
     </div>
   </div>
 </div>
-<script>ready("/assets/admin/controller/dashboard/index.js");</script>`;
+<script>ready("/assets/admin/controller/dashboard/index.js");<\/script>`;
   return renderAdminShell({ cfg, manage, title: "\u63A7\u5236\u53F0", activePath: "/admin/dashboard/index", body });
 }
 function renderAdminOrderPage(cfg, manage) {
@@ -4738,6 +5050,276 @@ function renderAdminCouponPage(cfg, manage) {
   });`;
   return renderCrudPage({ cfg, manage, title: "\u4F18\u60E0\u5238", activePath: "/admin/coupon/index", body, readyJs: js });
 }
+function renderAdminTicketPage(cfg, manage) {
+  const body = `
+<div class="row g-5 mb-5 gx-5 gy-3">
+  <div class="col-sm-6 col-xl-2"><div class="ticket-stat-card pending_admin card card-flush py-4 px-4">
+    <div class="d-flex flex-wrap gap-3 justify-content-between align-items-center">
+      <div><div class="fs-7 fw-bold text-muted">\u5F85\u5BA2\u670D\u56DE\u590D</div><div class="fs-2hx fw-bolder text-danger ticket-stat-num" data-stat="pending_admin">0</div></div>
+      <div class="symbol symbol-32px symbol-circle bg-light-danger text-danger"><span class="fs-3 fw-bolder">\u5F85</span></div>
+    </div></div></div>
+  <div class="col-sm-6 col-xl-2"><div class="ticket-stat-card pending_user card card-flush py-4 px-4">
+    <div class="d-flex flex-wrap gap-3 justify-content-between align-items-center">
+      <div><div class="fs-7 fw-bold text-muted">\u5F85\u7528\u6237\u56DE\u590D</div><div class="fs-2hx fw-bolder text-warning ticket-stat-num" data-stat="pending_user">0</div></div>
+      <div class="symbol symbol-32px symbol-circle bg-light-warning text-warning"><span class="fs-3 fw-bolder">\u5F85</span></div>
+    </div></div></div>
+  <div class="col-sm-6 col-xl-2"><div class="ticket-stat-card resolved card card-flush py-4 px-4">
+    <div class="d-flex flex-wrap gap-3 justify-content-between align-items-center">
+      <div><div class="fs-7 fw-bold text-muted">\u5DF2\u89E3\u51B3</div><div class="fs-2hx fw-bolder text-success ticket-stat-num" data-stat="resolved">0</div></div>
+      <div class="symbol symbol-32px symbol-circle bg-light-success text-success"><span class="fs-3 fw-bolder">\u89E3</span></div>
+    </div></div></div>
+  <div class="col-sm-6 col-xl-2"><div class="ticket-stat-card closed card card-flush py-4 px-4">
+    <div class="d-flex flex-wrap gap-3 justify-content-between align-items-center">
+      <div><div class="fs-7 fw-bold text-muted">\u5DF2\u5173\u95ED</div><div class="fs-2hx fw-bolder text-muted ticket-stat-num" data-stat="closed">0</div></div>
+      <div class="symbol symbol-32px symbol-circle bg-light-secondary text-secondary"><span class="fs-3 fw-bolder">\u5173</span></div>
+    </div></div></div>
+  <div class="col-sm-6 col-xl-2"><div class="ticket-stat-card today card card-flush py-4 px-4">
+    <div class="d-flex flex-wrap gap-3 justify-content-between align-items-center">
+      <div><div class="fs-7 fw-bold text-muted">\u4ECA\u65E5\u65B0\u589E</div><div class="fs-2hx fw-bolder text-primary ticket-stat-num" data-stat="today">0</div></div>
+      <div class="symbol symbol-32px symbol-circle bg-light-primary text-primary"><span class="fs-3 fw-bolder">\u4ECA</span></div>
+    </div></div></div>
+  <div class="col-sm-6 col-xl-2"><div class="ticket-stat-card total card card-flush py-4 px-4">
+    <div class="d-flex flex-wrap gap-3 justify-content-between align-items-center">
+      <div><div class="fs-7 fw-bold text-muted">\u5DE5\u5355\u603B\u6570</div><div class="fs-2hx fw-bolder ticket-stat-num" data-stat="total">0</div></div>
+      <div class="symbol symbol-32px symbol-circle bg-light-info text-info"><span class="fs-3 fw-bolder">\u603B</span></div>
+    </div></div></div>
+</div>
+<div class="card mb-5 mb-xl-8">
+  <div class="card-header border-0 py-4">
+    <div class="card-title">
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        <select class="form-select form-select-sm w-auto tk-f-status"><option value="">\u5168\u90E8\u72B6\u6001</option><option value="0">\u5F85\u5BA2\u670D\u56DE\u590D</option><option value="1">\u5F85\u7528\u6237\u56DE\u590D</option><option value="2">\u5DF2\u89E3\u51B3</option><option value="3">\u5DF2\u5173\u95ED</option></select>
+        <select class="form-select form-select-sm w-auto tk-f-type"><option value="">\u5168\u90E8\u7C7B\u578B</option><option value="0">\u552E\u524D\u54A8\u8BE2</option><option value="1">\u552E\u540E\u652F\u6301</option></select>
+        <select class="form-select form-select-sm w-auto tk-f-priority"><option value="">\u5168\u90E8\u4F18\u5148\u7EA7</option><option value="2">\u9AD8</option><option value="1">\u4E2D</option><option value="0">\u4F4E</option></select>
+        <select class="form-select form-select-sm w-auto tk-f-uid" title="\u6309\u7528\u6237ID"><option value="">\u5168\u90E8\u7528\u6237</option></select>
+        <input class="form-control form-control-sm w-auto tk-f-keyword" placeholder="\u5355\u53F7/\u6807\u9898/\u5546\u54C1/\u8BA2\u5355\u53F7/\u7528\u6237\u540D">
+        <button class="btn btn-sm btn-light-primary tk-search"><i class="fa-duotone fa-regular fa-magnifying-glass"></i> \u641C\u7D22</button>
+      </div>
+    </div>
+    <div class="card-toolbar">
+      <button class="btn btn-sm btn-light-danger tk-del-all me-3"><i class="fa-duotone fa-regular fa-trash-can"></i> \u5220\u9664\u9009\u4E2D</button>
+      <button class="btn btn-sm btn-light-primary tk-refresh"><i class="fa-duotone fa-regular fa-rotate"></i> \u5237\u65B0</button>
+    </div>
+  </div>
+  <div class="card-body py-3">
+    <div class="table-responsive">
+      <table class="table table-row-bordered table-row-gray-200 align-middle gs-0 gy-3" id="ticket-table">
+        <thead><tr class="fw-bold text-muted">
+          <th style="width:40px"><input type="checkbox" class="crud-check-all"></th>
+          <th>\u5DE5\u5355\u53F7</th><th>\u6807\u9898</th><th>\u7528\u6237</th><th>\u7C7B\u578B</th><th>\u4F18\u5148\u7EA7</th><th>\u72B6\u6001</th><th>\u6700\u540E\u6D88\u606F</th><th>\u6700\u540E\u65F6\u95F4</th><th>\u64CD\u4F5C</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="d-flex flex-stack flex-wrap pt-5">
+      <div class="fs-7 fw-bold text-muted crud-pageinfo">\u7B2C 1 \u9875 / \u5171 0 \u6761</div>
+      <div class="d-flex align-items-center">
+        <button class="btn btn-sm btn-light crud-prev me-2">\u4E0A\u4E00\u9875</button>
+        <button class="btn btn-sm btn-light crud-next">\u4E0B\u4E00\u9875</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" tabindex="-1" id="ticketModal"><div class="modal-dialog modal-xl modal-dialog-scrollable"><div class="modal-content">
+  <div class="modal-header py-3">
+    <h5 class="modal-title ticket-title">\u5DE5\u5355\u8BE6\u60C5</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body">
+    <div class="row g-3 mb-4">
+      <div class="col-md-3"><label class="form-label text-muted">\u5DE5\u5355\u53F7</label><div class="fw-bolder ticket-meta-no">-</div></div>
+      <div class="col-md-3"><label class="form-label text-muted">\u7528\u6237</label><div class="fw-bolder ticket-meta-user">-</div></div>
+      <div class="col-md-2"><label class="form-label text-muted">\u7C7B\u578B</label><div class="fw-bolder ticket-meta-type">-</div></div>
+      <div class="col-md-2"><label class="form-label text-muted">\u4F18\u5148\u7EA7</label><div class="fw-bolder ticket-meta-priority">-</div></div>
+      <div class="col-md-2"><label class="form-label text-muted">\u72B6\u6001</label><div class="fw-bolder ticket-meta-status">-</div></div>
+      <div class="col-md-6"><label class="form-label text-muted">\u5546\u54C1</label><div class="ticket-meta-commodity">-</div></div>
+      <div class="col-md-6"><label class="form-label text-muted">\u5173\u8054\u8BA2\u5355</label><div class="ticket-meta-order">-</div></div>
+      <div class="col-md-6"><label class="form-label text-muted">\u521B\u5EFA\u65F6\u95F4</label><div class="ticket-meta-created">-</div></div>
+      <div class="col-md-6"><label class="form-label text-muted">\u5173\u95ED\u65F6\u95F4</label><div class="ticket-meta-closed">-</div></div>
+    </div>
+    <div class="separator border-2 my-4"></div>
+    <div class="d-flex justify-content-between align-items-center mb-3">
+      <div class="fs-6 fw-bold">\u4F1A\u8BDD\u6D88\u606F</div>
+      <div><button class="btn btn-sm btn-light-primary tk-history-prev">\u52A0\u8F7D\u66F4\u65E9</button></div>
+    </div>
+    <div class="ticket-messages bg-light rounded p-3 mb-4" style="max-height:420px;overflow-y:auto"></div>
+    <div class="separator border-2 my-4"></div>
+    <label class="form-label fw-bold">\u56DE\u590D\u5185\u5BB9</label>
+    <textarea class="form-control ticket-reply-content mb-3" rows="3" placeholder="\u8BF7\u8F93\u5165\u56DE\u590D\u5185\u5BB9..."></textarea>
+    <div class="text-muted fs-8 mb-3">\u5141\u8BB8\u5C11\u91CF HTML\uFF1B\u56DE\u590D\u56FE\u7247\u529F\u80FD\u5728\u5F53\u524D\u73AF\u5883\u4E0D\u53EF\u7528\u3002</div>
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn btn-light-danger ticket-delete me-auto" data-bs-dismiss="modal">\u5220\u9664\u5DE5\u5355</button>
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">\u5173\u95ED</button>
+    <button type="button" class="btn btn-light-warning ticket-close">\u5173\u95ED\u5DE5\u5355</button>
+    <button type="button" class="btn btn-light-success ticket-resolve">\u56DE\u590D\u5E76\u89E3\u51B3</button>
+    <button type="button" class="btn btn-primary ticket-reply">\u56DE\u590D</button>
+  </div>
+</div></div></div>`;
+  const js = `
+  ready(() => {
+    const tbody = document.getElementById('ticket-table').querySelector('tbody');
+    const API = '/admin/api/ticket/';
+    let page = 1, pageSize = 20, currentId = 0;
+    const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const badge = (txt, kind) => '<span class="badge badge-light-' + kind + '">' + txt + '</span>';
+    const statusBadge = st => Number(st) === 0 ? badge('\u5F85\u5BA2\u670D\u56DE\u590D', 'danger') : Number(st) === 1 ? badge('\u5F85\u7528\u6237\u56DE\u590D', 'warning') : Number(st) === 2 ? badge('\u5DF2\u89E3\u51B3', 'success') : badge('\u5DF2\u5173\u95ED', 'secondary');
+    const typeBadge = t => Number(t) === 1 ? badge('\u552E\u540E\u652F\u6301', 'info') : badge('\u552E\u524D\u54A8\u8BE2', 'primary');
+    const priorityBadge = p => Number(p) === 2 ? badge('\u9AD8', 'danger') : Number(p) === 1 ? badge('\u4E2D', 'warning') : badge('\u4F4E', 'secondary');
+    const senderBadge = s => Number(s) === 1 ? badge('\u7BA1\u7406\u5458', 'primary') : Number(s) === 2 ? badge('\u7CFB\u7EDF', 'dark') : badge('\u7528\u6237', 'info');
+    const filters = () => {
+      const d = { page, limit: pageSize };
+      const st = document.querySelector('.tk-f-status').value;
+      const ty = document.querySelector('.tk-f-type').value;
+      const pr = document.querySelector('.tk-f-priority').value;
+      const uid = document.querySelector('.tk-f-uid').value;
+      const kw = document.querySelector('.tk-f-keyword').value.trim();
+      if (st !== '') d['equal-status'] = st;
+      if (ty !== '') d['equal-type'] = ty;
+      if (pr !== '') d['equal-priority'] = pr;
+      if (uid !== '') d['equal-user_id'] = uid;
+      if (kw) d.keyword = kw;
+      return d;
+    };
+    function load() {
+      util.post({ url: API + 'data', data: filters(), loader: false,
+        done: res => {
+          const d = res.data || {};
+          const st = d.stats || {};
+          [['pending_admin','pending_admin'],['pending_user','pending_user'],['resolved','resolved'],['closed','closed'],['today','today']].forEach(([attr]) => {
+            document.querySelector('.ticket-stat-num[data-stat="' + attr + '"]').textContent = Number(st[attr] || 0);
+          });
+          document.querySelector('.ticket-stat-num[data-stat="total"]').textContent = Number(d.count || 0);
+          tbody.innerHTML = '';
+          (d.list || []).forEach(t => {
+            const tr = document.createElement('tr');
+            tr.dataset.id = t.id;
+            tr.innerHTML = '<td><input type="checkbox" class="crud-check"></td>' +
+              '<td><code>' + esc(t.ticket_no) + '</code></td>' +
+              '<td class="fw-bold">' + esc(t.title) + '</td>' +
+              '<td>' + (t.user ? esc(t.user.username) : '#' + t.user_id) + '</td>' +
+              '<td>' + typeBadge(t.type) + '</td>' +
+              '<td>' + priorityBadge(t.priority) + '</td>' +
+              '<td>' + statusBadge(t.status) + (Number(t.manage_unread) > 0 ? ' <span class="badge badge-light-dark">\u65B0</span>' : '') + '</td>' +
+              '<td><div class="text-truncate" style="max-width:240px">' + (t.last_sender_text ? senderBadge(t.last_sender_type) + ' ' : '') + esc(t.last_message_excerpt || '-') + '</div></td>' +
+              '<td><small>' + (t.last_message_time ? new Date(t.last_message_time * 1000).toLocaleString() : '-') + '</small></td>' +
+              '<td><div class="d-flex gap-1">' +
+              '<button class="btn btn-sm btn-light-primary row-view">\u8BE6\u60C5</button>' +
+              '<button class="btn btn-sm btn-light-danger row-del">\u5220\u9664</button>' +
+              '</div></td>';
+            tbody.appendChild(tr);
+          });
+          document.querySelector('.crud-pageinfo').textContent = '\u7B2C ' + page + ' \u9875 / \u5171 ' + (d.count || 0) + ' \u6761';
+        },
+        error: res => message.error(res.msg) });
+    }
+    function selected() { return [...tbody.querySelectorAll('.crud-check:checked')].map(x => x.closest('tr').dataset.id); }
+    function messageItem(m) {
+      const wrap = document.createElement('div');
+      wrap.className = 'd-flex gap-2 mb-3' + (Number(m.sender_type) === 1 ? ' flex-row-reverse' : '');
+      wrap.innerHTML = '<div class="border rounded p-3 bg-white" style="max-width:80%">' +
+        '<div class="d-flex justify-content-between align-items-center gap-3 mb-1">' +
+        '<span class="fw-bold fs-8">' + senderBadge(m.sender_type) + ' ' + esc(m.sender_name) + '</span>' +
+        '<small class="text-muted">' + new Date(Number(m.create_time) * 1000).toLocaleString() + '</small></div>' +
+        '<div class="ticket-message-content">' + (m.content || '') + '</div></div>';
+      return wrap;
+    }
+    function openDetail(id) {
+      currentId = Number(id);
+      util.post({ url: API + 'detail', data: { id: currentId, limit: 30 }, loader: false, done: res => {
+        const t = res.data.ticket;
+        document.querySelector('.ticket-title').textContent = '\u5DE5\u5355\u8BE6\u60C5 - ' + t.ticket_no;
+        document.querySelector('.ticket-meta-no').textContent = t.ticket_no;
+        document.querySelector('.ticket-meta-user').textContent = t.user_id + (t.user ? ' (' + esc(t.user.username) + ')' : '');
+        document.querySelector('.ticket-meta-type').textContent = t.type_text;
+        document.querySelector('.ticket-meta-priority').textContent = t.priority_text;
+        document.querySelector('.ticket-meta-status').innerHTML = statusBadge(t.status);
+        document.querySelector('.ticket-meta-commodity').textContent = t.commodity_name ? esc(t.commodity_name) + (t.commodity ? ' (ID ' + t.commodity.id + ')' : '') : '\u65E0';
+        document.querySelector('.ticket-meta-order').innerHTML = t.order ? (esc(t.order.trade_no) + '<small class="text-muted ms-2">\xA5' + Number(t.order.amount || 0).toFixed(2) + '</small>') : (t.order_trade_no ? esc(t.order_trade_no) + ' <span class="badge badge-light-warning">' + (t.order_verification_pending ? '\u5F85\u6838\u9A8C' : '') + '</span>' : '\u65E0\u5173\u8054\u8BA2\u5355');
+        document.querySelector('.ticket-meta-created').textContent = t.create_time ? new Date(t.create_time * 1000).toLocaleString() : '-';
+        document.querySelector('.ticket-meta-closed').textContent = t.closed_time ? new Date(t.closed_time * 1000).toLocaleString() : '-';
+        const box = document.querySelector('.ticket-messages');
+        box.innerHTML = '';
+        (res.data.messages || []).forEach(m => box.appendChild(messageItem(m)));
+        box.scrollTop = box.scrollHeight;
+        document.querySelector('.tk-history-prev').style.display = res.data.has_more ? '' : 'none';
+        document.querySelector('.ticket-reply').disabled = Number(t.status) >= 2;
+        document.querySelector('.ticket-resolve').disabled = Number(t.status) >= 2;
+        document.querySelector('.ticket-close').disabled = Number(t.status) >= 2;
+        document.querySelector('.ticket-delete').dataset.id = t.id;
+        (window.bootstrap && bootstrap.Modal.getOrCreateInstance(document.getElementById('ticketModal'))).show();
+      }, error: res => message.error(res.msg) });
+    }
+    function loadHistory() {
+      if (!currentId) return;
+      const box = document.querySelector('.ticket-messages');
+      const first = box.querySelector('.ticket-message-content');
+      let beforeId = 0;
+      const firstMsg = box.querySelector('[data-mid]');
+      if (firstMsg) beforeId = Number(firstMsg.dataset.mid);
+      util.post({ url: API + 'messages', data: { id: currentId, before_id: beforeId, limit: 30 }, loader: false, done: res => {
+        const items = res.data.list || [];
+        const list = document.createElement('div');
+        let before = 0;
+        items.forEach(m => {
+          const el = messageItem(m);
+          el.setAttribute('data-mid', m.id);
+          list.appendChild(el);
+          before = m.id;
+        });
+        box.insertBefore(list.firstChild ? list : document.createTextNode(''), box.firstChild);
+        if (items.length) {
+          const all = box.querySelectorAll('[data-mid]');
+          all.forEach(el => el.removeAttribute('data-mid'));
+          const arr = [...all].map(el => Number(el.dataset.mid));
+        }
+        document.querySelector('.tk-history-prev').style.display = res.data.has_more ? '' : 'none';
+        box.scrollTop = box.scrollHeight;
+      }, error: res => message.error(res.msg) });
+    }
+    function setReplyDraft(kind) {
+      if (kind === 'resolve') document.querySelector('.ticket-reply-content').value = '';
+    }
+    function doReply(mode) {
+      const content = document.querySelector('.ticket-reply-content').value.trim();
+      if (!currentId) return;
+      if (!content && mode !== 'resolve') { message.error('\u8BF7\u8F93\u5165\u56DE\u590D\u5185\u5BB9'); return; }
+      util.post({ url: API + 'reply', data: { id: currentId, content, mode }, done: res => {
+        message.success(res.msg);
+        document.querySelector('.ticket-reply-content').value = '';
+        openDetail(currentId);
+        load();
+      }, error: res => message.error(res.msg) });
+    }
+    function confirmDel(ids, tip) {
+      if (!ids.length) { message.error('\u8BF7\u9009\u62E9\u8981\u5220\u9664\u7684\u5DE5\u5355'); return; }
+      if (!confirm((tip || '\u786E\u8BA4\u5220\u9664 ') + ids.length + ' \u4E2A\u5DE5\u5355\uFF08\u542B\u5168\u90E8\u6D88\u606F\uFF09\uFF1F')) return;
+      util.post({ url: API + 'del', data: { list: ids }, done: r => { message.success(r.msg); if (currentId) { currentId = 0; bootstrap.Modal.getOrCreateInstance(document.getElementById('ticketModal')).hide(); } load(); }, error: r => message.error(r.msg) });
+    }
+    document.querySelector('.crud-check-all').addEventListener('change', e => tbody.querySelectorAll('.crud-check').forEach(x => x.checked = e.target.checked));
+    document.querySelector('.tk-search').addEventListener('click', () => { page = 1; load(); });
+    document.querySelector('.tk-refresh').addEventListener('click', () => load());
+    document.querySelector('.tk-f-keyword').addEventListener('keydown', e => { if (e.key === 'Enter') { page = 1; load(); } });
+    document.querySelector('.crud-prev').addEventListener('click', () => { if (page > 1) { page--; load(); } });
+    document.querySelector('.crud-next').addEventListener('click', () => { page++; load(); });
+    document.querySelector('.tk-del-all').addEventListener('click', () => confirmDel(selected(), '\u786E\u8BA4\u5220\u9664\u9009\u4E2D\u5DE5\u5355 '));
+    document.querySelector('.ticket-reply').addEventListener('click', () => doReply('reply'));
+    document.querySelector('.ticket-resolve').addEventListener('click', () => { if (confirm('\u56DE\u590D\u5E76\u6807\u8BB0\u4E3A\u5DF2\u89E3\u51B3\uFF1F')) doReply('resolve'); });
+    document.querySelector('.ticket-close').addEventListener('click', () => {
+      if (!confirm('\u786E\u8BA4\u5173\u95ED\u5DE5\u5355\uFF1F\u5173\u95ED\u540E\u7528\u6237\u65E0\u6CD5\u7EE7\u7EED\u56DE\u590D\u3002')) return;
+      util.post({ url: API + 'close', data: { id: currentId }, done: r => { message.success(r.msg); openDetail(currentId); load(); }, error: r => message.error(r.msg) });
+    });
+    document.querySelector('.ticket-delete').addEventListener('click', () => confirmDel([currentId], '\u786E\u8BA4\u5220\u9664\u8BE5\u5DE5\u5355 '));
+    document.querySelector('.tk-history-prev').addEventListener('click', () => loadHistory());
+    tbody.addEventListener('click', e => {
+      const tr = e.target.closest('tr'); if (!tr) return;
+      const id = tr.dataset.id;
+      if (e.target.closest('.row-view')) openDetail(id);
+      else if (e.target.closest('.row-del')) confirmDel([id], '\u786E\u8BA4\u5220\u9664\u5DE5\u5355 ');
+    });
+    load();
+  });`;
+  return renderCrudPage({ cfg, manage, title: "\u5DE5\u5355\u7BA1\u7406", activePath: "/admin/ticket/index", body, readyJs: js });
+}
 
 // pages.js
 var CSS_AUTH = [
@@ -5311,7 +5893,7 @@ function renderHeader(v, extraScripts = "") {
     <link href="${favicon}?v=${app.version}" rel="icon">
     <title>${htmlEscape(title)} - ${htmlEscape(config.shop_name)}</title>
     ${CSS_FILES.map((f) => `<link href="${f}" rel="stylesheet">`).join("")}
-    <script src="/assets/common/js/ready.js"></script>
+    <script src="/assets/common/js/ready.js"><\/script>
     ${extraScripts}
 </head>
 <body style="background-size: cover;background-image: linear-gradient(180deg, rgb(255 255 255 / 0%), rgb(255 255 255 / 71%)), url('${htmlEscape(config.background_url || "")}')">
@@ -5358,7 +5940,7 @@ function renderHeader(v, extraScripts = "") {
 function renderFooter(v) {
   return `</div>
 ${v.setting && v.setting.icp ? `<footer>${htmlEscape(v.setting.icp)}</footer>` : ""}
-${JS_FILES.map((f) => `<script src="${f}"></script>`).join("")}
+${JS_FILES.map((f) => `<script src="${f}"><\/script>`).join("")}
 </body>
 </html>`;
 }
@@ -5600,7 +6182,7 @@ function pageIndex(v) {
     </div>
   </div>
 </main>
-<script src="/assets/user/controller/index/index.js"></script>`;
+<script src="/assets/user/controller/index/index.js"><\/script>`;
 }
 function pageItem(v) {
   const { item, config } = v;
@@ -5729,7 +6311,7 @@ function pageItem(v) {
 
 
 </main>
-<script src="/assets/user/controller/index/item.js"></script>`;
+<script src="/assets/user/controller/index/item.js"><\/script>`;
 }
 function pageQuery(v) {
   return `<main class="container py-4">
@@ -5754,7 +6336,7 @@ function pageQuery(v) {
         </div>
     </div>
 </main>
-<script src="/assets/user/controller/index/query.js"></script>`;
+<script src="/assets/user/controller/index/query.js"><\/script>`;
 }
 function pageClosed(v) {
   return `<main class="container py-5">
@@ -5889,6 +6471,9 @@ async function route(env, request, url, ctx) {
     }
     if (s === "/admin/coupon/index") {
       return pageRes(renderAdminCouponPage(cfg, manage));
+    }
+    if (s === "/admin/ticket/index") {
+      return pageRes(renderAdminTicketPage(cfg, manage));
     }
     return pageRes(renderAdminShell({ cfg, manage, title: "\u5EFA\u8BBE\u4E2D", activePath: s }, "text/html"));
   }
