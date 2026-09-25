@@ -1,5 +1,5 @@
 // ============================================================
-// DCSHOP (acg-faka) Cloudflare 部署版 - Worker 主入口
+// acg-faka Cloudflare 部署版 - Worker 主入口
 // 路由: 首页 / 商品详情 / 下单 / 支付 / 自动发货 / 订单查询 / 帮助 / 后台
 // 数据: D1 (SQLite), 静态资源: Pages Assets (public/)
 // ============================================================
@@ -568,7 +568,7 @@ async function pagePay(request, env, q) {
         <h6 class="panel-title">订单支付</h6>
       </div>
       <div class="panel-body">
-        <div class="pay-order-status" style="padding:14px;background:#f6f8fa;border-radius:8px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3" style="padding:14px;background:#f6f8fa;border-radius:8px;">
           <span>订单号：<b>${esc(order.out_trade_no)}</b></span>
           <span>状态：<b style="color:${paid ? '#4caf50' : expired ? '#999' : '#ff9800'}">${statusText}</b></span>
         </div>
@@ -786,7 +786,7 @@ async function pageOrderQuery(request, env, q) {
         </div>
       </div>
     </div>
-    <div class="result-area" id="resultArea" style="margin-top:20px;"></div>
+    <div id="resultArea" class="mt-4"></div>
   </main>
   <script>
   function doQuery(){
@@ -798,12 +798,12 @@ async function pageOrderQuery(request, env, q) {
       var html = '';
       for (var i=0;i<res.list.length;i++){
         var o = res.list[i];
-        html += '<div class="panel order-card" style="padding:16px;margin-bottom:14px;">' +
-          '<div style="display:flex;justify-content:space-between;align-items:center;"><span style="color:#333;">' + o.out_trade_no + '</span><span style="color:#4caf50;">' + o.status_text + '</span></div>' +
-          '<div style="margin:10px 0;color:#555;font-size:14px;">' + o.title_html + '</div>' +
-          '<div style="display:flex;justify-content:space-between;align-items:center;font-size:14px;color:#888;"><span>' + o.create_time_text + '</span><span>共' + o.count + '件 合计 <b style="color:#ff6600;">¥' + o.amount + '</b></span></div>' +
-          (o.can_view ? '<div style="margin-top:12px;text-align:right;"><a class="btn btn-primary btn-sm br-12" href="/?action=order_result&out_trade_no=' + o.out_trade_no + '">查看订单</a></div>' : '') +
-        '</div>';
+        html += '<div class="panel"><div class="panel-body">' +
+          '<div class="d-flex justify-content-between align-items-center"><span style="color:#333;">' + o.out_trade_no + '</span><span style="color:#4caf50;">' + o.status_text + '</span></div>' +
+          '<div class="my-2" style="color:#555;font-size:14px;">' + o.title_html + '</div>' +
+          '<div class="d-flex justify-content-between align-items-center" style="font-size:14px;color:#888;"><span>' + o.create_time_text + '</span><span>共' + o.count + '件 合计 <b style="color:#ff6600;">¥' + o.amount + '</b></span></div>' +
+          (o.can_view ? '<div class="mt-3 text-end"><a class="btn btn-primary btn-sm br-12" href="/?action=order_result&out_trade_no=' + o.out_trade_no + '">查看订单</a></div>' : '') +
+        '</div></div>';
       }
       $('#resultArea').html('<div class="text-muted mb-2">共找到 ' + res.list.length + ' 个订单</div>' + html);
     }, 'json');
@@ -882,9 +882,9 @@ async function pageHelp(request, env, q) {
       <div class="panel-body">
         ${faqs
           .map(
-            (f, i) => `<div class="faq-item" style="border-bottom:1px dashed #eee;padding:14px 0;">
-        <div class="faq-title" style="font-weight:500;color:#333;cursor:pointer;display:flex;justify-content:space-between;"><span><span class="faq-num" style="color:#139655;margin-right:8px;">${i + 1}.</span>${f[0]}</span><span class="faq-arrow">+</span></div>
-        <div class="faq-answer" style="color:#777;font-size:14px;line-height:1.8;margin-top:10px;display:none;">${f[1]}</div>
+            (f, i) => `<div class="faq-row" style="border-bottom:1px dashed #eee;padding:14px 0;">
+        <div class="faq-q" style="font-weight:500;color:#333;cursor:pointer;display:flex;justify-content:space-between;"><span><span style="color:#139655;margin-right:8px;">${i + 1}.</span>${f[0]}</span><span class="faq-arrow">+</span></div>
+        <div class="faq-a" style="color:#777;font-size:14px;line-height:1.8;margin-top:10px;display:none;">${f[1]}</div>
       </div>`
           )
           .join('')}
@@ -900,7 +900,7 @@ async function pageHelp(request, env, q) {
   </main>
   <script>
   $(function(){
-    $('.faq-title').on('click', function(){ var a=$(this).next(); a.slideToggle(150); $(this).find('.faq-arrow').text(a.is(':visible')?'-':'+'); });
+    $('.faq-q').on('click', function(){ var a=$(this).next(); a.slideToggle(150); $(this).find('.faq-arrow').text(a.is(':visible')?'-':'+'); });
   });
   </script>`;
   return new Response(layout(env, { ...opts, title: '买家帮助' }, navItems, body), { headers: HTML_HEADERS });
@@ -1029,7 +1029,7 @@ async function pageRss(request, env, q) {
   const goods = (
     await env.DB.prepare('SELECT * FROM dc_goods WHERE delete_time IS NULL AND is_on_shelf = 1 ORDER BY id DESC LIMIT 20').all()
   ).results;
-  const siteName = opt(opts, 'blogname', 'DCSHOP');
+  const siteName = opt(opts, 'blogname', 'ACG发卡');
   const url = request.url;
   let items = '';
   for (const g of goods) {

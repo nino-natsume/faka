@@ -1,5 +1,3 @@
-// DCSHOP faka - Pages 单文件入口 (由 worker.js+admin.js+lib.js 自动打包生成, 勿手改)
-
 // lib.js
 function esc(s) {
   if (s === null || s === void 0) return "";
@@ -12,8 +10,8 @@ function fen2yuan(fen) {
 function ts2str(ts) {
   if (!ts) return "";
   const t = new Date(Number(ts) * 1e3);
-  const p = (x) => String(x).padStart(2, "0");
-  return t.getFullYear() + "-" + p(t.getMonth() + 1) + "-" + p(t.getDate()) + " " + p(t.getHours()) + ":" + p(t.getMinutes());
+  const p2 = (x) => String(x).padStart(2, "0");
+  return t.getFullYear() + "-" + p2(t.getMonth() + 1) + "-" + p2(t.getDate()) + " " + p2(t.getHours()) + ":" + p2(t.getMinutes());
 }
 function now() {
   return Math.floor(Date.now() / 1e3);
@@ -159,19 +157,19 @@ function footerHtml(env, opts) {
   const icp = opt(opts, "icp", "");
   return `</div>
 ${icp ? `<footer class="text-center text-muted py-3" style="font-size:13px;">${esc(icp)}</footer>` : ""}
-<script src="/assets/common/js/jquery.min.js"></script>
-<script src="/assets/common/js/bootstrap/bootstrap.bundle.min.js"></script>
-<script src="/assets/common/js/util/dict.js"></script>
-<script src="/assets/common/js/toastr.min.js"></script>
-<script src="/assets/common/js/layer/layer.js"></script>
-<script src="/assets/common/js/util.js"></script>
-<script src="/assets/common/js/format.js"></script>
-<script src="/assets/common/js/message.js"></script>
-<script src="/assets/common/js/component.js"></script>
-<script src="/assets/common/js/cache.js"></script>
-<script src="/assets/user/js/trade.js"></script>
-<script src="/assets/user/js/treasure.js"></script>
-<script src="/assets/user/js/_index.js"></script>
+<script src="/assets/common/js/jquery.min.js"><\/script>
+<script src="/assets/common/js/bootstrap/bootstrap.bundle.min.js"><\/script>
+<script src="/assets/common/js/util/dict.js"><\/script>
+<script src="/assets/common/js/toastr.min.js"><\/script>
+<script src="/assets/common/js/layer/layer.js"><\/script>
+<script src="/assets/common/js/util.js"><\/script>
+<script src="/assets/common/js/format.js"><\/script>
+<script src="/assets/common/js/message.js"><\/script>
+<script src="/assets/common/js/component.js"><\/script>
+<script src="/assets/common/js/cache.js"><\/script>
+<script src="/assets/user/js/trade.js"><\/script>
+<script src="/assets/user/js/treasure.js"><\/script>
+<script src="/assets/user/js/_index.js"><\/script>
 <script>
 $(function(){
   $('#acgSearchInput').on('keypress', function(e){
@@ -182,7 +180,7 @@ $(function(){
     }
   });
 });
-</script>
+<\/script>
 `;
 }
 function pageFoot() {
@@ -210,7 +208,7 @@ async function buildNav(db, activePath) {
 function paginationHtml(baseUrl, page, pages, total) {
   if (pages <= 1) return "";
   const sep = baseUrl.includes("?") ? "&" : "?";
-  const link = (p) => `<li class="page-item ${p === page ? "active" : ""}"><a class="page-link" href="${baseUrl}${sep}page=${p}">${p}</a></li>`;
+  const link = (p2) => `<li class="page-item ${p2 === page ? "active" : ""}"><a class="page-link" href="${baseUrl}${sep}page=${p2}">${p2}</a></li>`;
   let html = '<nav class="mt-3"><ul class="pagination justify-content-center mb-0">';
   if (page > 1) html += `<li class="page-item"><a class="page-link" href="${baseUrl}${sep}page=${page - 1}">\u4E0A\u4E00\u9875</a></li>`;
   for (let i = 1; i <= pages; i++) html += link(i);
@@ -227,6 +225,12 @@ async function handleAdmin(request, env) {
   const url = new URL(request.url);
   const path = url.pathname;
   const q = parseQuery(url.search);
+  try {
+    const opts = await getOptions(env.DB);
+    env._shopName = opt(opts, "blogname", "ACG\u53D1\u5361");
+  } catch (e) {
+    env._shopName = "ACG\u53D1\u5361";
+  }
   if (request.method === "POST") {
     const form = await request.formData();
     if (path === "/admin/login") return doLogin(form, env);
@@ -245,7 +249,7 @@ async function handleAdmin(request, env) {
     return json({ code: 1, msg: "\u672A\u77E5\u63A5\u53E3" });
   }
   if (!await isAdmin(request, env)) {
-    return adminPage(request, env, "\u540E\u53F0\u767B\u5F55", loginHtml());
+    return new Response(loginHtml(env._shopName), { headers: HTML_HEADERS });
   }
   if (path === "/admin") return dashboard(request, env);
   if (path === "/admin/goods") return goodsList(request, env, q);
@@ -265,13 +269,13 @@ function redir(to) {
 }
 async function isAdmin(request, env) {
   const cookie = parseCookie(request.headers.get("Cookie") || "");
-  const t = cookie.dc_admin_token;
+  const t = cookie.acg_admin_token;
   if (!t) return false;
   try {
     const dec = atob(t);
     const [user, ts, sig] = dec.split(".");
     if (!user || !ts || !sig) return false;
-    const secret = env.SECRET || "dc-faka-secret";
+    const secret = env.SECRET || "acg-faka-secret";
     const expect = await hmacSha256(secret, user + "." + ts);
     if (sig !== expect) return false;
     const cfg = { u: env.ADMIN_USERNAME || DEFAULT_ADMIN.u, p: env.ADMIN_PASSWORD || DEFAULT_ADMIN.p };
@@ -282,20 +286,20 @@ async function isAdmin(request, env) {
 }
 async function doLogin(form, env) {
   const u = form.get("username") || "";
-  const p = form.get("password") || "";
+  const p2 = form.get("password") || "";
   const cfg = { u: env.ADMIN_USERNAME || DEFAULT_ADMIN.u, p: env.ADMIN_PASSWORD || DEFAULT_ADMIN.p };
-  if (u !== cfg.u || p !== cfg.p) return json({ code: 1, msg: "\u8D26\u53F7\u6216\u5BC6\u7801\u9519\u8BEF" });
+  if (u !== cfg.u || p2 !== cfg.p) return json({ code: 1, msg: "\u8D26\u53F7\u6216\u5BC6\u7801\u9519\u8BEF" });
   const ts = String(now());
-  const secret = env.SECRET || "dc-faka-secret";
+  const secret = env.SECRET || "acg-faka-secret";
   const sig = await hmacSha256(secret, u + "." + ts);
   const token = btoa(u + "." + ts + "." + sig);
   const res = json({ code: 0 });
-  res.headers.append("Set-Cookie", "dc_admin_token=" + token + "; Path=/; HttpOnly; Max-Age=86400");
+  res.headers.append("Set-Cookie", "acg_admin_token=" + token + "; Path=/; HttpOnly; Max-Age=86400");
   return res;
 }
 function doLogout() {
   const res = redir("/admin");
-  res.headers.append("Set-Cookie", "dc_admin_token=; Path=/; HttpOnly; Max-Age=0");
+  res.headers.append("Set-Cookie", "acg_admin_token=; Path=/; HttpOnly; Max-Age=0");
   return res;
 }
 function parseCookie(c) {
@@ -307,85 +311,222 @@ function parseCookie(c) {
   return o;
 }
 function adminPage(request, env, title, content) {
+  const shopName = env && env._shopName || "ACG\u53D1\u5361";
   return new Response(
-    `<!DOCTYPE html><html lang="zh-cn"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>${esc(title)} - \u540E\u53F0\u7BA1\u7406</title>
-<link rel="stylesheet" href="/vendor/remixicon/remixicon.css">
-<script src="/vendor/jquery.min.js"></script>
-<script src="/vendor/layui/layui.js"></script>
-<style>
-*{box-sizing:border-box;margin:0;padding:0;}
-body{background:#f2f4f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;color:#333;}
-a{color:#2f69d9;text-decoration:none;}
-.wrap{display:flex;min-height:100vh;}
-.side{width:200px;background:#1e293b;color:#cbd5e1;padding:16px 0;flex-shrink:0;position:sticky;top:0;height:100vh;}
-.side .brand{padding:6px 18px 18px;font-size:16px;font-weight:600;color:#fff;border-bottom:1px solid #334155;white-space:nowrap;}
-.side a{display:flex;align-items:center;gap:8px;padding:11px 18px;color:#cbd5e1;font-size:14px;}
-.side a:hover,.side a.on{background:#334155;color:#fff;}
-.side a i{font-size:16px;}
-.main{flex:1;padding:22px 26px;min-width:0;}
-.card{background:#fff;border-radius:10px;padding:20px 24px;margin-bottom:18px;box-shadow:0 1px 3px rgba(0,0,0,.05);}
-h2{font-size:18px;margin-bottom:16px;}
-table{width:100%;border-collapse:collapse;font-size:14px;}
-th,td{padding:9px 10px;border-bottom:1px solid #eee;text-align:left;}
-th{background:#f8fafc;color:#64748b;font-weight:600;}
-tr:hover td{background:#fafbfc;}
-.btn{display:inline-block;padding:6px 14px;border-radius:6px;background:var(--tc,#2f69d9);color:#fff;border:none;font-size:13px;cursor:pointer;}
-.btn.gray{background:#94a3b8;}
-.btn.red{background:#ef4444;}
-.btn.green{background:#22c55e;}
-.btn.ghost{background:#fff;color:#475569;border:1px solid #d1d5db;}
-.inline{display:inline-block;vertical-align:middle;}
-input[type=text],input[type=number],input[type=password],select,textarea{width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:14px;margin-bottom:10px;}
-textarea{min-height:80px;}
-label{display:block;font-size:13px;color:#64748b;margin:8px 0 4px;}
-.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;}
-.stat{display:flex;gap:16px;flex-wrap:wrap;}
-.stat .item{flex:1;min-width:160px;background:#fff;border-radius:10px;padding:18px 20px;box-shadow:0 1px 3px rgba(0,0,0,.05);}
-.stat .num{font-size:26px;font-weight:700;margin-top:6px;}
-.muted{color:#94a3b8;font-size:12px;}
-.msg{color:#ef4444;font-size:13px;margin-top:8px;}
-.ok{color:#22c55e;}
-</style>
-</head><body>
-<div class="wrap">
-  <div class="side"><div class="brand">DCSHOP \u540E\u53F0</div>
-    <a href="/admin"><i class="ri-dashboard-line"></i>\u4EEA\u8868\u76D8</a>
-    <a href="/admin/goods"><i class="ri-shopping-bag-3-line"></i>\u5546\u54C1\u7BA1\u7406</a>
-    <a href="/admin/kami"><i class="ri-key-2-line"></i>\u5361\u5BC6\u7BA1\u7406</a>
-    <a href="/admin/orders"><i class="ri-file-list-3-line"></i>\u8BA2\u5355\u7BA1\u7406</a>
-    <a href="/admin/sorts"><i class="ri-folders-line"></i>\u5206\u7C7B\u7BA1\u7406</a>
-    <a href="/admin/settings"><i class="ri-settings-3-line"></i>\u7AD9\u70B9\u8BBE\u7F6E</a>
-    <a href="/admin/logout"><i class="ri-logout-box-line"></i>\u9000\u51FA\u767B\u5F55</a>
+    `<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+<script>(function(){var e=document.documentElement;try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);var m=localStorage.getItem('admin-layout-mode')==='desktop'?'desktop':((window.innerWidth||screen.width)<992?'mobile':'desktop');e.setAttribute('data-admin-layout',m);}catch(_){e.setAttribute('data-theme','light');e.setAttribute('data-admin-layout',(window.innerWidth||screen.width)<992?'mobile':'desktop');}})();<\/script>
+<title>${esc(title)}-${esc(shopName)}</title>
+<link rel="shortcut icon" href="/favicon.ico"/>
+<link href="/assets/common/css/_.css" rel="stylesheet">
+<link href="/assets/common/css/bootstrap.min.css" rel="stylesheet">
+<link href="/assets/common/css/font.min.css" rel="stylesheet">
+<link href="/assets/common/css/select2.min.css" rel="stylesheet">
+<link href="/assets/common/css/component.css" rel="stylesheet">
+<link href="/assets/common/css/toastr.min.css" rel="stylesheet">
+<link href="/assets/common/js/layui/css/layui.css" rel="stylesheet">
+<link href="/assets/common/js/layer/theme/default/layer.css" rel="stylesheet">
+<link href="/assets/common/css/md-tokens.css" rel="stylesheet">
+<link href="/assets/common/css/md-components.css" rel="stylesheet">
+<link href="/assets/common/css/_material.css" rel="stylesheet">
+<link href="/assets/common/fonts/material-icons.css" rel="stylesheet">
+<link href="/assets/common/css/mdicon.css" rel="stylesheet">
+<link href="/assets/admin/css/style.bundle.css" rel="stylesheet">
+<link href="/assets/admin/css/material.css" rel="stylesheet">
+</head>
+<body id="kt_body" class="header-fixed header-tablet-and-mobile-fixed toolbar-enabled toolbar-fixed aside-enabled aside-fixed" style="--kt-toolbar-height:55px;--kt-toolbar-height-tablet-and-mobile:55px;">
+<div class="d-flex flex-column flex-root">
+  <div class="page d-flex flex-row flex-column-fluid">
+    <div id="kt_aside" class="aside aside-light aside-hoverable">
+      <div class="aside-menu flex-column-fluid">
+        <div class="hover-scroll-overlay-y my-5 my-lg-5" id="kt_aside_menu_wrapper" style="overflow-x: hidden;">
+          <div class="menu menu-column menu-title-gray-800 menu-state-title-primary menu-state-icon-primary menu-state-bullet-primary menu-arrow-gray-500" id="kt_aside_menu">
+            <div class="menu-item"><div class="menu-content pb-2"><span class="menu-section text-muted text-uppercase fs-8 ls-1">Main</span></div></div>
+            <div class="menu-item"><a class="menu-link  ${p("/admin", pathOf(request))}" href="/admin"><span class="menu-icon"><svg class="menu-svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M19 5v2h-4V5h4M9 5v6H5V5h4m10 8v6h-4v-6h4M9 17v2H5v-2h4M21 3h-8v6h8V3zM11 3H3v10h8V3zm10 8h-8v10h8V11zm-10 4H3v6h8v-6z"/></svg></span><span class="menu-title">\u4EEA\u8868\u76D8</span></a></div>
+            <div class="menu-item"><div class="menu-content pt-8 pb-2"><span class="menu-section text-muted text-uppercase fs-8 ls-1">Trade</span></div></div>
+            <div class="menu-item"><a class="menu-link  ${p("/admin/goods", pathOf(request))}" href="/admin/goods"><span class="menu-icon"><svg class="menu-svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M20 2H4c-1 0-2 .9-2 2v3.01c0 .72.43 1.34 1 1.69V20c0 1.1 1.1 2 2 2h14c.9 0 2-.9 2-2V8.7c.57-.35 1-.97 1-1.69V4c0-1.1-1-2-2-2zm-1 18H5V9h14v11zm1-13H4V4h16v3z"/><path d="M9 12h6v2H9z"/></svg></span><span class="menu-title">\u5546\u54C1\u7BA1\u7406</span></a></div>
+            <div class="menu-item"><a class="menu-link  ${p("/admin/kami", pathOf(request))}" href="/admin/kami"><span class="menu-icon"><svg class="menu-svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M22 19h-6v-4h-2.68c-1.14 2.42-3.6 4-6.32 4c-3.86 0-7-3.14-7-7s3.14-7 7-7c2.72 0 5.17 1.58 6.32 4H24v6h-2v4zm-4-2h2v-4h2v-2H11.94l-.23-.67C11.01 8.34 9.11 7 7 7c-2.76 0-5 2.24-5 5s2.24 5 5 5c2.11 0 4.01-1.34 4.71-3.33l.23-.67H18v4z"/></svg></span><span class="menu-title">\u5361\u5BC6\u7BA1\u7406</span></a></div>
+            <div class="menu-item"><a class="menu-link  ${p("/admin/orders", pathOf(request))}" href="/admin/orders"><span class="menu-icon"><svg class="menu-svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M15.55 13c.75 0 1.41-.41 1.75-1.03l3.58-6.49A.996.996 0 0 0 20.01 4H5.21l-.94-2H1v2h2l3.6 7.59l-1.35 2.44C4.52 15.37 5.48 17 7 17h12v-2H7l1.1-2h7.45zM6.16 6h12.15l-2.76 5H8.53L6.16 6zM7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2s-.9-2-2-2zm10 0c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2s2-.9 2-2s-.9-2-2-2z"/></svg></span><span class="menu-title">\u5546\u54C1\u8BA2\u5355</span></a></div>
+            <div class="menu-item"><a class="menu-link  ${p("/admin/sorts", pathOf(request))}" href="/admin/sorts"><span class="menu-icon"><svg class="menu-svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z"/></svg></span><span class="menu-title">\u5206\u7C7B\u7BA1\u7406</span></a></div>
+            <div class="menu-item"><div class="menu-content pt-8 pb-2"><span class="menu-section text-muted text-uppercase fs-8 ls-1">Config</span></div></div>
+            <div class="menu-item"><a class="menu-link  ${p("/admin/settings", pathOf(request))}" href="/admin/settings"><span class="menu-icon"><svg class="menu-svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M19.43 12.98c.04-.32.07-.64.07-.98c0-.34-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65A.488.488 0 0 0 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1a.566.566 0 0 0-.18-.03c-.17 0-.34.09-.43.25l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98c0 .33.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.06.02.12.03.18.03c.17 0 .34-.09.43-.25l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zm-1.98-1.71c.04.31.05.52.05.73c0 .21-.02.43-.05.73l-.14 1.13l.89.7l1.08.84l-.7 1.21l-1.27-.51l-1.04-.42l-.9.68c-.43.32-.84.56-1.25.73l-1.06.43l-.16 1.13l-.2 1.35h-1.4l-.19-1.35l-.16-1.13l-1.06-.43c-.43-.18-.83-.41-1.23-.71l-.91-.7l-1.06.43l-1.27.51l-.7-1.21l1.08-.84l.89-.7l-.14-1.13zm-5.45-3.27a4 4 0 1 0 0 8a4 4 0 0 0 0-8z"/></svg></span><span class="menu-title">\u7F51\u7AD9\u8BBE\u7F6E</span></a></div>
+            <div class="menu-item"><div class="menu-content pt-8 pb-2"><span class="menu-section text-muted text-uppercase fs-8 ls-1">Account</span></div></div>
+            <div class="menu-item"><a class="menu-link" href="/admin/logout"><span class="menu-icon"><svg class="menu-svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg></span><span class="menu-title">\u9000\u51FA\u767B\u5F55</span></a></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="wrapper d-flex flex-column flex-row-fluid" id="kt_wrapper">
+      <div id="kt_header" class="header align-items-stretch">
+        <div class="container-fluid d-flex align-items-stretch justify-content-between">
+          <div class="aside-logo flex-column-auto d-none d-lg-flex" id="kt_aside_logo">
+            <a href="/admin" class="d-flex align-items-center">
+              <img style="border-radius: 50%;height: 22px;" src="/favicon.ico">
+              <span class="logo fw-bolder ms-2 fs-4" style="color: #919191;">${esc(shopName)}</span>
+            </a>
+          </div>
+          <div class="d-flex align-items-center d-lg-none ms-n3 me-1" title="Show aside menu">
+            <div class="btn btn-icon btn-active-light-primary w-30px h-30px w-md-40px h-md-40px" onclick="document.body.classList.toggle('aside-mobile-minimized')">
+              <span class="svg-icon svg-icon-2x"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none"><path d="M21 7H3C2.4 7 2 6.6 2 6V4C2 3.4 2.4 3 3 3H21C21.6 3 22 3.4 22 4V6C22 6.6 21.6 7 21 7Z" fill="black"/><path opacity="0.3" d="M21 14H3C2.4 14 2 13.6 2 13V11C2 10.4 2.4 10 3 10H21C21.6 10 22 10.4 22 11V13C22 13.6 21.6 14 21 14ZM22 20V18C22 17.4 21.6 17 21 17H3C2.4 17 2 17.4 2 18V20C2 20.6 2.4 21 3 21H21C21.6 21 22 20.6 22 20Z" fill="black"/></svg></span>
+            </div>
+          </div>
+          <div class="d-flex align-items-center flex-grow-1 flex-lg-grow-0 d-hide show-mobile">
+            <a href="/admin"><img height="25px" style="border-radius: 50%;" src="/favicon.ico"></a>
+          </div>
+          <div class="d-flex align-items-stretch justify-content-between flex-lg-grow-1">
+            <div class="d-flex align-items-stretch" id="kt_header_nav">
+              <div class="header-menu">
+                <div class="menu me-4 menu-lg-rounded menu-column menu-lg-row menu-state-bg menu-title-gray-700 menu-state-title-primary menu-state-icon-primary menu-state-bullet-primary menu-arrow-gray-400 fw-bold my-5 my-lg-0 align-items-stretch">
+                  <div class="menu-item me-lg-1 app-store"><a class="py-3 text-primary fw-bold" href="/"><i class="fa-duotone fa-regular fa-house"></i> \u8FD4\u56DE\u524D\u53F0</a></div>
+                </div>
+              </div>
+            </div>
+            <div class="d-flex align-items-stretch flex-shrink-0">
+              <div class="d-flex align-items-center ms-1 ms-lg-3">
+                <a href="/admin/logout"><div class="cursor-pointer symbol symbol-30px symbol-md-40px"><img src="/favicon.ico" alt="user"/></div></a>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="pjax-container">
+        <div class="content d-flex flex-column flex-column-fluid" id="kt_content">
+          <div class="toolbar" id="kt_toolbar">
+            <div class="container-fluid d-flex flex-stack flex-wrap gap-2 align-items-center">
+              <div class="page-title d-flex flex-column align-items-start justify-content-center flex-wrap me-3">
+                <h1 class="page-heading d-flex text-gray-900 fw-bold fs-3 align-items-center flex-column justify-content-center my-0">${esc(title)}</h1>
+              </div>
+            </div>
+          </div>
+          <div class="post d-flex flex-column-fluid" id="kt_post">
+            <div id="kt_content_container" class="container-fluid">
+              ${content}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
-  <div class="main"><h2>${esc(title)}</h2>${content}</div>
 </div>
-<script>
-$(function(){ var p=location.pathname; $('.side a').each(function(){ if($(this).attr('href')===p) $(this).addClass('on'); }); });
-</script>
+<script src="/assets/common/js/jquery.min.js"><\/script>
+<script src="/assets/common/js/bootstrap/bootstrap.bundle.min.js"><\/script>
+<script src="/assets/common/js/toastr.min.js"><\/script>
+<script src="/assets/common/js/util.js"><\/script>
+<script src="/assets/common/js/format.js"><\/script>
+<script src="/assets/common/js/message.js"><\/script>
+<script src="/assets/common/js/component.js"><\/script>
+<script src="/assets/common/js/layui/layui.js"><\/script>
+<script src="/assets/common/js/layer/layer.js"><\/script>
+<script>$(function(){ var pa=location.pathname; $('.aside-menu a.menu-link').each(function(){ if($(this).attr('href')===pa) $(this).addClass('active'); }); });<\/script>
 </body></html>`,
     { headers: HTML_HEADERS }
   );
 }
-function loginHtml() {
-  return `<div style="max-width:380px;margin:60px auto;">
-<div class="card">
-  <h2>\u540E\u53F0\u767B\u5F55</h2>
-  <label>\u7528\u6237\u540D</label><input type="text" id="lUser" placeholder="admin">
-  <label>\u5BC6\u7801</label><input type="password" id="lPwd" placeholder="password">
-  <button class="btn" id="btnLogin" style="width:100%;padding:11px;">\u767B \u5F55</button>
-  <div class="msg" id="loginMsg"></div>
+function pathOf(request) {
+  return new URL(request.url).pathname;
+}
+function p(target, cur) {
+  return cur === target ? "active" : "";
+}
+function loginHtml(shopName) {
+  return `<!DOCTYPE html>
+<html lang="zh-cn">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>\u767B\u5F55 - ${esc(shopName)}</title>
+<script>(function(){try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;var e=document.documentElement;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);}catch(_){document.documentElement.setAttribute('data-theme','light');}})();<\/script>
+<link href="/assets/common/css/_.css" rel="stylesheet">
+<link href="/assets/common/css/bootstrap.min.css" rel="stylesheet">
+<link href="/assets/common/css/font.min.css" rel="stylesheet">
+<link href="/assets/common/css/select2.min.css" rel="stylesheet">
+<link href="/assets/common/css/component.css" rel="stylesheet">
+<link href="/assets/common/css/toastr.min.css" rel="stylesheet">
+<link href="/assets/common/js/layui/css/layui.css" rel="stylesheet">
+<link href="/assets/common/js/layer/theme/default/layer.css" rel="stylesheet">
+<link href="/assets/common/css/md-tokens.css" rel="stylesheet">
+<link href="/assets/admin/css/style.bundle.css" rel="stylesheet">
+<link href="/assets/admin/css/auth.css" rel="stylesheet">
+<link href="/assets/admin/css/material-auth.css" rel="stylesheet">
+</head>
+<body class="ay-bg">
+<div class="ay-dim" aria-hidden="true"></div>
+<div class="ay-petals" aria-hidden="true">
+    <i style="left:6%; top:-8vh; animation-duration:11s"></i>
+    <i style="left:24%; top:-12vh; animation-duration:13s"></i>
+    <i style="left:52%; top:-16vh; animation-duration:12s"></i>
+    <i style="left:72%; top:-10vh; animation-duration:10s"></i>
+    <i style="left:86%; top:-18vh; animation-duration:14s"></i>
 </div>
-</div>
+<main class="ay-wrap">
+    <section class="ay-card" role="dialog" aria-labelledby="ay-title" aria-describedby="ay-sub">
+        <button type="button" class="ay-theme" id="ay-theme" aria-label="\u5207\u6362\u660E\u6697\u4E3B\u9898" title="\u5207\u6362\u660E\u6697\u4E3B\u9898">
+            <svg class="ico-moon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
+            <svg class="ico-sun" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></svg>
+        </button>
+        <header class="ay-head">
+            <div class="ay-logo" aria-hidden="true"></div>
+            <h1 id="ay-title" class="ay-title">\u6B22\u8FCE\u56DE\u6765\uFF0C\u6307\u6325\u5B98</h1>
+            <p id="ay-sub" class="ay-sub">\u6B63\u5728\u9A8C\u8BC1\u60A8\u7684\u7BA1\u7406\u5458\u8EAB\u4EFD</p>
+        </header>
+        <div class="ay-body">
+            <form id="ay-form" method="post" novalidate>
+                <div class="ay-field has-ico">
+                    <input id="ay-user" name="username" class="ay-input" type="text" placeholder=" " autocomplete="username" autofocus required>
+                    <span class="ay-label">\u7528\u6237\u540D</span>
+                    <span class="ay-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></span>
+                </div>
+                <div class="ay-field has-ico">
+                    <input id="ay-pass" name="password" class="ay-input" type="password" placeholder=" " autocomplete="current-password" required>
+                    <span class="ay-label">\u5BC6\u7801</span>
+                    <span class="ay-ico" aria-hidden="true"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></span>
+                    <button type="button" class="ay-eye" id="ay-eye" aria-label="\u663E\u793A\u5BC6\u7801">
+                        <svg class="ay-eye-open" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12Z"/><circle cx="12" cy="12" r="3"/></svg>
+                        <svg class="ay-eye-shut" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/><path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/><path d="m1 1 22 22"/></svg>
+                    </button>
+                    <span class="ay-caps" id="ay-caps" hidden>\u5927\u5199\u9501\u5B9A\u5DF2\u5F00\u542F</span>
+                </div>
+                <div class="ay-row">
+                    <label class="ay-check"><input type="checkbox" id="ay-remember" name="remember" value="1">\u4FDD\u6301\u767B\u5F55(24\u5C0F\u65F6)</label>
+                </div>
+                <div class="ay-err" id="ay-err" hidden></div>
+                <button class="ay-btn" type="submit" id="ay-submit">\u786E\u8BA4\u767B\u5165</button>
+            </form>
+            <div class="ay-foot">\xA9 ${esc(shopName)}</div>
+        </div>
+    </section>
+</main>
+<script src="/assets/common/js/jquery.min.js"><\/script>
+<script src="/assets/common/js/toastr.min.js"><\/script>
+<script src="/assets/common/js/layer/layer.js"><\/script>
 <script>
-$('#btnLogin').on('click', function(){
-  $.post('/admin/login', { username: $('#lUser').val(), password: $('#lPwd').val() }, function(res){
-    if (res.code === 0) { location.href = '/admin'; } else { $('#loginMsg').text(res.msg); }
+$('#ay-form').on('submit', function(e){
+  e.preventDefault();
+  $('#ay-err').attr('hidden','').text('');
+  $.post('/admin/login', { username: $('#ay-user').val(), password: $('#ay-pass').val() }, function(res){
+    if (res.code === 0) { location.href = '/admin'; }
+    else { $('#ay-err').removeAttr('hidden').text(res.msg || '\u767B\u5F55\u5931\u8D25'); }
   }, 'json');
 });
-$(document).on('keydown', function(e){ if (e.key === 'Enter') $('#btnLogin').click(); });
-</script>`;
+$(function(){
+  var t=localStorage.getItem('admin-theme')||'auto';
+  var dark=t==='dark'||(t==='auto'&&matchMedia('(prefers-color-scheme: dark)').matches);
+  $('html').attr('data-theme', dark?'dark':'light');
+  $('#ay-theme').on('click', function(){
+    dark=!dark; $('html').attr('data-theme', dark?'dark':'light');
+    localStorage.setItem('admin-theme', dark?'dark':'light');
+  });
+  $('#ay-eye').on('click', function(){
+    var p=$('#ay-pass'); var v=p.attr('type')==='password';
+    p.attr('type', v?'text':'password');
+    $(this).toggleClass('is-visible', v);
+  });
+});
+<\/script>
+</body></html>`;
 }
 async function dashboard(request, env) {
   const s = {
@@ -397,14 +538,30 @@ async function dashboard(request, env) {
   const recent = (await env.DB.prepare("SELECT * FROM dc_order ORDER BY id DESC LIMIT 8").all()).results;
   const statusText = { 0: "\u5F85\u652F\u4ED8", 1: "\u5DF2\u652F\u4ED8\u5F85\u53D1\u8D27", 2: "\u5DF2\u5B8C\u6210", 3: "\u5DF2\u53D6\u6D88" };
   const recentRows = recent.map((o) => `<tr><td>${esc(o.out_trade_no)}</td><td>\xA5${fen2yuan(o.amount)}</td><td>${ts2str(o.create_time)}</td><td>${statusText[o.status] || o.status}</td></tr>`).join("");
-  const content = `<div class="stat">
-    <div class="item"><div class="muted">\u5546\u54C1\u603B\u6570</div><div class="num" style="color:#2f69d9;">${s.goods}</div></div>
-    <div class="item"><div class="muted">\u8BA2\u5355\u603B\u6570</div><div class="num" style="color:#f59e0b;">${s.orders}</div></div>
-    <div class="item"><div class="muted">\u5DF2\u652F\u4ED8\u8BA2\u5355</div><div class="num" style="color:#22c55e;">${s.paid}</div></div>
-    <div class="item"><div class="muted">\u5B9E\u6536\u91D1\u989D (\u5143)</div><div class="num" style="color:#ef4444;">${fen2yuan(s.income)}</div></div>
+  const content = `<div class="row g-5 g-xl-8">
+    <div class="col-xl-3 col-md-6"><div class="card card-flush h-xl-100"><div class="card-body pt-7">
+      <div class="d-flex align-items-center"><span class="fs-7 fw-semibold text-muted">\u5546\u54C1\u603B\u6570</span></div>
+      <div class="fs-2x fw-bolder pt-4" style="color:#2667d6;">${s.goods}</div>
+    </div></div></div>
+    <div class="col-xl-3 col-md-6"><div class="card card-flush h-xl-100"><div class="card-body pt-7">
+      <div class="d-flex align-items-center"><span class="fs-7 fw-semibold text-muted">\u8BA2\u5355\u603B\u6570</span></div>
+      <div class="fs-2x fw-bolder pt-4" style="color:#f59e0b;">${s.orders}</div>
+    </div></div></div>
+    <div class="col-xl-3 col-md-6"><div class="card card-flush h-xl-100"><div class="card-body pt-7">
+      <div class="d-flex align-items-center"><span class="fs-7 fw-semibold text-muted">\u5DF2\u652F\u4ED8\u8BA2\u5355</span></div>
+      <div class="fs-2x fw-bolder pt-4" style="color:#22c55e;">${s.paid}</div>
+    </div></div></div>
+    <div class="col-xl-3 col-md-6"><div class="card card-flush h-xl-100"><div class="card-body pt-7">
+      <div class="d-flex align-items-center"><span class="fs-7 fw-semibold text-muted">\u5B9E\u6536\u91D1\u989D (\u5143)</span></div>
+      <div class="fs-2x fw-bolder pt-4" style="color:#ef4444;">${fen2yuan(s.income)}</div>
+    </div></div></div>
   </div>
-  <div class="card" style="margin-top:18px;"><h2>\u6700\u8FD1\u8BA2\u5355</h2>
-  <table><thead><tr><th>\u8BA2\u5355\u53F7</th><th>\u91D1\u989D</th><th>\u65F6\u95F4</th><th>\u72B6\u6001</th></tr></thead><tbody>${recentRows || '<tr><td colspan="4" style="text-align:center;color:#999;">\u6682\u65E0\u8BA2\u5355</td></tr>'}</tbody></table></div>`;
+  <div class="card mt-10">
+    <div class="card-header"><h3 class="card-title">\u6700\u8FD1\u8BA2\u5355</h3></div>
+    <div class="card-body py-4">
+    <table class="table table-row-bordered table-row-gray-100 align-middle gs-0 gy-3"><thead><tr class="fw-bold text-muted"><th>\u8BA2\u5355\u53F7</th><th>\u91D1\u989D</th><th>\u65F6\u95F4</th><th>\u72B6\u6001</th></tr></thead><tbody>${recentRows || '<tr><td colspan="4" class="text-center text-muted py-6">\u6682\u65E0\u8BA2\u5355</td></tr>'}</tbody></table>
+    </div>
+  </div>`;
   return adminPage(request, env, "\u4EEA\u8868\u76D8", content);
 }
 async function goodsList(request, env, q) {
@@ -425,19 +582,21 @@ async function goodsList(request, env, q) {
     <td>${esc(TNAME[g.type] || g.type)}</td>
     <td>${g.stock}</td>
     <td>${g.sales}</td>
-    <td>${g.is_on_shelf == 1 ? '<span class="ok">\u4E0A\u67B6</span>' : '<span class="muted">\u4E0B\u67B6</span>'}</td>
-    <td><a class="btn" href="/admin/goods/edit?id=${g.id}" style="margin-right:6px;">\u7F16\u8F91</a><a class="btn gray" href="/admin/kami?goods_id=${g.id}" style="margin-right:6px;">\u5361\u5BC6</a><button class="btn red" onclick="delGoods(${g.id})">\u5220\u9664</button></td>
+    <td>${g.is_on_shelf == 1 ? '<span class="text-success">\u4E0A\u67B6</span>' : '<span class="text-muted">\u4E0B\u67B6</span>'}</td>
+    <td><a class="btn btn-light-primary btn-sm" href="/admin/goods/edit?id=${g.id}" style="margin-right:6px;">\u7F16\u8F91</a><a class="btn btn-secondary btn-sm" href="/admin/kami?goods_id=${g.id}" style="margin-right:6px;">\u5361\u5BC6</a><button class="btn btn-danger btn-sm" onclick="delGoods(${g.id})">\u5220\u9664</button></td>
   </tr>`
   ).join("");
   const content = `<div class="card">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-    <form action="/admin/goods" method="get" style="display:flex;gap:8px;"><input type="text" name="q" placeholder="\u641C\u7D22\u5546\u54C1" value="${esc(kw)}" style="width:220px;margin:0;"><button class="btn ghost">\u641C\u7D22</button></form>
-    <a class="btn green" href="/admin/goods/edit">+ \u65B0\u589E\u5546\u54C1</a>
+  <div class="card-body py-5">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <form action="/admin/goods" method="get" class="d-flex gap-2"><input type="text" name="q" class="form-control" placeholder="\u641C\u7D22\u5546\u54C1" value="${esc(kw)}" style="width:220px;"><button class="btn btn-outline-secondary">\u641C\u7D22</button></form>
+    <a class="btn btn-success" href="/admin/goods/edit">+ \u65B0\u589E\u5546\u54C1</a>
   </div>
-  <table><thead><tr><th>ID</th><th>\u6807\u9898</th><th>\u5206\u7C7B</th><th>\u7C7B\u578B</th><th>\u5E93\u5B58</th><th>\u9500\u91CF</th><th>\u72B6\u6001</th><th>\u64CD\u4F5C</th></tr></thead>
-  <tbody>${rows || '<tr><td colspan="8" style="text-align:center;color:#999;">\u6682\u65E0\u5546\u54C1</td></tr>'}</tbody></table>
+  <table class="table table-row-bordered table-row-gray-100 align-middle gs-0 gy-3"><thead><tr class="fw-bold text-muted"><th>ID</th><th>\u6807\u9898</th><th>\u5206\u7C7B</th><th>\u7C7B\u578B</th><th>\u5E93\u5B58</th><th>\u9500\u91CF</th><th>\u72B6\u6001</th><th>\u64CD\u4F5C</th></tr></thead>
+  <tbody>${rows || '<tr><td colspan="8" class="text-center text-muted py-6">\u6682\u65E0\u5546\u54C1</td></tr>'}</tbody></table>
   </div>
-  <script>function delGoods(id){ if(!confirm('\u786E\u8BA4\u5220\u9664\u8BE5\u5546\u54C1\uFF1F')) return; $.post('/admin/goods/delete',{id:id},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }</script>`;
+  </div>
+  <script>function delGoods(id){ if(!confirm('\u786E\u8BA4\u5220\u9664\u8BE5\u5546\u54C1\uFF1F')) return; $.post('/admin/goods/delete',{id:id},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }<\/script>`;
   return adminPage(request, env, "\u5546\u54C1\u7BA1\u7406", content);
 }
 var TNAME = { once: "\u4E00\u5361\u4E00\u5BC6", general: "\u901A\u7528\u5361\u5BC6", service: "\u865A\u62DF\u670D\u52A1", duli: "\u72EC\u7ACB\u5BF9\u63A5", physical: "\u5B9E\u7269" };
@@ -455,32 +614,34 @@ async function goodsEdit(request, env, q) {
   const skusText = gSkus.length ? gSkus.map((s) => `${s.sku}|${s.guest_price}|${s.market_price || 0}|${s.stock}`).join("\n") : "0|1000|1200|100";
   const sortOptions = sorts.map((s) => `<option value="${s.sid}" ${g && g.sort_id == s.sid ? "selected" : ""}>${esc(s.sortname)}</option>`).join("");
   const typeOptions = types.map((t) => `<option value="${t.id}" ${g && g.attr_id == t.id ? "selected" : ""}>${esc(t.name)}</option>`).join("");
-  const typeMode = (t, def) => `<select name="type"><option value="once" ${gv("type", "once") === "once" ? "selected" : ""}>\u4E00\u5361\u4E00\u5BC6</option><option value="general" ${gv("type", "general") === "general" ? "selected" : ""}>\u901A\u7528\u5361\u5BC6</option><option value="service" ${gv("type", "service") === "service" ? "selected" : ""}>\u865A\u62DF\u670D\u52A1</option></select>`;
-  const content = `<div class="card" style="max-width:860px;">
+  const typeMode = (t, def) => `<select name="type" class="form-select"><option value="once" ${gv("type", "once") === "once" ? "selected" : ""}>\u4E00\u5361\u4E00\u5BC6</option><option value="general" ${gv("type", "general") === "general" ? "selected" : ""}>\u901A\u7528\u5361\u5BC6</option><option value="service" ${gv("type", "service") === "service" ? "selected" : ""}>\u865A\u62DF\u670D\u52A1</option></select>`;
+  const content = `<div class="card" style="max-width:920px;">
+  <div class="card-body py-5">
   <form id="frm" method="post">
     <input type="hidden" name="id" value="${id}">
-    <label>\u5546\u54C1\u6807\u9898 *</label><input type="text" name="title" required value="${esc(gv("title", ""))}">
-    <div class="row">
-      <div><label>\u6240\u5C5E\u5206\u7C7B</label><select name="sort_id">${sortOptions}</select></div>
-      <div><label>\u5546\u54C1\u6A21\u5F0F</label>${typeMode()}</div>
-      <div><label>\u89C4\u683C\u7C7B\u578B (\u591A\u89C4\u683C\u65F6\u9009\u62E9)</label><select name="attr_id"><option value="0">\u65E0</option>${typeOptions}</select></div>
-      <div><label>\u662F\u5426\u591A\u89C4\u683C</label><select name="is_sku"><option value="n" ${gv("is_sku", "n") === "n" ? "selected" : ""}>\u5426</option><option value="y" ${gv("is_sku", "y") === "y" ? "selected" : ""}>\u662F</option></select></div>
+    <label class="form-label">\u5546\u54C1\u6807\u9898 *</label><input type="text" class="form-control" name="title" required value="${esc(gv("title", ""))}">
+    <div class="row g-3 mt-1">
+      <div class="col-md-3"><label class="form-label">\u6240\u5C5E\u5206\u7C7B</label><select class="form-select" name="sort_id">${sortOptions}</select></div>
+      <div class="col-md-3"><label class="form-label">\u5546\u54C1\u6A21\u5F0F</label>${typeMode()}</div>
+      <div class="col-md-3"><label class="form-label">\u89C4\u683C\u7C7B\u578B (\u591A\u89C4\u683C\u65F6\u9009\u62E9)</label><select class="form-select" name="attr_id"><option value="0">\u65E0</option>${typeOptions}</select></div>
+      <div class="col-md-3"><label class="form-label">\u662F\u5426\u591A\u89C4\u683C</label><select class="form-select" name="is_sku"><option value="n" ${gv("is_sku", "n") === "n" ? "selected" : ""}>\u5426</option><option value="y" ${gv("is_sku", "y") === "y" ? "selected" : ""}>\u662F</option></select></div>
     </div>
-    <div class="row">
-      <div><label>\u8BA1\u91CF\u5355\u4F4D</label><input type="text" name="unit_name" value="${esc(gv("unit_name", "\u4E2A"))}"></div>
-      <div><label>\u521D\u59CB\u5E93\u5B58</label><input type="number" name="stock" value="${gv("stock", 0)}" min="0"></div>
-      <div><label>\u521D\u59CB\u9500\u91CF</label><input type="number" name="sales" value="${gv("sales", 0)}" min="0"></div>
-      <div><label>\u4E0A\u67B6\u72B6\u6001</label><select name="is_on_shelf"><option value="1" ${gv("is_on_shelf", 1) == 1 ? "selected" : ""}>\u4E0A\u67B6</option><option value="0" ${gv("is_on_shelf", 0) == 0 ? "selected" : ""}>\u4E0B\u67B6</option></select></div>
+    <div class="row g-3 mt-1">
+      <div class="col-md-3"><label class="form-label">\u8BA1\u91CF\u5355\u4F4D</label><input type="text" class="form-control" name="unit_name" value="${esc(gv("unit_name", "\u4E2A"))}"></div>
+      <div class="col-md-3"><label class="form-label">\u521D\u59CB\u5E93\u5B58</label><input type="number" class="form-control" name="stock" value="${gv("stock", 0)}" min="0"></div>
+      <div class="col-md-3"><label class="form-label">\u521D\u59CB\u9500\u91CF</label><input type="number" class="form-control" name="sales" value="${gv("sales", 0)}" min="0"></div>
+      <div class="col-md-3"><label class="form-label">\u4E0A\u67B6\u72B6\u6001</label><select class="form-select" name="is_on_shelf"><option value="1" ${gv("is_on_shelf", 1) == 1 ? "selected" : ""}>\u4E0A\u67B6</option><option value="0" ${gv("is_on_shelf", 0) == 0 ? "selected" : ""}>\u4E0B\u67B6</option></select></div>
     </div>
-    <label>\u5546\u54C1\u7B80\u4ECB</label><textarea name="des">${esc(gv("des", ""))}</textarea>
-    <label>\u5546\u54C1\u8BE6\u60C5 (HTML)</label><textarea name="content" style="min-height:140px;">${esc(gv("content", ""))}</textarea>
-    <label>\u8D2D\u4E70\u540E\u8BF4\u660E (HTML)</label><textarea name="pay_content">${esc(gv("pay_content", ""))}</textarea>
-    <label>\u5C01\u9762\u56FE URL</label><input type="text" name="cover" value="${esc(gv("cover", ""))}">
-    <label>\u89C4\u683C/SKU \u4E0E\u4EF7\u683C (\u6BCF\u884C: SKU\u7EC4\u5408|\u552E\u4EF7(\u5206)|\u5E02\u573A\u4EF7(\u5206)|\u5E93\u5B58, SKU\u7EC4\u5408\u5982 1-5 \u6216 0)</label>
-    <textarea name="skus_text" style="min-height:120px;">${esc(skusText)}</textarea>
-    <button type="submit" class="btn green" style="margin-top:10px;">\u4FDD \u5B58</button>
-    <span class="msg" id="fmsg"></span>
+    <label class="form-label mt-3">\u5546\u54C1\u7B80\u4ECB</label><textarea class="form-control" name="des">${esc(gv("des", ""))}</textarea>
+    <label class="form-label">\u5546\u54C1\u8BE6\u60C5 (HTML)</label><textarea class="form-control" name="content" style="min-height:140px;">${esc(gv("content", ""))}</textarea>
+    <label class="form-label">\u8D2D\u4E70\u540E\u8BF4\u660E (HTML)</label><textarea class="form-control" name="pay_content">${esc(gv("pay_content", ""))}</textarea>
+    <label class="form-label">\u5C01\u9762\u56FE URL</label><input type="text" class="form-control" name="cover" value="${esc(gv("cover", ""))}">
+    <label class="form-label">\u89C4\u683C/SKU \u4E0E\u4EF7\u683C (\u6BCF\u884C: SKU\u7EC4\u5408|\u552E\u4EF7(\u5206)|\u5E02\u573A\u4EF7(\u5206)|\u5E93\u5B58, SKU\u7EC4\u5408\u5982 1-5 \u6216 0)</label>
+    <textarea class="form-control" name="skus_text" style="min-height:120px;">${esc(skusText)}</textarea>
+    <button type="submit" class="btn btn-success mt-4">\u4FDD \u5B58</button>
+    <span class="text-danger" id="fmsg"></span>
   </form>
+  </div>
   </div>
   <script>
   $('#frm').on('submit', function(e){
@@ -489,7 +650,7 @@ async function goodsEdit(request, env, q) {
       if (r.code === 0) { location.href = '/admin/goods'; } else { $('#fmsg').text(r.msg); }
     }, 'json');
   });
-  </script>`;
+  <\/script>`;
   return adminPage(request, env, id ? "\u7F16\u8F91\u5546\u54C1 #" + id : "\u65B0\u589E\u5546\u54C1", content);
 }
 async function saveGoods(form, env) {
@@ -525,12 +686,12 @@ async function insertSkus(env, gid, text) {
   const lines = String(text).split("\n").map((l) => l.trim()).filter((l) => l);
   const batch = [];
   for (const line of lines) {
-    const p = line.split("|");
-    if (p.length < 1) continue;
-    const sku = p[0].trim();
-    const guest = parseInt(p[1]) || 0;
-    const market = parseInt(p[2]) || 0;
-    const st = parseInt(p[3]) || 0;
+    const p2 = line.split("|");
+    if (p2.length < 1) continue;
+    const sku = p2[0].trim();
+    const guest = parseInt(p2[1]) || 0;
+    const market = parseInt(p2[2]) || 0;
+    const st = parseInt(p2[3]) || 0;
     batch.push(env.DB.prepare("INSERT INTO dc_skus (goods_id, sku, guest_price, market_price, stock) VALUES (?,?,?,?,?)").bind(gid, sku, guest, market, st));
   }
   if (batch.length) await env.DB.batch(batch);
@@ -540,40 +701,44 @@ async function kamiManage(request, env, q) {
   const goods = gid ? await env.DB.prepare("SELECT * FROM dc_goods WHERE id = ?").bind(gid).first() : null;
   if (!goods) {
     const goodsList2 = (await env.DB.prepare("SELECT id, title, type FROM dc_goods WHERE delete_time IS NULL AND type IN ('once','general') ORDER BY id DESC LIMIT 50").all()).results;
-    const rows2 = goodsList2.map((g) => `<tr><td>${g.id}</td><td>${esc(g.title)}</td><td>${TNAME[g.type]}</td><td><a class="btn" href="/admin/kami?goods_id=${g.id}">\u7BA1\u7406\u5361\u5BC6</a></td></tr>`).join("");
-    return adminPage(request, env, "\u5361\u5BC6\u7BA1\u7406", `<div class="card"><table><thead><tr><th>ID</th><th>\u5546\u54C1</th><th>\u6A21\u5F0F</th><th>\u64CD\u4F5C</th></tr></thead><tbody>${rows2 || '<tr><td colspan="4" style="text-align:center;color:#999;">\u6682\u65E0\u5361\u5BC6\u7C7B\u5546\u54C1</td></tr>'}</tbody></table></div>`);
+    const rows2 = goodsList2.map((g) => `<tr><td>${g.id}</td><td>${esc(g.title)}</td><td>${TNAME[g.type]}</td><td><a class="btn btn-primary btn-sm" href="/admin/kami?goods_id=${g.id}">\u7BA1\u7406\u5361\u5BC6</a></td></tr>`).join("");
+    return adminPage(request, env, "\u5361\u5BC6\u7BA1\u7406", `<div class="card"><div class="card-body py-5"><div class="table-responsive"><table class="table table-row-bordered table-row-gray-100 align-middle gs-0 gy-3"><thead><tr class="fw-bold text-muted"><th>ID</th><th>\u5546\u54C1</th><th>\u6A21\u5F0F</th><th>\u64CD\u4F5C</th></tr></thead><tbody>${rows2 || '<tr><td colspan="4" class="text-center text-muted py-6">\u6682\u65E0\u5361\u5BC6\u7C7B\u5546\u54C1</td></tr>'}</tbody></table></div></div></div>`);
   }
   let rows = "";
   if (goods.type === "once") {
     const list = (await env.DB.prepare("SELECT * FROM dc_goods_once WHERE goods_id = ? ORDER BY id DESC LIMIT 200").bind(gid).all()).results;
     rows = list.map(
-      (k) => `<tr><td>${k.id}</td><td>${k.sku}</td><td style="word-break:break-all;">${esc(k.content)}</td><td>${k.sale_time ? ts2str(k.sale_time) : '<span class="muted">\u672A\u552E\u51FA</span>'}</td><td><button class="btn red" onclick="delK(${k.id})">\u5220\u9664</button></td></tr>`
+      (k) => `<tr><td>${k.id}</td><td>${k.sku}</td><td style="word-break:break-all;">${esc(k.content)}</td><td>${k.sale_time ? ts2str(k.sale_time) : '<span class="text-muted">\u672A\u552E\u51FA</span>'}</td><td><button class="btn btn-danger btn-sm" onclick="delK(${k.id})">\u5220\u9664</button></td></tr>`
     ).join("");
   } else if (goods.type === "general") {
     const list = (await env.DB.prepare("SELECT * FROM dc_goods_general WHERE goods_id = ? ORDER BY id DESC").bind(gid).all()).results;
     rows = list.map(
-      (k) => `<tr><td>${k.id}</td><td>${k.sku}</td><td style="word-break:break-all;">${esc(k.content)}</td><td>${ts2str(k.create_time)}</td><td><button class="btn red" onclick="delG(${k.id})">\u5220\u9664</button></td></tr>`
+      (k) => `<tr><td>${k.id}</td><td>${k.sku}</td><td style="word-break:break-all;">${esc(k.content)}</td><td>${ts2str(k.create_time)}</td><td><button class="btn btn-danger btn-sm" onclick="delG(${k.id})">\u5220\u9664</button></td></tr>`
     ).join("");
   }
   const content = `<div class="card">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
-    <h2 style="margin:0;">${esc(goods.title)} <span class="muted">(${TNAME[goods.type]})</span></h2>
-    <a class="btn ghost" href="/admin/goods">\u8FD4\u56DE\u5546\u54C1</a>
-  </div>
-  ${goods.type === "once" ? `<div class="row">
-    <div><label>\u65B0\u589E\u4E00\u5361\u4E00\u5BC6 (\u6BCF\u884C\u4E00\u6761\u5361\u5BC6)</label><textarea id="newKami" placeholder="KAMI-0001&#10;KAMI-0002"></textarea><button class="btn green" onclick="addKami()">\u6DFB\u52A0</button></div>
-    <div><label>\u6279\u91CF\u5BFC\u5165 (\u6BCF\u884C\u4E00\u6761\u5361\u5BC6)</label><textarea id="importKami" placeholder="\u4E00\u884C\u4E00\u6761"></textarea><button class="btn" onclick="impKami()">\u5BFC\u5165</button></div>
-  </div>` : `<div class="row">
-    <div><label>\u65B0\u589E\u901A\u7528\u5361\u5BC6 (SKU|\u5185\u5BB9)</label><textarea id="newKami" placeholder="0|VIP-2026-0001"></textarea><button class="btn green" onclick="addKami()">\u6DFB\u52A0</button></div>
-  </div>`}
-  <table style="margin-top:14px;"><thead><tr><th>ID</th><th>SKU</th><th>\u5185\u5BB9</th>${goods.type === "once" ? "<th>\u552E\u51FA\u65F6\u95F4</th>" : "<th>\u6DFB\u52A0\u65F6\u95F4</th>"}<th>\u64CD\u4F5C</th></tr></thead><tbody>${rows || '<tr><td colspan="5" style="text-align:center;color:#999;">\u6682\u65E0\u5361\u5BC6</td></tr>'}</tbody></table>
-  </div>
+    <div class="card-body py-5">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+      <h3 class="card-title mb-0">${esc(goods.title)} <span class="text-muted fs-6">(${TNAME[goods.type]})</span></h3>
+      <a class="btn btn-outline-secondary btn-sm" href="/admin/goods">\u8FD4\u56DE\u5546\u54C1</a>
+    </div>
+    ${goods.type === "once" ? `<div class="row g-3 mb-4">
+      <div class="col-md-6"><label class="form-label">\u65B0\u589E\u4E00\u5361\u4E00\u5BC6 (\u6BCF\u884C\u4E00\u6761\u5361\u5BC6)</label><textarea class="form-control" id="newKami" placeholder="KAMI-0001&#10;KAMI-0002"></textarea><button class="btn btn-success mt-2" onclick="addKami()">\u6DFB\u52A0</button></div>
+      <div class="col-md-6"><label class="form-label">\u6279\u91CF\u5BFC\u5165 (\u6BCF\u884C\u4E00\u6761\u5361\u5BC6)</label><textarea class="form-control" id="importKami" placeholder="\u4E00\u884C\u4E00\u6761"></textarea><button class="btn btn-primary mt-2" onclick="impKami()">\u5BFC\u5165</button></div>
+    </div>` : `<div class="row g-3 mb-4">
+      <div class="col-md-6"><label class="form-label">\u65B0\u589E\u901A\u7528\u5361\u5BC6 (SKU|\u5185\u5BB9)</label><textarea class="form-control" id="newKami" placeholder="0|VIP-2026-0001"></textarea><button class="btn btn-success mt-2" onclick="addKami()">\u6DFB\u52A0</button></div>
+    </div>`}
+    <div class="table-responsive">
+    <table class="table table-row-bordered table-row-gray-100 align-middle gs-0 gy-3"><thead><tr class="fw-bold text-muted"><th>ID</th><th>SKU</th><th>\u5185\u5BB9</th>${goods.type === "once" ? "<th>\u552E\u51FA\u65F6\u95F4</th>" : "<th>\u6DFB\u52A0\u65F6\u95F4</th>"}<th>\u64CD\u4F5C</th></tr></thead><tbody>${rows || '<tr><td colspan="5" class="text-center text-muted py-6">\u6682\u65E0\u5361\u5BC6</td></tr>'}</tbody></table>
+    </div>
+    </div>
+    </div>
   <script>
   function addKami(){ $.post('/admin/kami/add',{goods_id:${gid},text:$('#newKami').val()},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
   function impKami(){ $.post('/admin/kami/import',{goods_id:${gid},text:$('#importKami').val()},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
   function delK(id){ if(!confirm('\u786E\u8BA4\u5220\u9664\u8BE5\u5361\u5BC6\uFF1F')) return; $.post('/admin/kami/delete',{id:id,goods_id:${gid},type:'once'},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
   function delG(id){ if(!confirm('\u786E\u8BA4\u5220\u9664\u8BE5\u5361\u5BC6\uFF1F')) return; $.post('/admin/kami/delete',{id:id,goods_id:${gid},type:'general'},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
-  </script>`;
+  <\/script>`;
   return adminPage(request, env, "\u5361\u5BC6\u7BA1\u7406", content);
 }
 async function addKami(form, env) {
@@ -593,9 +758,9 @@ async function addKami(form, env) {
     for (const line of text.split("\n")) {
       const v = line.trim();
       if (!v) continue;
-      const p = v.split("|");
-      const sku = p.length > 1 ? p[0].trim() : "0";
-      const content = p.length > 1 ? p.slice(1).join("|").trim() : v;
+      const p2 = v.split("|");
+      const sku = p2.length > 1 ? p2[0].trim() : "0";
+      const content = p2.length > 1 ? p2.slice(1).join("|").trim() : v;
       batch.push(env.DB.prepare("INSERT INTO dc_goods_general (goods_id, sku, content, create_time) VALUES (?,?,?,?)").bind(gid, sku, content, t));
     }
   }
@@ -643,20 +808,24 @@ async function ordersList(request, env, q) {
     <td>${o.id}</td><td>${esc(o.out_trade_no)}</td><td>\xA5${fen2yuan(o.amount)}</td>
     <td>${ts2str(o.create_time)}</td><td>${esc(o.payment || "-")}</td>
     <td>${statusText[o.status] || o.status}</td>
-    <td><a class="btn gray" href="/?action=order_result&out_trade_no=${esc(o.out_trade_no)}" target="_blank">\u8BE6\u60C5</a>
-    ${o.pay_status == 1 ? `<button class="btn red" onclick="refund(${o.id},${JSON.stringify(o.out_trade_no).replace(/"/g, "&quot;")})">\u9000\u6B3E</button>` : ""}
-    <button class="btn ghost" onclick="delO(${o.id})">\u5220\u9664</button></td>
+    <td><a class="btn btn-light-primary btn-sm" href="/?action=order_result&out_trade_no=${esc(o.out_trade_no)}" target="_blank">\u8BE6\u60C5</a>
+    ${o.pay_status == 1 ? `<button class="btn btn-danger btn-sm" onclick="refund(${o.id},${JSON.stringify(o.out_trade_no).replace(/"/g, "&quot;")})">\u9000\u6B3E</button>` : ""}
+    <button class="btn btn-outline-secondary btn-sm" onclick="delO(${o.id})">\u5220\u9664</button></td>
   </tr>`
   ).join("");
   const content = `<div class="card">
-  <form action="/admin/orders" method="get" style="display:flex;gap:8px;margin-bottom:12px;"><input type="text" name="q" placeholder="\u8BA2\u5355\u53F7/\u8054\u7CFB\u65B9\u5F0F" value="${esc(kw)}" style="width:260px;margin:0;"><button class="btn ghost">\u641C\u7D22</button></form>
-  <table><thead><tr><th>ID</th><th>\u8BA2\u5355\u53F7</th><th>\u91D1\u989D</th><th>\u65F6\u95F4</th><th>\u652F\u4ED8</th><th>\u72B6\u6001</th><th>\u64CD\u4F5C</th></tr></thead>
-  <tbody>${rows || '<tr><td colspan="7" style="text-align:center;color:#999;">\u6682\u65E0\u8BA2\u5355</td></tr>'}</tbody></table>
+  <div class="card-body py-5">
+  <form action="/admin/orders" method="get" class="d-flex gap-2 mb-4"><input type="text" name="q" class="form-control" placeholder="\u8BA2\u5355\u53F7/\u8054\u7CFB\u65B9\u5F0F" value="${esc(kw)}" style="width:260px;"><button class="btn btn-outline-secondary">\u641C\u7D22</button></form>
+  <div class="table-responsive">
+  <table class="table table-row-bordered table-row-gray-100 align-middle gs-0 gy-3"><thead><tr class="fw-bold text-muted"><th>ID</th><th>\u8BA2\u5355\u53F7</th><th>\u91D1\u989D</th><th>\u65F6\u95F4</th><th>\u652F\u4ED8</th><th>\u72B6\u6001</th><th>\u64CD\u4F5C</th></tr></thead>
+  <tbody>${rows || '<tr><td colspan="7" class="text-center text-muted py-6">\u6682\u65E0\u8BA2\u5355</td></tr>'}</tbody></table>
+  </div>
+  </div>
   </div>
   <script>
   function refund(id){ if(!confirm('\u786E\u8BA4\u9000\u6B3E\uFF1F')) return; $.post('/admin/order/refund',{id:id},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
   function delO(id){ if(!confirm('\u786E\u8BA4\u5220\u9664\u8BA2\u5355\uFF1F')) return; $.post('/admin/order/delete',{id:id},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
-  </script>`;
+  <\/script>`;
   return adminPage(request, env, "\u8BA2\u5355\u7BA1\u7406", content);
 }
 async function refundOrder(form, env) {
@@ -679,22 +848,26 @@ async function del(table, key, form, env) {
 }
 async function sortsList(request, env, q) {
   const sorts = (await env.DB.prepare("SELECT * FROM dc_sort WHERE type = 'goods' AND delete_time IS NULL ORDER BY taxis ASC").all()).results;
-  const rows = sorts.map((s) => `<tr><td>${s.sid}</td><td>${esc(s.sortname)}</td><td>${esc(s.alias)}</td><td>${s.taxis}</td><td>${esc(s.sorticon || "-")}</td><td><button class="btn red" onclick="delS(${s.sid})">\u5220\u9664</button></td></tr>`).join("");
+  const rows = sorts.map((s) => `<tr><td>${s.sid}</td><td>${esc(s.sortname)}</td><td>${esc(s.alias)}</td><td>${s.taxis}</td><td>${esc(s.sorticon || "-")}</td><td><button class="btn btn-danger btn-sm" onclick="delS(${s.sid})">\u5220\u9664</button></td></tr>`).join("");
   const content = `<div class="card">
-  <div class="row" style="margin-bottom:14px;">
-    <div><label>\u5206\u7C7B\u540D\u79F0</label><input type="text" id="sName"></div>
-    <div><label>\u522B\u540D (alias)</label><input type="text" id="sAlias"></div>
-    <div><label>\u6392\u5E8F (\u5C0F=\u524D)</label><input type="number" id="sTaxis" value="0"></div>
-    <div><label>\u56FE\u6807 (remixicon \u7C7B\u540D)</label><input type="text" id="sIcon" placeholder="ri-gamepad-line"></div>
-    <div><button class="btn green" onclick="addS()" style="margin-top:24px;">\u65B0\u589E\u5206\u7C7B</button></div>
+  <div class="card-body py-5">
+  <div class="row g-3 mb-4 align-items-end">
+    <div class="col-md-3"><label class="form-label">\u5206\u7C7B\u540D\u79F0</label><input type="text" class="form-control" id="sName"></div>
+    <div class="col-md-3"><label class="form-label">\u522B\u540D (alias)</label><input type="text" class="form-control" id="sAlias"></div>
+    <div class="col-md-2"><label class="form-label">\u6392\u5E8F (\u5C0F=\u524D)</label><input type="number" class="form-control" id="sTaxis" value="0"></div>
+    <div class="col-md-3"><label class="form-label">\u56FE\u6807 (remixicon \u7C7B\u540D)</label><input type="text" class="form-control" id="sIcon" placeholder="ri-gamepad-line"></div>
+    <div class="col-md-1"><button class="btn btn-success w-100" onclick="addS()">\u65B0\u589E\u5206\u7C7B</button></div>
   </div>
-  <table><thead><tr><th>ID</th><th>\u540D\u79F0</th><th>\u522B\u540D</th><th>\u6392\u5E8F</th><th>\u56FE\u6807</th><th>\u64CD\u4F5C</th></tr></thead>
-  <tbody>${rows || '<tr><td colspan="6" style="text-align:center;color:#999;">\u6682\u65E0\u5206\u7C7B</td></tr>'}</tbody></table>
+  <div class="table-responsive">
+  <table class="table table-row-bordered table-row-gray-100 align-middle gs-0 gy-3"><thead><tr class="fw-bold text-muted"><th>ID</th><th>\u540D\u79F0</th><th>\u522B\u540D</th><th>\u6392\u5E8F</th><th>\u56FE\u6807</th><th>\u64CD\u4F5C</th></tr></thead>
+  <tbody>${rows || '<tr><td colspan="6" class="text-center text-muted py-6">\u6682\u65E0\u5206\u7C7B</td></tr>'}</tbody></table>
+  </div>
+  </div>
   </div>
   <script>
   function addS(){ $.post('/admin/sort/save',{name:$('#sName').val(),alias:$('#sAlias').val(),taxis:$('#sTaxis').val(),icon:$('#sIcon').val()},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
   function delS(id){ if(!confirm('\u786E\u8BA4\u5220\u9664\u8BE5\u5206\u7C7B\uFF1F')) return; $.post('/admin/sort/delete',{sid:id},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
-  </script>`;
+  <\/script>`;
   return adminPage(request, env, "\u5206\u7C7B\u7BA1\u7406", content);
 }
 async function saveSort(form, env) {
@@ -715,22 +888,24 @@ async function settingsPage(request, env) {
     if (theme && theme.data) primary = JSON.parse(theme.data.replace(/^s:\d+:"|";$/, (m) => m[0] === "s" ? "" : ""));
   } catch (e) {
   }
-  const content = `<div class="card" style="max-width:780px;">
+  const content = `<div class="card" style="max-width:820px;">
+  <div class="card-body py-5">
   <form id="frm">
-    <div class="row">
-      <div><label>\u7AD9\u70B9\u540D\u79F0</label><input type="text" name="blogname" value="${esc(g("blogname", "DCSHOP\u591A\u8D22\u5546\u57CE"))}"></div>
-      <div><label>\u526F\u6807\u9898</label><input type="text" name="site_subtitle" value="${esc(g("site_subtitle", ""))}"></div>
+    <div class="row g-3">
+      <div class="col-md-6"><label class="form-label">\u7AD9\u70B9\u540D\u79F0</label><input type="text" class="form-control" name="blogname" value="${esc(g("blogname", "ACG\u53D1\u5361"))}"></div>
+      <div class="col-md-6"><label class="form-label">\u526F\u6807\u9898</label><input type="text" class="form-control" name="site_subtitle" value="${esc(g("site_subtitle", ""))}"></div>
     </div>
-    <label>\u9875\u811A\u4FE1\u606F (\u652F\u6301 HTML)</label><textarea name="footer_info" style="min-height:60px;">${esc(g("footer_info", ""))}</textarea>
-    <label>\u6EDA\u52A8\u516C\u544A (\u591A\u884C: \u6BCF\u884C\u4E00\u6761)</label><textarea name="roll_bulletin">${esc(g("roll_bulletin", ""))}</textarea>
-    <label>\u9996\u9875\u516C\u544A (HTML)</label><textarea name="home_bulletin" style="min-height:90px;">${esc(g("home_bulletin", ""))}</textarea>
-    <div class="row">
-      <div><label>\u67E5\u5355\u5FC5\u586B\u8BBE\u7F6E (JSON)</label><input type="text" name="order_required" value="${esc(g("order_required", ""))}"></div>
-      <div><label>\u4E3B\u9898\u4E3B\u8272</label><input type="color" name="theme_primary" value="${esc(primary)}" style="padding:2px;height:38px;"></div>
+    <label class="form-label mt-3">\u9875\u811A\u4FE1\u606F (\u652F\u6301 HTML)</label><textarea class="form-control" name="footer_info" style="min-height:60px;">${esc(g("footer_info", ""))}</textarea>
+    <label class="form-label">\u6EDA\u52A8\u516C\u544A (\u591A\u884C: \u6BCF\u884C\u4E00\u6761)</label><textarea class="form-control" name="roll_bulletin">${esc(g("roll_bulletin", ""))}</textarea>
+    <label class="form-label">\u9996\u9875\u516C\u544A (HTML)</label><textarea class="form-control" name="home_bulletin" style="min-height:90px;">${esc(g("home_bulletin", ""))}</textarea>
+    <div class="row g-3">
+      <div class="col-md-6"><label class="form-label">\u67E5\u5355\u5FC5\u586B\u8BBE\u7F6E (JSON)</label><input type="text" class="form-control" name="order_required" value="${esc(g("order_required", ""))}"></div>
+      <div class="col-md-6"><label class="form-label">\u4E3B\u9898\u4E3B\u8272</label><input type="color" class="form-control form-control-color" name="theme_primary" value="${esc(primary)}" style="height:38px;width:60px;padding:2px;"></div>
     </div>
-    <button type="submit" class="btn green" style="margin-top:10px;">\u4FDD\u5B58\u8BBE\u7F6E</button>
-    <span class="msg" id="fmsg"></span>
+    <button type="submit" class="btn btn-success mt-4">\u4FDD\u5B58\u8BBE\u7F6E</button>
+    <span class="text-danger ms-3" id="fmsg"></span>
   </form>
+  </div>
   </div>
   <script>
   $('#frm').on('submit', function(e){
@@ -740,7 +915,7 @@ async function settingsPage(request, env) {
       else { $('#fmsg').text(r.msg); }
     }, 'json');
   });
-  </script>`;
+  <\/script>`;
   return adminPage(request, env, "\u7AD9\u70B9\u8BBE\u7F6E", content);
 }
 async function saveSettings(form, env) {
@@ -1110,7 +1285,7 @@ async function pageGoods(request, env, q) {
       }, 'json').fail(function(){ paying=false; layer.msg('\u7F51\u7EDC\u9519\u8BEF'); });
     });
   })();
-  </script>`;
+  <\/script>`;
   return new Response(layout(env, { ...opts, title: g.title }, navItems, body), { headers: HTML_HEADERS2 });
 }
 function paymentMethodsHtml(opts) {
@@ -1122,12 +1297,12 @@ function paymentMethodsHtml(opts) {
     pays.push({ method: "epay_wx", name: "\u5FAE\u4FE1\u652F\u4ED8", img: "/assets/user/images/cash/wechat.png" });
     pays.push({ method: "epay_ali", name: "\u652F\u4ED8\u5B9D", img: "/assets/user/images/cash/alipay.png" });
   }
-  const items = pays.map((p, i) => `<a class="pay ${i === 0 ? "is-primary" : ""}" data-method="${p.method}">${p.img ? `<img src="${p.img}" alt="">` : `<i class="${p.icon}"></i>`}<span>${p.name}</span></a>`).join("");
+  const items = pays.map((p2, i) => `<a class="pay ${i === 0 ? "is-primary" : ""}" data-method="${p2.method}">${p2.img ? `<img src="${p2.img}" alt="">` : `<i class="${p2.icon}"></i>`}<span>${p2.name}</span></a>`).join("");
   return `<div class="pay-list">
   ${items}
   </div>
   <style>.pay-list .pay{cursor:pointer;}</style>
-  <script>$(function(){ $('.pay-list .pay').on('click', function(){ $('.pay-list .pay').removeClass('is-primary'); $(this).addClass('is-primary'); }); });</script>`;
+  <script>$(function(){ $('.pay-list .pay').on('click', function(){ $('.pay-list .pay').removeClass('is-primary'); $(this).addClass('is-primary'); }); });<\/script>`;
 }
 function epayConfig(opts) {
   try {
@@ -1217,7 +1392,7 @@ async function pagePay(request, env, q) {
         <h6 class="panel-title">\u8BA2\u5355\u652F\u4ED8</h6>
       </div>
       <div class="panel-body">
-        <div class="pay-order-status" style="padding:14px;background:#f6f8fa;border-radius:8px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <div class="d-flex justify-content-between align-items-center flex-wrap gap-2 mb-3" style="padding:14px;background:#f6f8fa;border-radius:8px;">
           <span>\u8BA2\u5355\u53F7\uFF1A<b>${esc(order.out_trade_no)}</b></span>
           <span>\u72B6\u6001\uFF1A<b style="color:${paid ? "#4caf50" : expired ? "#999" : "#ff9800"}">${statusText}</b></span>
         </div>
@@ -1247,7 +1422,7 @@ async function pagePay(request, env, q) {
   }
   $('#btnMockPay').on('click', function(){ doPay('test'); });
   $('#btnBalancePay').on('click', function(){ doPay('balance'); });
-  </script>`;
+  <\/script>`;
   return new Response(layout(env, { ...opts, title: "\u8BA2\u5355\u652F\u4ED8" }, navItems, body), { headers: HTML_HEADERS2 });
 }
 async function apiPaySubmit(request, env) {
@@ -1401,7 +1576,7 @@ async function pageOrderQuery(request, env, q) {
         </div>
       </div>
     </div>
-    <div class="result-area" id="resultArea" style="margin-top:20px;"></div>
+    <div id="resultArea" class="mt-4"></div>
   </main>
   <script>
   function doQuery(){
@@ -1413,19 +1588,19 @@ async function pageOrderQuery(request, env, q) {
       var html = '';
       for (var i=0;i<res.list.length;i++){
         var o = res.list[i];
-        html += '<div class="panel order-card" style="padding:16px;margin-bottom:14px;">' +
-          '<div style="display:flex;justify-content:space-between;align-items:center;"><span style="color:#333;">' + o.out_trade_no + '</span><span style="color:#4caf50;">' + o.status_text + '</span></div>' +
-          '<div style="margin:10px 0;color:#555;font-size:14px;">' + o.title_html + '</div>' +
-          '<div style="display:flex;justify-content:space-between;align-items:center;font-size:14px;color:#888;"><span>' + o.create_time_text + '</span><span>\u5171' + o.count + '\u4EF6 \u5408\u8BA1 <b style="color:#ff6600;">\xA5' + o.amount + '</b></span></div>' +
-          (o.can_view ? '<div style="margin-top:12px;text-align:right;"><a class="btn btn-primary btn-sm br-12" href="/?action=order_result&out_trade_no=' + o.out_trade_no + '">\u67E5\u770B\u8BA2\u5355</a></div>' : '') +
-        '</div>';
+        html += '<div class="panel"><div class="panel-body">' +
+          '<div class="d-flex justify-content-between align-items-center"><span style="color:#333;">' + o.out_trade_no + '</span><span style="color:#4caf50;">' + o.status_text + '</span></div>' +
+          '<div class="my-2" style="color:#555;font-size:14px;">' + o.title_html + '</div>' +
+          '<div class="d-flex justify-content-between align-items-center" style="font-size:14px;color:#888;"><span>' + o.create_time_text + '</span><span>\u5171' + o.count + '\u4EF6 \u5408\u8BA1 <b style="color:#ff6600;">\xA5' + o.amount + '</b></span></div>' +
+          (o.can_view ? '<div class="mt-3 text-end"><a class="btn btn-primary btn-sm br-12" href="/?action=order_result&out_trade_no=' + o.out_trade_no + '">\u67E5\u770B\u8BA2\u5355</a></div>' : '') +
+        '</div></div>';
       }
       $('#resultArea').html('<div class="text-muted mb-2">\u5171\u627E\u5230 ' + res.list.length + ' \u4E2A\u8BA2\u5355</div>' + html);
     }, 'json');
   }
   $('#queryOrder').on('click', doQuery);
   $('#queryInput').on('keydown', function(e){ if (e.key === 'Enter') doQuery(); });
-  </script>`;
+  <\/script>`;
   return new Response(layout(env, { ...opts, title: "\u8BA2\u5355\u67E5\u8BE2" }, navItems, body), { headers: HTML_HEADERS2 });
 }
 async function apiOrderQuery(request, env, q) {
@@ -1484,9 +1659,9 @@ async function pageHelp(request, env, q) {
       </div>
       <div class="panel-body">
         ${faqs.map(
-    (f, i) => `<div class="faq-item" style="border-bottom:1px dashed #eee;padding:14px 0;">
-        <div class="faq-title" style="font-weight:500;color:#333;cursor:pointer;display:flex;justify-content:space-between;"><span><span class="faq-num" style="color:#139655;margin-right:8px;">${i + 1}.</span>${f[0]}</span><span class="faq-arrow">+</span></div>
-        <div class="faq-answer" style="color:#777;font-size:14px;line-height:1.8;margin-top:10px;display:none;">${f[1]}</div>
+    (f, i) => `<div class="faq-row" style="border-bottom:1px dashed #eee;padding:14px 0;">
+        <div class="faq-q" style="font-weight:500;color:#333;cursor:pointer;display:flex;justify-content:space-between;"><span><span style="color:#139655;margin-right:8px;">${i + 1}.</span>${f[0]}</span><span class="faq-arrow">+</span></div>
+        <div class="faq-a" style="color:#777;font-size:14px;line-height:1.8;margin-top:10px;display:none;">${f[1]}</div>
       </div>`
   ).join("")}
       </div>
@@ -1501,9 +1676,9 @@ async function pageHelp(request, env, q) {
   </main>
   <script>
   $(function(){
-    $('.faq-title').on('click', function(){ var a=$(this).next(); a.slideToggle(150); $(this).find('.faq-arrow').text(a.is(':visible')?'-':'+'); });
+    $('.faq-q').on('click', function(){ var a=$(this).next(); a.slideToggle(150); $(this).find('.faq-arrow').text(a.is(':visible')?'-':'+'); });
   });
-  </script>`;
+  <\/script>`;
   return new Response(layout(env, { ...opts, title: "\u4E70\u5BB6\u5E2E\u52A9" }, navItems, body), { headers: HTML_HEADERS2 });
 }
 async function pageUser(request, env, q) {
@@ -1544,7 +1719,7 @@ async function pageUser(request, env, q) {
         if (res.code === 0) { location.reload(); } else { layer.msg(res.msg || '\u767B\u5F55\u5931\u8D25'); }
       }, 'json');
     });
-    </script>`;
+    <\/script>`;
   }
   const body = `<main class="container py-4" style="max-width:960px;">${inner}</main>`;
   return new Response(layout(env, { ...opts, title: "\u4F1A\u5458\u4E2D\u5FC3" }, navItems, body), { headers: HTML_HEADERS2 });
@@ -1608,7 +1783,7 @@ function parseCookies(c) {
 async function pageRss(request, env, q) {
   const { opts } = await ctx(env);
   const goods = (await env.DB.prepare("SELECT * FROM dc_goods WHERE delete_time IS NULL AND is_on_shelf = 1 ORDER BY id DESC LIMIT 20").all()).results;
-  const siteName = opt(opts, "blogname", "DCSHOP");
+  const siteName = opt(opts, "blogname", "ACG\u53D1\u5361");
   const url = request.url;
   let items = "";
   for (const g of goods) {
@@ -1634,15 +1809,15 @@ function buildKamiHtml(kamiLines) {
     (k, i) => '<div class="kami-item"><span class="kami-index">' + (i + 1) + "</span><code>" + esc(k.content) + '</code><button class="kami-item-copy" data-c="' + esc(k.content) + '">\u590D\u5236</button></div>'
   ).join("");
   const allText = JSON.stringify(kamiLines.map((k) => k.content).join("\n"));
-  return '<div class="kami-list" id="kamiList"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><b>\u5361\u5BC6\u4FE1\u606F\uFF08\u5171 ' + kamiLines.length + ' \u6761\uFF09</b><button class="btn btn-primary btn-sm br-12" id="btnCopyAll">\u4E00\u952E\u590D\u5236</button></div>' + items + "</div><script>$('#btnCopyAll').on('click', function(){  var t = " + allText + ";  if (navigator.clipboard) navigator.clipboard.writeText(t).then(function(){ layer.msg('\u5DF2\u590D\u5236\u5168\u90E8'); });  else { var ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); layer.msg('\u5DF2\u590D\u5236\u5168\u90E8'); }});$(document).on('click', '.kami-item-copy', function(){  var t = $(this).data('c');  if (navigator.clipboard) navigator.clipboard.writeText(t).then(function(){ layer.msg('\u5DF2\u590D\u5236'); });  else { var ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); layer.msg('\u5DF2\u590D\u5236'); }});</script><style>.kami-list{margin-top:18px;background:#fff;border:1px solid #eee;border-radius:10px;padding:18px;}.kami-item{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px dashed #eee;}.kami-item:last-child{border-bottom:none;}.kami-index{width:24px;height:24px;border-radius:50%;background:#139655;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;}.kami-item code{flex:1;word-break:break-all;color:#333;}.kami-item-copy{color:#139655;cursor:pointer;background:none;border:none;font-size:13px;}</style>";
+  return '<div class="kami-list" id="kamiList"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><b>\u5361\u5BC6\u4FE1\u606F\uFF08\u5171 ' + kamiLines.length + ' \u6761\uFF09</b><button class="btn btn-primary btn-sm br-12" id="btnCopyAll">\u4E00\u952E\u590D\u5236</button></div>' + items + "</div><script>$('#btnCopyAll').on('click', function(){  var t = " + allText + ";  if (navigator.clipboard) navigator.clipboard.writeText(t).then(function(){ layer.msg('\u5DF2\u590D\u5236\u5168\u90E8'); });  else { var ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); layer.msg('\u5DF2\u590D\u5236\u5168\u90E8'); }});$(document).on('click', '.kami-item-copy', function(){  var t = $(this).data('c');  if (navigator.clipboard) navigator.clipboard.writeText(t).then(function(){ layer.msg('\u5DF2\u590D\u5236'); });  else { var ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); layer.msg('\u5DF2\u590D\u5236'); }});<\/script><style>.kami-list{margin-top:18px;background:#fff;border:1px solid #eee;border-radius:10px;padding:18px;}.kami-item{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px dashed #eee;}.kami-item:last-child{border-bottom:none;}.kami-index{width:24px;height:24px;border-radius:50%;background:#139655;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;}.kami-item code{flex:1;word-break:break-all;color:#333;}.kami-item-copy{color:#139655;cursor:pointer;background:none;border:none;font-size:13px;}</style>";
 }
 function json2(o) {
   return new Response(JSON.stringify(o), { headers: JSON_HEADERS2 });
 }
 function dateStr() {
   const d = /* @__PURE__ */ new Date();
-  const p = (x) => String(x).padStart(2, "0");
-  return "" + d.getFullYear() + p(d.getMonth() + 1) + p(d.getDate()) + p(d.getHours()) + p(d.getMinutes()) + p(d.getSeconds());
+  const p2 = (x) => String(x).padStart(2, "0");
+  return "" + d.getFullYear() + p2(d.getMonth() + 1) + p2(d.getDate()) + p2(d.getHours()) + p2(d.getMinutes()) + p2(d.getSeconds());
 }
 export {
   getOptions as _getOptions,
