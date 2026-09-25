@@ -1850,6 +1850,253 @@ export async function ticketUpload(env, request, url, body = {}, manage) {
   throw new Error('当前环境未提供持久化文件存储，暂不支持图片上传');
 }
 
+// ============================================================
+// 系统消息管理 (后台) — 对齐原版 Message.php + Message Service
+//   data/detail/save/del/users/audienceCount/upload
+// 接收范围: 0=全体用户 1=会员等级(UserGroup) 2=指定用户
+// ============================================================
+function messageCleanTitle(title) {
+  const t = String(title || '').replace(/<[^>]*>/g, '').trim();
+  if (t === '' || t.length > 64) throw new Error('消息标题不能为空且不能超过 64 字');
+  return t;
+}
+function messageCleanJumpUrl(v) {
+  const s = String(v || '').trim();
+  if (s === '') return null;
+  if (!/^https?:\/\//i.test(s)) throw new Error('跳转链接必须以 http:// 或 https:// 开头');
+  return s.slice(0, 500);
+}
+function messageSummary(content) {
+  const c = String(content || '');
+  const plain = c.replace(/<img[^>]*>/gi, ' [图片] ')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return plain.length > 120 ? plain.slice(0, 120) : plain;
+}
+function messageCleanContent(content) {
+  const c = String(content || '').trim();
+  if (c === '') throw new Error('消息内容不能为空');
+  const plain = messageSummary(c);
+  if (plain === '') throw new Error('消息内容不能为空');
+  return c;
+}
+async function messageEmailAvailable(env) {
+  try {
+    const row = await dbFirst(env, `SELECT value FROM acg_config WHERE key='email_config'`);
+    let cfg = { smtp: '' };
+    if (row && row.value) { try { cfg = JSON.parse(row.value); } catch (e) {} }
+    return !!(cfg && typeof cfg.smtp === 'string' && cfg.smtp !== '');
+  } catch (e) { return false; }
+}
+// 接收范围: 返回 { sqlWhere, params, name }（status=1 的用户）
+async function messageRecipientScope(env, audienceType, audienceId) {
+  if (![0, 1, 2].includes(Number(audienceType))) throw new Error('请选择有效的接收范围');
+  const wheres = ['status=1'];
+  const params = [];
+  if (Number(audienceType) === 0) {
+    return { wheres, params, name: '全体用户' };
+  }
+  if (Number(audienceId) <= 0) {
+    throw new Error(Number(audienceType) === 1 ? '请选择会员等级' : '请选择指定用户');
+  }
+  if (Number(audienceType) === 2) {
+    const u = await dbFirst(env, 'SELECT id, username FROM acg_user WHERE id=? AND status=1', audienceId);
+    if (!u) throw new Error('指定用户不存在或状态异常');
+    wheres.push('id=?'); params.push(String(audienceId));
+    return { wheres, params, name: String(u.username) };
+  }
+  const groups = await dbRows(env, 'SELECT id, name, recharge FROM acg_user_group ORDER BY recharge DESC');
+  const idx = groups.findIndex(g => Number(g.id) === audienceId);
+  if (idx < 0) throw new Error('会员等级不存在');
+  const selected = groups[idx];
+  const upper = idx > 0 ? Number(groups[idx - 1].recharge) : null;
+  wheres.push('recharge >= ?'); params.push(String(Number(selected.recharge)));
+  if (upper !== null) { wheres.push('recharge < ?'); params.push(String(upper)); }
+  return { wheres, params, name: String(selected.name) };
+}
+
+function messageAdminItem(r, withContent = false) {
+  const item = {
+    id: Number(r.id),
+    title: String(r.title || ''),
+    summary: String(r.summary || ''),
+    audience_type: Number(r.audience_type ?? 0),
+    audience_id: r.audience_id === null || r.audience_id === undefined ? null : Number(r.audience_id),
+    audience_name: String(r.audience_name || ''),
+    recipient_count: Number(r.recipient_count || 0),
+    jump_url: r.jump_url === null || r.jump_url === undefined ? null : String(r.jump_url),
+    create_time: r.create_time,
+    update_time: r.update_time,
+    manage_name: String(r.manage_name || ''),
+    update_manage_name: String(r.update_manage_name || ''),
+  };
+  if (withContent) item.content = String(r.content || '');
+  return item;
+}
+
+// 列表
+export async function messageData(env, request, url, body = {}) {
+  const page = Math.max(1, Number(body.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(body.limit) || 10));
+  const wheres = [];
+  const params = [];
+  const keyword = String(body.keyword ?? body.title ?? '').trim();
+  if (keyword !== '') { wheres.push('title LIKE ?'); params.push(`%${keyword}%`); }
+  const at = body['equal-audience_type'] !== undefined && body['equal-audience_type'] !== '' ? body['equal-audience_type'] : body.audience_type;
+  if (at !== undefined && at !== '' && [0, 1, 2].includes(Number(at))) { wheres.push('audience_type=?'); params.push(String(Number(at))); }
+  const startTs = ticketParseTime(body['betweenStart-create_time'] ?? body.create_time_start);
+  if (startTs !== null) { wheres.push('create_time >= ?'); params.push(String(startTs)); }
+  const endTs = ticketParseTime(body['betweenEnd-create_time'] ?? body.create_time_end);
+  if (endTs !== null) { wheres.push('create_time <= ?'); params.push(String(endTs)); }
+  const where = wheres.length ? ' WHERE ' + wheres.join(' AND ') : '';
+  const total = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_system_message${where}`, ...params);
+  const count = total ? Number(total.n) : 0;
+  const rows = await dbRows(env, `SELECT * FROM acg_system_message${where} ORDER BY id DESC LIMIT ? OFFSET ?`, ...params, pageSize, (page - 1) * pageSize);
+  const list = rows.map(messageAdminItem);
+  return apiOk('success', { list, page, limit: pageSize, count, records: count, total: count });
+}
+
+// 详情
+export async function messageDetail(env, request, url, body = {}) {
+  const id = Number(body.id) || 0;
+  if (id <= 0) throw new Error('请选择消息');
+  const r = await dbFirst(env, 'SELECT * FROM acg_system_message WHERE id=?', id);
+  if (!r) throw new Error('消息不存在');
+  return apiOk('success', messageAdminItem(r, true));
+}
+
+// 新建/编辑
+export async function messageSave(env, request, url, body = {}, manage) {
+  for (const key of ['id', 'title', 'content', 'jump_url', 'audience_type', 'audience_id', 'group_id', 'user_id', 'send_email']) {
+    if (body[key] !== undefined && body[key] !== null && typeof body[key] === 'object') throw new Error('消息表单参数无效');
+  }
+  const id = Number(body.id) || 0;
+  const hasSendEmail = body.send_email !== undefined;
+  const sendEmail = hasSendEmail ? !!Number(body.send_email) : false;
+  if (id > 0 && hasSendEmail) throw new Error('编辑消息不能重复发送邮件通知');
+  if (sendEmail && !(await messageEmailAvailable(env))) throw new Error('邮件功能尚未配置完整，无法发送邮件通知');
+  const title = messageCleanTitle(body.title);
+  const jumpUrl = messageCleanJumpUrl(body.jump_url);
+  const manageName = String(manage && (manage.nickname || manage.email) || '管理员');
+  const ts = now();
+
+  if (id > 0) {
+    const exist = await dbFirst(env, 'SELECT id FROM acg_system_message WHERE id=?', id);
+    if (!exist) throw new Error('消息不存在');
+    const content = messageCleanContent(body.content);
+    await dbUpdate(env, 'acg_system_message', { title, content, summary: messageSummary(content), jump_url: jumpUrl, updated_by: Number(manage.id), update_manage_name: manageName, update_time: ts }, 'id=?', id);
+    try { await dbInsert(env, 'acg_manage_log', { email: 'admin', nickname: '', content: `[消息管理]编辑了消息(#${id})`, create_time: ts, create_ip: requestInfo(request).ip, ua: '', risk: 0 }); } catch (e) {}
+    const r = await dbFirst(env, 'SELECT * FROM acg_system_message WHERE id=?', id);
+    return apiOk('消息保存成功', messageAdminItem(r, true));
+  }
+
+  if (body.audience_type === undefined) throw new Error('请选择接收范围');
+  const audienceType = Number(body.audience_type);
+  let audienceId = Number(body.audience_id) || 0;
+  if (audienceType === 1) {
+    const groupId = Number(body.group_id) || 0;
+    if (audienceId > 0 && groupId > 0 && audienceId !== groupId) throw new Error('接收对象与会员等级不一致');
+    audienceId = audienceId > 0 ? audienceId : groupId;
+  } else if (audienceType === 2) {
+    const userId = Number(body.user_id) || 0;
+    if (audienceId > 0 && userId > 0 && audienceId !== userId) throw new Error('接收对象与指定用户不一致');
+    audienceId = audienceId > 0 ? audienceId : userId;
+  } else if (audienceId > 0 || Number(body.group_id) > 0 || Number(body.user_id) > 0) {
+    throw new Error('全体用户消息不能指定会员等级或用户');
+  }
+  const content = messageCleanContent(body.content);
+  const scope = await messageRecipientScope(env, audienceType, audienceId);
+  const w = scope.wheres.length ? ' WHERE ' + scope.wheres.join(' AND ') : '';
+  const recipients = await dbRows(env, `SELECT id FROM acg_user${w}`, ...scope.params);
+  if (!recipients.length) throw new Error('当前接收范围没有正常用户，消息未发送');
+  const mid = await dbInsert(env, 'acg_system_message', {
+    audience_type: audienceType,
+    audience_id: audienceType === 0 ? null : audienceId,
+    audience_name: scope.name,
+    title, content, summary: messageSummary(content), jump_url: jumpUrl,
+    recipient_count: 0,
+    created_by: Number(manage.id), updated_by: Number(manage.id),
+    manage_name: manageName, update_manage_name: manageName,
+    create_time: ts, update_time: ts,
+  });
+  const umStmt = `INSERT INTO acg_user_message (message_id, user_id, create_time) VALUES ` + recipients.map(() => '(?,?,?)').join(',');
+  const umParams = [];
+  for (const u of recipients) umParams.push(mid, u.id, ts);
+  await dbRun(env, umStmt, ...umParams);
+  await dbUpdate(env, 'acg_system_message', { recipient_count: recipients.length }, 'id=?', mid);
+  try { await dbInsert(env, 'acg_manage_log', { email: 'admin', nickname: '', content: `[消息管理]发送了消息(#${mid})，接收人数：${recipients.length}`, create_time: ts, create_ip: requestInfo(request).ip, ua: '', risk: 0 }); } catch (e) {}
+  const r = await dbFirst(env, 'SELECT * FROM acg_system_message WHERE id=?', mid);
+  return apiOk('消息发送成功', messageAdminItem(r, true));
+}
+
+// 删除消息
+export async function messageDel(env, request, url, body = {}, manage) {
+  const raw = body.list ?? body.ids;
+  let ids;
+  if (Array.isArray(raw)) ids = raw.map(v => Number(v)).filter(v => Number.isInteger(v) && v > 0);
+  else if (raw !== undefined && raw !== '') ids = String(raw).split(',').map(v => Number(v.trim())).filter(v => Number.isInteger(v) && v > 0);
+  else ids = [Number(body.id) || 0].filter(v => v > 0);
+  const uniq = [...new Set(ids)].slice(0, 500);
+  if (!uniq.length) throw new Error('请选择要删除的消息');
+  const ph = uniq.map(() => '?').join(',');
+  const exist = await dbRows(env, `SELECT id FROM acg_system_message WHERE id IN (${ph})`, ...uniq);
+  if (!exist.length) throw new Error('消息不存在');
+  const foundIds = exist.map(r => Number(r.id));
+  const ph2 = foundIds.map(() => '?').join(',');
+  await dbRun(env, `DELETE FROM acg_system_message WHERE id IN (${ph2})`, ...foundIds);
+  await dbRun(env, `DELETE FROM acg_user_message WHERE message_id IN (${ph2})`, ...foundIds);
+  const count = foundIds.length;
+  try { await dbInsert(env, 'acg_manage_log', { email: 'admin', nickname: '', content: `[消息管理]删除了消息，共计：${count} 条`, create_time: now(), create_ip: requestInfo(request).ip, ua: '', risk: 0 }); } catch (e) {}
+  return apiOk('消息删除成功', { count });
+}
+
+// 用户搜索 (用于选择接收用户)
+export async function messageUsers(env, request, url, body = {}) {
+  const keyword = String(body.keyword ?? body.q ?? body.search ?? '').trim();
+  const limit = Math.min(20, Math.max(1, Number(body.limit) || 20));
+  const wheres = ['status=1'];
+  const params = [];
+  if (keyword !== '') {
+    const kw = `%${keyword}%`;
+    if (/^\d+$/.test(keyword)) {
+      wheres.push(`(username LIKE ? OR email LIKE ? OR phone LIKE ? OR id=?)`); params.push(kw, kw, kw, keyword);
+    } else {
+      wheres.push(`(username LIKE ? OR email LIKE ? OR phone LIKE ?)`); params.push(kw, kw, kw);
+    }
+  }
+  const where = wheres.length ? ' WHERE ' + wheres.join(' AND ') : '';
+  const groups = await dbRows(env, 'SELECT name, recharge FROM acg_user_group ORDER BY recharge DESC');
+  const rows = await dbRows(env, `SELECT id, username, avatar, recharge FROM acg_user${where} ORDER BY id DESC LIMIT ?`, ...params, limit);
+  const list = rows.map(u => {
+    let groupName = '';
+    for (const g of groups) {
+      if (Number(u.recharge) >= Number(g.recharge)) { groupName = String(g.name); break; }
+    }
+    return { id: Number(u.id), username: String(u.username || ''), avatar: String(u.avatar || ''), group_name: groupName };
+  });
+  return apiOk('success', { list });
+}
+
+// 接收人数预览
+export async function messageAudienceCount(env, request, url, body = {}) {
+  const audienceType = Number(body.audience_type) || 0;
+  let audienceId = Number(body.audience_id) || 0;
+  if (audienceId <= 0) {
+    audienceId = audienceType === 1 ? (Number(body.group_id) || 0) : (Number(body.user_id) || 0);
+  }
+  const scope = await messageRecipientScope(env, audienceType, audienceId);
+  const w = scope.wheres.length ? ' WHERE ' + scope.wheres.join(' AND ') : '';
+  const row = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_user${w}`, ...scope.params);
+  return apiOk('success', { count: row ? Number(row.n) : 0 });
+}
+
+// 上传 (当前环境无持久化文件存储)
+export async function messageUpload(env, request, url, body = {}, manage) {
+  throw new Error('当前环境未提供持久化文件存储，暂不支持图片上传');
+}
+
 export async function adminEndpoint(env, request, url, ctl, act, body) {
   if (ctl === 'authentication' && act === 'login') return adminLogin(env, request, url, body);
   // 以下接口需要登录
@@ -1963,6 +2210,24 @@ export async function adminEndpoint(env, request, url, ctl, act, body) {
       if (act === 'del') return await ticketDel(env, request, url, body, manage);
       if (act === 'badge') return await ticketBadge(env, request, url);
       if (act === 'upload') return await ticketUpload(env, request, url, body, manage);
+    } catch (e) {
+      return apiErr(e && e.message ? String(e.message) : '操作失败');
+    }
+  }
+  // 系统消息
+  if (ctl === 'message') {
+    try {
+      if (act === 'data') return await messageData(env, request, url, body);
+      if (act === 'detail') return await messageDetail(env, request, url, body);
+      if (act === 'save') return await messageSave(env, request, url, body, manage);
+      if (act === 'del') return await messageDel(env, request, url, body, manage);
+      if (act === 'users') return await messageUsers(env, request, url, body);
+      if (act === 'audienceCount') return await messageAudienceCount(env, request, url, body);
+      if (act === 'groups') {
+        const groups = await dbRows(env, 'SELECT id, name, recharge FROM acg_user_group ORDER BY recharge DESC');
+        return apiOk('success', { list: groups });
+      }
+      if (act === 'upload') return await messageUpload(env, request, url, body, manage);
     } catch (e) {
       return apiErr(e && e.message ? String(e.message) : '操作失败');
     }

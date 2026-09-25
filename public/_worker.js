@@ -3103,6 +3103,269 @@ async function ticketBadge(env, request, url) {
 async function ticketUpload(env, request, url, body = {}, manage) {
   throw new Error("\u5F53\u524D\u73AF\u5883\u672A\u63D0\u4F9B\u6301\u4E45\u5316\u6587\u4EF6\u5B58\u50A8\uFF0C\u6682\u4E0D\u652F\u6301\u56FE\u7247\u4E0A\u4F20");
 }
+function messageCleanTitle(title) {
+  const t = String(title || "").replace(/<[^>]*>/g, "").trim();
+  if (t === "" || t.length > 64) throw new Error("\u6D88\u606F\u6807\u9898\u4E0D\u80FD\u4E3A\u7A7A\u4E14\u4E0D\u80FD\u8D85\u8FC7 64 \u5B57");
+  return t;
+}
+function messageCleanJumpUrl(v) {
+  const s = String(v || "").trim();
+  if (s === "") return null;
+  if (!/^https?:\/\//i.test(s)) throw new Error("\u8DF3\u8F6C\u94FE\u63A5\u5FC5\u987B\u4EE5 http:// \u6216 https:// \u5F00\u5934");
+  return s.slice(0, 500);
+}
+function messageSummary(content) {
+  const c = String(content || "");
+  const plain = c.replace(/<img[^>]*>/gi, " [\u56FE\u7247] ").replace(/<[^>]+>/g, " ").replace(/&nbsp;/gi, " ").replace(/\s+/g, " ").trim();
+  return plain.length > 120 ? plain.slice(0, 120) : plain;
+}
+function messageCleanContent(content) {
+  const c = String(content || "").trim();
+  if (c === "") throw new Error("\u6D88\u606F\u5185\u5BB9\u4E0D\u80FD\u4E3A\u7A7A");
+  const plain = messageSummary(c);
+  if (plain === "") throw new Error("\u6D88\u606F\u5185\u5BB9\u4E0D\u80FD\u4E3A\u7A7A");
+  return c;
+}
+async function messageEmailAvailable(env) {
+  try {
+    const row = await dbFirst(env, `SELECT value FROM acg_config WHERE key='email_config'`);
+    let cfg = { smtp: "" };
+    if (row && row.value) {
+      try {
+        cfg = JSON.parse(row.value);
+      } catch (e) {
+      }
+    }
+    return !!(cfg && typeof cfg.smtp === "string" && cfg.smtp !== "");
+  } catch (e) {
+    return false;
+  }
+}
+async function messageRecipientScope(env, audienceType, audienceId) {
+  if (![0, 1, 2].includes(Number(audienceType))) throw new Error("\u8BF7\u9009\u62E9\u6709\u6548\u7684\u63A5\u6536\u8303\u56F4");
+  const wheres = ["status=1"];
+  const params = [];
+  if (Number(audienceType) === 0) {
+    return { wheres, params, name: "\u5168\u4F53\u7528\u6237" };
+  }
+  if (Number(audienceId) <= 0) {
+    throw new Error(Number(audienceType) === 1 ? "\u8BF7\u9009\u62E9\u4F1A\u5458\u7B49\u7EA7" : "\u8BF7\u9009\u62E9\u6307\u5B9A\u7528\u6237");
+  }
+  if (Number(audienceType) === 2) {
+    const u = await dbFirst(env, "SELECT id, username FROM acg_user WHERE id=? AND status=1", audienceId);
+    if (!u) throw new Error("\u6307\u5B9A\u7528\u6237\u4E0D\u5B58\u5728\u6216\u72B6\u6001\u5F02\u5E38");
+    wheres.push("id=?");
+    params.push(String(audienceId));
+    return { wheres, params, name: String(u.username) };
+  }
+  const groups = await dbRows(env, "SELECT id, name, recharge FROM acg_user_group ORDER BY recharge DESC");
+  const idx = groups.findIndex((g) => Number(g.id) === audienceId);
+  if (idx < 0) throw new Error("\u4F1A\u5458\u7B49\u7EA7\u4E0D\u5B58\u5728");
+  const selected = groups[idx];
+  const upper = idx > 0 ? Number(groups[idx - 1].recharge) : null;
+  wheres.push("recharge >= ?");
+  params.push(String(Number(selected.recharge)));
+  if (upper !== null) {
+    wheres.push("recharge < ?");
+    params.push(String(upper));
+  }
+  return { wheres, params, name: String(selected.name) };
+}
+function messageAdminItem(r, withContent = false) {
+  const item = {
+    id: Number(r.id),
+    title: String(r.title || ""),
+    summary: String(r.summary || ""),
+    audience_type: Number(r.audience_type ?? 0),
+    audience_id: r.audience_id === null || r.audience_id === void 0 ? null : Number(r.audience_id),
+    audience_name: String(r.audience_name || ""),
+    recipient_count: Number(r.recipient_count || 0),
+    jump_url: r.jump_url === null || r.jump_url === void 0 ? null : String(r.jump_url),
+    create_time: r.create_time,
+    update_time: r.update_time,
+    manage_name: String(r.manage_name || ""),
+    update_manage_name: String(r.update_manage_name || "")
+  };
+  if (withContent) item.content = String(r.content || "");
+  return item;
+}
+async function messageData(env, request, url, body = {}) {
+  const page = Math.max(1, Number(body.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(body.limit) || 10));
+  const wheres = [];
+  const params = [];
+  const keyword = String(body.keyword ?? body.title ?? "").trim();
+  if (keyword !== "") {
+    wheres.push("title LIKE ?");
+    params.push(`%${keyword}%`);
+  }
+  const at = body["equal-audience_type"] !== void 0 && body["equal-audience_type"] !== "" ? body["equal-audience_type"] : body.audience_type;
+  if (at !== void 0 && at !== "" && [0, 1, 2].includes(Number(at))) {
+    wheres.push("audience_type=?");
+    params.push(String(Number(at)));
+  }
+  const startTs = ticketParseTime(body["betweenStart-create_time"] ?? body.create_time_start);
+  if (startTs !== null) {
+    wheres.push("create_time >= ?");
+    params.push(String(startTs));
+  }
+  const endTs = ticketParseTime(body["betweenEnd-create_time"] ?? body.create_time_end);
+  if (endTs !== null) {
+    wheres.push("create_time <= ?");
+    params.push(String(endTs));
+  }
+  const where = wheres.length ? " WHERE " + wheres.join(" AND ") : "";
+  const total = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_system_message${where}`, ...params);
+  const count = total ? Number(total.n) : 0;
+  const rows = await dbRows(env, `SELECT * FROM acg_system_message${where} ORDER BY id DESC LIMIT ? OFFSET ?`, ...params, pageSize, (page - 1) * pageSize);
+  const list = rows.map(messageAdminItem);
+  return apiOk("success", { list, page, limit: pageSize, count, records: count, total: count });
+}
+async function messageDetail(env, request, url, body = {}) {
+  const id = Number(body.id) || 0;
+  if (id <= 0) throw new Error("\u8BF7\u9009\u62E9\u6D88\u606F");
+  const r = await dbFirst(env, "SELECT * FROM acg_system_message WHERE id=?", id);
+  if (!r) throw new Error("\u6D88\u606F\u4E0D\u5B58\u5728");
+  return apiOk("success", messageAdminItem(r, true));
+}
+async function messageSave(env, request, url, body = {}, manage) {
+  for (const key of ["id", "title", "content", "jump_url", "audience_type", "audience_id", "group_id", "user_id", "send_email"]) {
+    if (body[key] !== void 0 && body[key] !== null && typeof body[key] === "object") throw new Error("\u6D88\u606F\u8868\u5355\u53C2\u6570\u65E0\u6548");
+  }
+  const id = Number(body.id) || 0;
+  const hasSendEmail = body.send_email !== void 0;
+  const sendEmail = hasSendEmail ? !!Number(body.send_email) : false;
+  if (id > 0 && hasSendEmail) throw new Error("\u7F16\u8F91\u6D88\u606F\u4E0D\u80FD\u91CD\u590D\u53D1\u9001\u90AE\u4EF6\u901A\u77E5");
+  if (sendEmail && !await messageEmailAvailable(env)) throw new Error("\u90AE\u4EF6\u529F\u80FD\u5C1A\u672A\u914D\u7F6E\u5B8C\u6574\uFF0C\u65E0\u6CD5\u53D1\u9001\u90AE\u4EF6\u901A\u77E5");
+  const title = messageCleanTitle(body.title);
+  const jumpUrl = messageCleanJumpUrl(body.jump_url);
+  const manageName = String(manage && (manage.nickname || manage.email) || "\u7BA1\u7406\u5458");
+  const ts = now();
+  if (id > 0) {
+    const exist = await dbFirst(env, "SELECT id FROM acg_system_message WHERE id=?", id);
+    if (!exist) throw new Error("\u6D88\u606F\u4E0D\u5B58\u5728");
+    const content2 = messageCleanContent(body.content);
+    await dbUpdate(env, "acg_system_message", { title, content: content2, summary: messageSummary(content2), jump_url: jumpUrl, updated_by: Number(manage.id), update_manage_name: manageName, update_time: ts }, "id=?", id);
+    try {
+      await dbInsert(env, "acg_manage_log", { email: "admin", nickname: "", content: `[\u6D88\u606F\u7BA1\u7406]\u7F16\u8F91\u4E86\u6D88\u606F(#${id})`, create_time: ts, create_ip: requestInfo(request).ip, ua: "", risk: 0 });
+    } catch (e) {
+    }
+    const r2 = await dbFirst(env, "SELECT * FROM acg_system_message WHERE id=?", id);
+    return apiOk("\u6D88\u606F\u4FDD\u5B58\u6210\u529F", messageAdminItem(r2, true));
+  }
+  if (body.audience_type === void 0) throw new Error("\u8BF7\u9009\u62E9\u63A5\u6536\u8303\u56F4");
+  const audienceType = Number(body.audience_type);
+  let audienceId = Number(body.audience_id) || 0;
+  if (audienceType === 1) {
+    const groupId = Number(body.group_id) || 0;
+    if (audienceId > 0 && groupId > 0 && audienceId !== groupId) throw new Error("\u63A5\u6536\u5BF9\u8C61\u4E0E\u4F1A\u5458\u7B49\u7EA7\u4E0D\u4E00\u81F4");
+    audienceId = audienceId > 0 ? audienceId : groupId;
+  } else if (audienceType === 2) {
+    const userId = Number(body.user_id) || 0;
+    if (audienceId > 0 && userId > 0 && audienceId !== userId) throw new Error("\u63A5\u6536\u5BF9\u8C61\u4E0E\u6307\u5B9A\u7528\u6237\u4E0D\u4E00\u81F4");
+    audienceId = audienceId > 0 ? audienceId : userId;
+  } else if (audienceId > 0 || Number(body.group_id) > 0 || Number(body.user_id) > 0) {
+    throw new Error("\u5168\u4F53\u7528\u6237\u6D88\u606F\u4E0D\u80FD\u6307\u5B9A\u4F1A\u5458\u7B49\u7EA7\u6216\u7528\u6237");
+  }
+  const content = messageCleanContent(body.content);
+  const scope = await messageRecipientScope(env, audienceType, audienceId);
+  const w = scope.wheres.length ? " WHERE " + scope.wheres.join(" AND ") : "";
+  const recipients = await dbRows(env, `SELECT id FROM acg_user${w}`, ...scope.params);
+  if (!recipients.length) throw new Error("\u5F53\u524D\u63A5\u6536\u8303\u56F4\u6CA1\u6709\u6B63\u5E38\u7528\u6237\uFF0C\u6D88\u606F\u672A\u53D1\u9001");
+  const mid = await dbInsert(env, "acg_system_message", {
+    audience_type: audienceType,
+    audience_id: audienceType === 0 ? null : audienceId,
+    audience_name: scope.name,
+    title,
+    content,
+    summary: messageSummary(content),
+    jump_url: jumpUrl,
+    recipient_count: 0,
+    created_by: Number(manage.id),
+    updated_by: Number(manage.id),
+    manage_name: manageName,
+    update_manage_name: manageName,
+    create_time: ts,
+    update_time: ts
+  });
+  const umStmt = `INSERT INTO acg_user_message (message_id, user_id, create_time) VALUES ` + recipients.map(() => "(?,?,?)").join(",");
+  const umParams = [];
+  for (const u of recipients) umParams.push(mid, u.id, ts);
+  await dbRun(env, umStmt, ...umParams);
+  await dbUpdate(env, "acg_system_message", { recipient_count: recipients.length }, "id=?", mid);
+  try {
+    await dbInsert(env, "acg_manage_log", { email: "admin", nickname: "", content: `[\u6D88\u606F\u7BA1\u7406]\u53D1\u9001\u4E86\u6D88\u606F(#${mid})\uFF0C\u63A5\u6536\u4EBA\u6570\uFF1A${recipients.length}`, create_time: ts, create_ip: requestInfo(request).ip, ua: "", risk: 0 });
+  } catch (e) {
+  }
+  const r = await dbFirst(env, "SELECT * FROM acg_system_message WHERE id=?", mid);
+  return apiOk("\u6D88\u606F\u53D1\u9001\u6210\u529F", messageAdminItem(r, true));
+}
+async function messageDel(env, request, url, body = {}, manage) {
+  const raw = body.list ?? body.ids;
+  let ids;
+  if (Array.isArray(raw)) ids = raw.map((v) => Number(v)).filter((v) => Number.isInteger(v) && v > 0);
+  else if (raw !== void 0 && raw !== "") ids = String(raw).split(",").map((v) => Number(v.trim())).filter((v) => Number.isInteger(v) && v > 0);
+  else ids = [Number(body.id) || 0].filter((v) => v > 0);
+  const uniq = [...new Set(ids)].slice(0, 500);
+  if (!uniq.length) throw new Error("\u8BF7\u9009\u62E9\u8981\u5220\u9664\u7684\u6D88\u606F");
+  const ph = uniq.map(() => "?").join(",");
+  const exist = await dbRows(env, `SELECT id FROM acg_system_message WHERE id IN (${ph})`, ...uniq);
+  if (!exist.length) throw new Error("\u6D88\u606F\u4E0D\u5B58\u5728");
+  const foundIds = exist.map((r) => Number(r.id));
+  const ph2 = foundIds.map(() => "?").join(",");
+  await dbRun(env, `DELETE FROM acg_system_message WHERE id IN (${ph2})`, ...foundIds);
+  await dbRun(env, `DELETE FROM acg_user_message WHERE message_id IN (${ph2})`, ...foundIds);
+  const count = foundIds.length;
+  try {
+    await dbInsert(env, "acg_manage_log", { email: "admin", nickname: "", content: `[\u6D88\u606F\u7BA1\u7406]\u5220\u9664\u4E86\u6D88\u606F\uFF0C\u5171\u8BA1\uFF1A${count} \u6761`, create_time: now(), create_ip: requestInfo(request).ip, ua: "", risk: 0 });
+  } catch (e) {
+  }
+  return apiOk("\u6D88\u606F\u5220\u9664\u6210\u529F", { count });
+}
+async function messageUsers(env, request, url, body = {}) {
+  const keyword = String(body.keyword ?? body.q ?? body.search ?? "").trim();
+  const limit = Math.min(20, Math.max(1, Number(body.limit) || 20));
+  const wheres = ["status=1"];
+  const params = [];
+  if (keyword !== "") {
+    const kw = `%${keyword}%`;
+    if (/^\d+$/.test(keyword)) {
+      wheres.push(`(username LIKE ? OR email LIKE ? OR phone LIKE ? OR id=?)`);
+      params.push(kw, kw, kw, keyword);
+    } else {
+      wheres.push(`(username LIKE ? OR email LIKE ? OR phone LIKE ?)`);
+      params.push(kw, kw, kw);
+    }
+  }
+  const where = wheres.length ? " WHERE " + wheres.join(" AND ") : "";
+  const groups = await dbRows(env, "SELECT name, recharge FROM acg_user_group ORDER BY recharge DESC");
+  const rows = await dbRows(env, `SELECT id, username, avatar, recharge FROM acg_user${where} ORDER BY id DESC LIMIT ?`, ...params, limit);
+  const list = rows.map((u) => {
+    let groupName = "";
+    for (const g of groups) {
+      if (Number(u.recharge) >= Number(g.recharge)) {
+        groupName = String(g.name);
+        break;
+      }
+    }
+    return { id: Number(u.id), username: String(u.username || ""), avatar: String(u.avatar || ""), group_name: groupName };
+  });
+  return apiOk("success", { list });
+}
+async function messageAudienceCount(env, request, url, body = {}) {
+  const audienceType = Number(body.audience_type) || 0;
+  let audienceId = Number(body.audience_id) || 0;
+  if (audienceId <= 0) {
+    audienceId = audienceType === 1 ? Number(body.group_id) || 0 : Number(body.user_id) || 0;
+  }
+  const scope = await messageRecipientScope(env, audienceType, audienceId);
+  const w = scope.wheres.length ? " WHERE " + scope.wheres.join(" AND ") : "";
+  const row = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_user${w}`, ...scope.params);
+  return apiOk("success", { count: row ? Number(row.n) : 0 });
+}
+async function messageUpload(env, request, url, body = {}, manage) {
+  throw new Error("\u5F53\u524D\u73AF\u5883\u672A\u63D0\u4F9B\u6301\u4E45\u5316\u6587\u4EF6\u5B58\u50A8\uFF0C\u6682\u4E0D\u652F\u6301\u56FE\u7247\u4E0A\u4F20");
+}
 async function adminEndpoint(env, request, url, ctl, act, body) {
   if (ctl === "authentication" && act === "login") return adminLogin(env, request, url, body);
   const manage = await authenticateManage(env, request);
@@ -3206,6 +3469,23 @@ async function adminEndpoint(env, request, url, ctl, act, body) {
       if (act === "del") return await ticketDel(env, request, url, body, manage);
       if (act === "badge") return await ticketBadge(env, request, url);
       if (act === "upload") return await ticketUpload(env, request, url, body, manage);
+    } catch (e) {
+      return apiErr(e && e.message ? String(e.message) : "\u64CD\u4F5C\u5931\u8D25");
+    }
+  }
+  if (ctl === "message") {
+    try {
+      if (act === "data") return await messageData(env, request, url, body);
+      if (act === "detail") return await messageDetail(env, request, url, body);
+      if (act === "save") return await messageSave(env, request, url, body, manage);
+      if (act === "del") return await messageDel(env, request, url, body, manage);
+      if (act === "users") return await messageUsers(env, request, url, body);
+      if (act === "audienceCount") return await messageAudienceCount(env, request, url, body);
+      if (act === "groups") {
+        const groups = await dbRows(env, "SELECT id, name, recharge FROM acg_user_group ORDER BY recharge DESC");
+        return apiOk("success", { list: groups });
+      }
+      if (act === "upload") return await messageUpload(env, request, url, body, manage);
     } catch (e) {
       return apiErr(e && e.message ? String(e.message) : "\u64CD\u4F5C\u5931\u8D25");
     }
@@ -3413,7 +3693,7 @@ function renderCrudPage({ cfg, manage, title, activePath, toolbar = null, body, 
     title,
     activePath,
     toolbar,
-    body: `${body}<script>${readyJs}</script>`
+    body: `${body}<script>${readyJs}<\/script>`
   });
 }
 function renderAdminCategoryPage(cfg, manage) {
@@ -5322,6 +5602,237 @@ function renderAdminTicketPage(cfg, manage) {
   });`;
   return renderCrudPage({ cfg, manage, title: "\u5DE5\u5355\u7BA1\u7406", activePath: "/admin/ticket/index", body, readyJs: js });
 }
+function renderAdminMessagePage(cfg, manage) {
+  const body = `
+<div class="card mb-5 mb-xl-8">
+  <div class="card-header border-0 py-4">
+    <div class="card-title">
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        <select class="form-select form-select-sm w-auto ms-f-audience"><option value="">\u5168\u90E8\u8303\u56F4</option><option value="0">\u5168\u4F53\u7528\u6237</option><option value="1">\u4F1A\u5458\u7B49\u7EA7</option><option value="2">\u6307\u5B9A\u7528\u6237</option></select>
+        <input class="form-control form-control-sm w-auto ms-f-keyword" placeholder="\u6807\u9898\u5173\u952E\u8BCD">
+        <button class="btn btn-sm btn-light-primary ms-search"><i class="fa-duotone fa-regular fa-magnifying-glass"></i> \u641C\u7D22</button>
+      </div>
+    </div>
+    <div class="card-toolbar">
+      <button class="btn btn-sm btn-light-danger ms-del-all me-3"><i class="fa-duotone fa-regular fa-trash-can"></i> \u5220\u9664\u9009\u4E2D</button>
+      <button class="btn btn-sm btn-light-primary ms-add"><i class="fa-duotone fa-regular fa-circle-plus"></i> \u53D1\u9001\u6D88\u606F</button>
+    </div>
+  </div>
+  <div class="card-body py-3">
+    <div class="table-responsive">
+      <table class="table table-row-bordered table-row-gray-200 align-middle gs-0 gy-3" id="message-table">
+        <thead><tr class="fw-bold text-muted">
+          <th style="width:40px"><input type="checkbox" class="crud-check-all"></th>
+          <th>ID</th><th>\u6807\u9898</th><th>\u6458\u8981</th><th>\u63A5\u6536\u8303\u56F4</th><th>\u63A5\u6536\u4EBA\u6570</th><th>\u521B\u5EFA\u4EBA</th><th>\u521B\u5EFA\u65F6\u95F4</th><th>\u64CD\u4F5C</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="d-flex flex-stack flex-wrap pt-5">
+      <div class="fs-7 fw-bold text-muted crud-pageinfo">\u7B2C 1 \u9875 / \u5171 0 \u6761</div>
+      <div class="d-flex align-items-center">
+        <button class="btn btn-sm btn-light crud-prev me-2">\u4E0A\u4E00\u9875</button>
+        <button class="btn btn-sm btn-light crud-next">\u4E0B\u4E00\u9875</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" tabindex="-1" id="msgModal"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+  <div class="modal-header py-3"><h5 class="modal-title">\u53D1\u9001\u6D88\u606F</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <form class="message-form"><div class="modal-body">
+    <input type="hidden" name="id">
+    <div class="row g-3">
+      <div class="col-md-8"><label class="form-label"><span class="text-danger">*</span> \u6807\u9898</label>
+        <input class="form-control" name="title" maxlength="64" required></div>
+      <div class="col-md-4"><label class="form-label"><span class="text-danger">*</span> \u63A5\u6536\u8303\u56F4</label>
+        <select class="form-select" name="audience_type" required><option value="0">\u5168\u4F53\u7528\u6237</option><option value="1">\u4F1A\u5458\u7B49\u7EA7</option><option value="2">\u6307\u5B9A\u7528\u6237</option></select></div>
+      <div class="col-md-6 msg-audience-group d-none"><label class="form-label">\u4F1A\u5458\u7B49\u7EA7</label>
+        <select class="form-select" name="group_id"><option value="">\u8BF7\u9009\u62E9\u4F1A\u5458\u7B49\u7EA7</option></select></div>
+      <div class="col-md-6 msg-audience-user d-none"><label class="form-label">\u6307\u5B9A\u7528\u6237</label>
+        <div class="input-group">
+          <input class="form-control msg-user-search" placeholder="\u7528\u6237\u540D/\u90AE\u7BB1/\u624B\u673A/ID">
+          <button type="button" class="btn btn-light-primary msg-user-search-btn">\u641C\u7D22</button>
+        </div>
+        <select class="form-select mt-2 d-none" name="user_id"></select>
+        <div class="msg-user-result fs-8 text-muted mt-1"></div></div>
+      <div class="col-md-6 msg-audience-count"><label class="form-label">\u9884\u8BA1\u63A5\u6536\u4EBA\u6570</label>
+        <div class="input-group">
+          <input class="form-control msg-audience-num" readonly value="0">
+          <button type="button" class="btn btn-light ms-audience-preview">\u9884\u89C8</button>
+        </div></div>
+      <div class="col-md-6"><label class="form-label">\u8DF3\u8F6C\u94FE\u63A5</label>
+        <input class="form-control" name="jump_url" placeholder="https://..."></div>
+      <div class="col-12"><label class="form-label"><span class="text-danger">*</span> \u5185\u5BB9</label>
+        <textarea class="form-control" name="content" rows="6" required placeholder="\u652F\u6301\u5C11\u91CF HTML\uFF0C\u5982 <b>\u3001<p>\u3001<a href>"></textarea></div>
+      <div class="form-check form-switch ms-3"><input class="form-check-input" type="checkbox" name="send_email" id="msg-send-email">
+        <label class="form-check-label" for="msg-send-email">\u540C\u65F6\u53D1\u9001\u90AE\u4EF6\u901A\u77E5\uFF08\u9700\u5DF2\u914D\u7F6E\u90AE\u4EF6\u670D\u52A1\uFF09</label></div>
+    </div>
+  </div><div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">\u5173\u95ED</button>
+    <button type="submit" class="btn btn-primary">\u53D1\u9001</button>
+  </div></form>
+</div></div></div>`;
+  const js = `
+  ready(() => {
+    const tbody = document.getElementById('message-table').querySelector('tbody');
+    const API = '/admin/api/message/';
+    let page = 1, pageSize = 10;
+    const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const audienceBadge = at => Number(at) === 0 ? '<span class="badge badge-light-primary">\u5168\u4F53\u7528\u6237</span>' : Number(at) === 1 ? '<span class="badge badge-light-warning">\u4F1A\u5458\u7B49\u7EA7</span>' : '<span class="badge badge-light-info">\u6307\u5B9A\u7528\u6237</span>';
+    const filters = () => {
+      const d = { page, limit: pageSize };
+      const at = document.querySelector('.ms-f-audience').value;
+      const kw = document.querySelector('.ms-f-keyword').value.trim();
+      if (at !== '') d['equal-audience_type'] = at;
+      if (kw) d.keyword = kw;
+      return d;
+    };
+    function auditTypeChange() {
+      const at = Number(document.querySelector('.message-form [name=audience_type]').value);
+      document.querySelector('.msg-audience-group').classList.toggle('d-none', at !== 1);
+      document.querySelector('.msg-audience-user').classList.toggle('d-none', at !== 2);
+      if (at !== 2) document.querySelector('.message-form [name=user_id]').value = '';
+      document.querySelector('.msg-audience-num').value = '0';
+    }
+    function load() {
+      util.post({ url: API + 'data', data: filters(), loader: false,
+        done: res => {
+          tbody.innerHTML = '';
+          (res.data.list || []).forEach(m => {
+            const tr = document.createElement('tr');
+            tr.dataset.id = m.id;
+            tr.innerHTML = '<td><input type="checkbox" class="crud-check"></td>' +
+              '<td>' + m.id + '</td>' +
+              '<td class="fw-bold">' + esc(m.title) + '</td>' +
+              '<td><div class="text-truncate" style="max-width:260px">' + esc(m.summary || '-') + '</div></td>' +
+              '<td>' + audienceBadge(m.audience_type) + ' <small class="text-muted">' + esc(m.audience_name || '') + '</small></td>' +
+              '<td>' + m.recipient_count + '</td>' +
+              '<td>' + esc(m.manage_name || '-') + '</td>' +
+              '<td><small>' + (m.create_time ? new Date(m.create_time * 1000).toLocaleString() : '-') + '</small></td>' +
+              '<td><div class="d-flex gap-1">' +
+              '<button class="btn btn-sm btn-light-primary row-view">\u8BE6\u60C5</button>' +
+              '<button class="btn btn-sm btn-light-warning row-edit">\u7F16\u8F91</button>' +
+              '<button class="btn btn-sm btn-light-danger row-del">\u5220\u9664</button>' +
+              '</div></td>';
+            tbody.appendChild(tr);
+          });
+          document.querySelector('.crud-pageinfo').textContent = '\u7B2C ' + page + ' \u9875 / \u5171 ' + (res.data.count || 0) + ' \u6761';
+        },
+        error: res => message.error(res.msg) });
+    }
+    function selected() { return [...tbody.querySelectorAll('.crud-check:checked')].map(x => x.closest('tr').dataset.id); }
+    function showModal(data) {
+      const f = document.querySelector('.message-form');
+      f.reset();
+      f.querySelector('[name=id]').value = data && data.id ? data.id : '';
+      f.querySelector('[name=title]').value = data ? (data.title || '') : '';
+      f.querySelector('[name=content]').value = data ? (data.content || '') : '';
+      f.querySelector('[name=jump_url]').value = data ? (data.jump_url || '') : '';
+      f.querySelector('[name=audience_type]').value = data ? (data.audience_type || '0') : '0';
+      f.querySelector('[name=group_id]').value = data && data.audience_id ? data.audience_id : '';
+      f.querySelector('[name=user_id]').value = data && data.audience_id ? data.audience_id : '';
+      document.querySelector('.msg-audience-group').classList.toggle('d-none', !data || Number(data.audience_type) !== 1);
+      document.querySelector('.msg-audience-user').classList.toggle('d-none', !data || Number(data.audience_type) !== 2);
+      f.querySelector('[name=send_email]').disabled = !!(data && data.id);
+      document.querySelector('.msg-audience-num').value = data ? (data.recipient_count || '0') : '0';
+      (window.bootstrap && bootstrap.Modal.getOrCreateInstance(document.getElementById('msgModal'))).show();
+    }
+    document.querySelector('.crud-check-all').addEventListener('change', e => tbody.querySelectorAll('.crud-check').forEach(x => x.checked = e.target.checked));
+    document.querySelector('.ms-search').addEventListener('click', () => { page = 1; load(); });
+    document.querySelector('.ms-add').addEventListener('click', () => showModal(null));
+    document.querySelector('.crud-prev').addEventListener('click', () => { if (page > 1) { page--; load(); } });
+    document.querySelector('.crud-next').addEventListener('click', () => { page++; load(); });
+    document.querySelector('.ms-f-keyword').addEventListener('keydown', e => { if (e.key === 'Enter') { page = 1; load(); } });
+    document.querySelector('.ms-del-all').addEventListener('click', () => {
+      const ids = selected();
+      if (!ids.length) { message.error('\u8BF7\u9009\u62E9\u8981\u5220\u9664\u7684\u6D88\u606F'); return; }
+      if (!confirm('\u786E\u8BA4\u5220\u9664\u9009\u4E2D ' + ids.length + ' \u6761\u6D88\u606F\uFF1F')) return;
+      util.post({ url: API + 'del', data: { list: ids }, done: r => { message.success(r.msg); load(); }, error: r => message.error(r.msg) });
+    });
+    document.querySelector('.message-form [name=audience_type]').addEventListener('change', auditTypeChange);
+    document.querySelector('.ms-audience-preview').addEventListener('click', () => {
+      const at = Number(document.querySelector('.message-form [name=audience_type]').value);
+      const groupId = document.querySelector('.message-form [name=group_id]').value;
+      const userId = document.querySelector('.message-form [name=user_id]').value;
+      const data = { audience_type: at };
+      if (at === 1 && groupId) data.group_id = groupId;
+      if (at === 2 && userId) data.user_id = userId;
+      util.post({ url: API + 'audienceCount', data, loader: false, done: r => { document.querySelector('.msg-audience-num').value = r.data.count || 0; }, error: r => message.error(r.msg) });
+    });
+    document.querySelector('.msg-user-search-btn').addEventListener('click', () => {
+      const kw = document.querySelector('.msg-user-search').value.trim();
+      const sel = document.querySelector('.message-form [name=user_id]');
+      const box = document.querySelector('.msg-user-result');
+      if (!kw) { message.error('\u8BF7\u8F93\u5165\u7528\u6237\u5173\u952E\u8BCD'); return; }
+      util.post({ url: API + 'users', data: { keyword: kw }, loader: false, done: r => {
+        const list = r.data.list || [];
+        sel.innerHTML = '<option value="">\u8BF7\u9009\u62E9\u7528\u6237</option>';
+        list.forEach(u => {
+          const o = document.createElement('option');
+          o.value = u.id;
+          o.textContent = '#' + u.id + ' ' + u.username + (u.group_name ? ' (' + u.group_name + ')' : '');
+          sel.appendChild(o);
+        });
+        sel.classList.toggle('d-none', !list.length);
+        box.textContent = list.length ? ('\u627E\u5230 ' + list.length + ' \u4E2A\u7528\u6237\uFF0C\u8BF7\u9009\u62E9') : '\u672A\u627E\u5230\u5339\u914D\u7528\u6237';
+      }, error: r => message.error(r.msg) });
+    });
+    document.querySelector('.message-form').addEventListener('submit', e => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      const data = { title: f.get('title'), content: f.get('content'), jump_url: f.get('jump_url') || '', audience_type: f.get('audience_type') };
+      const id = f.get('id');
+      if (id) data.id = id;
+      if (Number(data.audience_type) === 1) data.group_id = f.get('group_id') || 0;
+      if (Number(data.audience_type) === 2) data.user_id = f.get('user_id') || 0;
+      data.send_email = e.target.querySelector('[name=send_email]').checked ? 1 : 0;
+      util.post({ url: API + 'save', data, done: r => {
+        message.success(r.msg);
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('msgModal')).hide();
+        page = 1;
+        load();
+      }, error: r => message.error(r.msg) });
+    });
+    tbody.addEventListener('click', e => {
+      const tr = e.target.closest('tr'); if (!tr) return;
+      const id = tr.dataset.id;
+      if (e.target.closest('.row-view')) {
+        util.post({ url: API + 'detail', data: { id }, loader: false, done: r => {
+          const m = r.data;
+          const content = document.createElement('div');
+          content.innerHTML = '<dl class="row mb-0">' +
+            '<dt class="col-sm-3">\u6807\u9898</dt><dd class="col-sm-9">' + esc(m.title) + '</dd>' +
+            '<dt class="col-sm-3">\u8303\u56F4</dt><dd class="col-sm-9">' + audienceBadge(m.audience_type) + ' ' + esc(m.audience_name || '') + '\uFF08\u63A5\u6536 ' + m.recipient_count + ' \u4EBA\uFF09</dd>' +
+            '<dt class="col-sm-3">\u521B\u5EFA\u4EBA</dt><dd class="col-sm-9">' + esc(m.manage_name || '-') + ' / ' + esc(m.update_manage_name || '-') + '</dd>' +
+            '<dt class="col-sm-3">\u65F6\u95F4</dt><dd class="col-sm-9">' + (m.create_time ? new Date(m.create_time * 1000).toLocaleString() : '-') + '</dd>' +
+            '</dl><hr><div class="border rounded p-3 bg-light">' + (m.content || '') + '</div>';
+          message.alert(content.innerHTML, 'info', undefined, true);
+        }, error: r => message.error(r.msg) });
+      } else if (e.target.closest('.row-edit')) {
+        util.post({ url: API + 'detail', data: { id }, loader: false, done: r => showModal(r.data), error: r => message.error(r.msg) });
+      } else if (e.target.closest('.row-del')) {
+        if (!confirm('\u786E\u8BA4\u5220\u9664\u8BE5\u6D88\u606F\uFF1F')) return;
+        util.post({ url: API + 'del', data: { list: [id] }, done: r => { message.success(r.msg); load(); }, error: r => message.error(r.msg) });
+      }
+    });
+    // \u8F7D\u5165\u4F1A\u5458\u7B49\u7EA7\u9009\u9879
+    util.post({ url: API + 'groups', data: {}, loader: false, done: r => {
+      const list = (r.data && r.data.list) || (r.data || []);
+      if (Array.isArray(list)) {
+        const sel = document.querySelector('.message-form [name=group_id]');
+        list.forEach(g => {
+          const o = document.createElement('option');
+          o.value = g.id;
+          o.textContent = g.name;
+          sel.appendChild(o);
+        });
+      }
+    }, error: () => {} });
+    load();
+  });`;
+  return renderCrudPage({ cfg, manage, title: "\u6D88\u606F\u7BA1\u7406", activePath: "/admin/message/index", body, readyJs: js });
+}
 
 // pages.js
 var CSS_AUTH = [
@@ -5382,13 +5893,13 @@ function renderAuthHeader(v) {
     <link href="${favicon}?v=${app.version}" rel="icon">
     <title>${htmlEscape(title)} - ${htmlEscape(config.shop_name)}</title>
     ${CSS_AUTH.map((f) => `<link href="${f}" rel="stylesheet">`).join("")}
-    <script src="/assets/common/js/ready.js"></script>
+    <script src="/assets/common/js/ready.js"><\/script>
     ${indexVar(0, config)}
 </head>
 <body style="background-size: cover;background-image: linear-gradient(180deg, rgb(255 255 255 / 0%), rgb(255 255 255 / 71%)), url('${htmlEscape(config.background_url || "")}')">`;
 }
 function renderAuthFooter() {
-  return `${JS_AUTH.map((f) => `<script src="${f}"></script>`).join("")}
+  return `${JS_AUTH.map((f) => `<script src="${f}"><\/script>`).join("")}
 </body>
 </html>`;
 }
@@ -5452,7 +5963,7 @@ function pageLogin(v) {
         ${regLink}
     </div>
 </main>
-<script src="/assets/user/controller/auth/login.js"></script>`;
+<script src="/assets/user/controller/auth/login.js"><\/script>`;
 }
 function pageRegister(v) {
   const { config } = v;
@@ -5544,7 +6055,7 @@ function pageRegister(v) {
 
     </div>
 </main>
-<script src="/assets/user/controller/auth/register.js"></script>`;
+<script src="/assets/user/controller/auth/register.js"><\/script>`;
 }
 function userCenterShell(v, body) {
   const { config, user } = v;
@@ -5649,7 +6160,7 @@ function pagePurchaseRecord(v) {
         tbody.innerHTML = html;
       });
     })();
-    </script>`;
+    <\/script>`;
   return userCenterShell(v, body);
 }
 function pageRecharge(v) {
@@ -5700,7 +6211,7 @@ function pageRecharge(v) {
             })
             .catch(function(){ alert('\u7F51\u7EDC\u9519\u8BEF'); btn.disabled = false; });
         });
-        </script>` : `<div class="text-muted">\u5145\u503C\u529F\u80FD\u672A\u5F00\u542F</div>`}
+        <\/script>` : `<div class="text-muted">\u5145\u503C\u529F\u80FD\u672A\u5F00\u542F</div>`}
       </div>
     </div>`;
   return userCenterShell(v, body);
@@ -5747,7 +6258,7 @@ function pageSecurity(v) {
             })
             .catch(function(){ btn.disabled = false; alert('\u7F51\u7EDC\u9519\u8BEF'); });
         });
-        </script>
+        <\/script>
       </div>
     </div>`;
   return userCenterShell(v, body);
@@ -5781,7 +6292,7 @@ function pageBill(v) {
         tbody.innerHTML = html;
       });
     })();
-    </script>`;
+    <\/script>`;
   return userCenterShell(v, body);
 }
 
@@ -6476,6 +6987,9 @@ async function route(env, request, url, ctx) {
     }
     if (s === "/admin/ticket/index") {
       return pageRes(renderAdminTicketPage(cfg, manage));
+    }
+    if (s === "/admin/message/index") {
+      return pageRes(renderAdminMessagePage(cfg, manage));
     }
     return pageRes(renderAdminShell({ cfg, manage, title: "\u5EFA\u8BBE\u4E2D", activePath: s }, "text/html"));
   }

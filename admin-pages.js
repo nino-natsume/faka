@@ -2166,3 +2166,238 @@ export function renderAdminTicketPage(cfg, manage) {
 
   return renderCrudPage({ cfg, manage, title: '工单管理', activePath: '/admin/ticket/index', body, readyJs: js });
 }
+
+// 消息管理
+export function renderAdminMessagePage(cfg, manage) {
+  const body = `
+<div class="card mb-5 mb-xl-8">
+  <div class="card-header border-0 py-4">
+    <div class="card-title">
+      <div class="d-flex align-items-center gap-2 flex-wrap">
+        <select class="form-select form-select-sm w-auto ms-f-audience"><option value="">全部范围</option><option value="0">全体用户</option><option value="1">会员等级</option><option value="2">指定用户</option></select>
+        <input class="form-control form-control-sm w-auto ms-f-keyword" placeholder="标题关键词">
+        <button class="btn btn-sm btn-light-primary ms-search"><i class="fa-duotone fa-regular fa-magnifying-glass"></i> 搜索</button>
+      </div>
+    </div>
+    <div class="card-toolbar">
+      <button class="btn btn-sm btn-light-danger ms-del-all me-3"><i class="fa-duotone fa-regular fa-trash-can"></i> 删除选中</button>
+      <button class="btn btn-sm btn-light-primary ms-add"><i class="fa-duotone fa-regular fa-circle-plus"></i> 发送消息</button>
+    </div>
+  </div>
+  <div class="card-body py-3">
+    <div class="table-responsive">
+      <table class="table table-row-bordered table-row-gray-200 align-middle gs-0 gy-3" id="message-table">
+        <thead><tr class="fw-bold text-muted">
+          <th style="width:40px"><input type="checkbox" class="crud-check-all"></th>
+          <th>ID</th><th>标题</th><th>摘要</th><th>接收范围</th><th>接收人数</th><th>创建人</th><th>创建时间</th><th>操作</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="d-flex flex-stack flex-wrap pt-5">
+      <div class="fs-7 fw-bold text-muted crud-pageinfo">第 1 页 / 共 0 条</div>
+      <div class="d-flex align-items-center">
+        <button class="btn btn-sm btn-light crud-prev me-2">上一页</button>
+        <button class="btn btn-sm btn-light crud-next">下一页</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" tabindex="-1" id="msgModal"><div class="modal-dialog modal-lg modal-dialog-scrollable"><div class="modal-content">
+  <div class="modal-header py-3"><h5 class="modal-title">发送消息</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <form class="message-form"><div class="modal-body">
+    <input type="hidden" name="id">
+    <div class="row g-3">
+      <div class="col-md-8"><label class="form-label"><span class="text-danger">*</span> 标题</label>
+        <input class="form-control" name="title" maxlength="64" required></div>
+      <div class="col-md-4"><label class="form-label"><span class="text-danger">*</span> 接收范围</label>
+        <select class="form-select" name="audience_type" required><option value="0">全体用户</option><option value="1">会员等级</option><option value="2">指定用户</option></select></div>
+      <div class="col-md-6 msg-audience-group d-none"><label class="form-label">会员等级</label>
+        <select class="form-select" name="group_id"><option value="">请选择会员等级</option></select></div>
+      <div class="col-md-6 msg-audience-user d-none"><label class="form-label">指定用户</label>
+        <div class="input-group">
+          <input class="form-control msg-user-search" placeholder="用户名/邮箱/手机/ID">
+          <button type="button" class="btn btn-light-primary msg-user-search-btn">搜索</button>
+        </div>
+        <select class="form-select mt-2 d-none" name="user_id"></select>
+        <div class="msg-user-result fs-8 text-muted mt-1"></div></div>
+      <div class="col-md-6 msg-audience-count"><label class="form-label">预计接收人数</label>
+        <div class="input-group">
+          <input class="form-control msg-audience-num" readonly value="0">
+          <button type="button" class="btn btn-light ms-audience-preview">预览</button>
+        </div></div>
+      <div class="col-md-6"><label class="form-label">跳转链接</label>
+        <input class="form-control" name="jump_url" placeholder="https://..."></div>
+      <div class="col-12"><label class="form-label"><span class="text-danger">*</span> 内容</label>
+        <textarea class="form-control" name="content" rows="6" required placeholder="支持少量 HTML，如 <b>、<p>、<a href>"></textarea></div>
+      <div class="form-check form-switch ms-3"><input class="form-check-input" type="checkbox" name="send_email" id="msg-send-email">
+        <label class="form-check-label" for="msg-send-email">同时发送邮件通知（需已配置邮件服务）</label></div>
+    </div>
+  </div><div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+    <button type="submit" class="btn btn-primary">发送</button>
+  </div></form>
+</div></div></div>`;
+
+  const js = `
+  ready(() => {
+    const tbody = document.getElementById('message-table').querySelector('tbody');
+    const API = '/admin/api/message/';
+    let page = 1, pageSize = 10;
+    const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const audienceBadge = at => Number(at) === 0 ? '<span class="badge badge-light-primary">全体用户</span>' : Number(at) === 1 ? '<span class="badge badge-light-warning">会员等级</span>' : '<span class="badge badge-light-info">指定用户</span>';
+    const filters = () => {
+      const d = { page, limit: pageSize };
+      const at = document.querySelector('.ms-f-audience').value;
+      const kw = document.querySelector('.ms-f-keyword').value.trim();
+      if (at !== '') d['equal-audience_type'] = at;
+      if (kw) d.keyword = kw;
+      return d;
+    };
+    function auditTypeChange() {
+      const at = Number(document.querySelector('.message-form [name=audience_type]').value);
+      document.querySelector('.msg-audience-group').classList.toggle('d-none', at !== 1);
+      document.querySelector('.msg-audience-user').classList.toggle('d-none', at !== 2);
+      if (at !== 2) document.querySelector('.message-form [name=user_id]').value = '';
+      document.querySelector('.msg-audience-num').value = '0';
+    }
+    function load() {
+      util.post({ url: API + 'data', data: filters(), loader: false,
+        done: res => {
+          tbody.innerHTML = '';
+          (res.data.list || []).forEach(m => {
+            const tr = document.createElement('tr');
+            tr.dataset.id = m.id;
+            tr.innerHTML = '<td><input type="checkbox" class="crud-check"></td>' +
+              '<td>' + m.id + '</td>' +
+              '<td class="fw-bold">' + esc(m.title) + '</td>' +
+              '<td><div class="text-truncate" style="max-width:260px">' + esc(m.summary || '-') + '</div></td>' +
+              '<td>' + audienceBadge(m.audience_type) + ' <small class="text-muted">' + esc(m.audience_name || '') + '</small></td>' +
+              '<td>' + m.recipient_count + '</td>' +
+              '<td>' + esc(m.manage_name || '-') + '</td>' +
+              '<td><small>' + (m.create_time ? new Date(m.create_time * 1000).toLocaleString() : '-') + '</small></td>' +
+              '<td><div class="d-flex gap-1">' +
+              '<button class="btn btn-sm btn-light-primary row-view">详情</button>' +
+              '<button class="btn btn-sm btn-light-warning row-edit">编辑</button>' +
+              '<button class="btn btn-sm btn-light-danger row-del">删除</button>' +
+              '</div></td>';
+            tbody.appendChild(tr);
+          });
+          document.querySelector('.crud-pageinfo').textContent = '第 ' + page + ' 页 / 共 ' + (res.data.count || 0) + ' 条';
+        },
+        error: res => message.error(res.msg) });
+    }
+    function selected() { return [...tbody.querySelectorAll('.crud-check:checked')].map(x => x.closest('tr').dataset.id); }
+    function showModal(data) {
+      const f = document.querySelector('.message-form');
+      f.reset();
+      f.querySelector('[name=id]').value = data && data.id ? data.id : '';
+      f.querySelector('[name=title]').value = data ? (data.title || '') : '';
+      f.querySelector('[name=content]').value = data ? (data.content || '') : '';
+      f.querySelector('[name=jump_url]').value = data ? (data.jump_url || '') : '';
+      f.querySelector('[name=audience_type]').value = data ? (data.audience_type || '0') : '0';
+      f.querySelector('[name=group_id]').value = data && data.audience_id ? data.audience_id : '';
+      f.querySelector('[name=user_id]').value = data && data.audience_id ? data.audience_id : '';
+      document.querySelector('.msg-audience-group').classList.toggle('d-none', !data || Number(data.audience_type) !== 1);
+      document.querySelector('.msg-audience-user').classList.toggle('d-none', !data || Number(data.audience_type) !== 2);
+      f.querySelector('[name=send_email]').disabled = !!(data && data.id);
+      document.querySelector('.msg-audience-num').value = data ? (data.recipient_count || '0') : '0';
+      (window.bootstrap && bootstrap.Modal.getOrCreateInstance(document.getElementById('msgModal'))).show();
+    }
+    document.querySelector('.crud-check-all').addEventListener('change', e => tbody.querySelectorAll('.crud-check').forEach(x => x.checked = e.target.checked));
+    document.querySelector('.ms-search').addEventListener('click', () => { page = 1; load(); });
+    document.querySelector('.ms-add').addEventListener('click', () => showModal(null));
+    document.querySelector('.crud-prev').addEventListener('click', () => { if (page > 1) { page--; load(); } });
+    document.querySelector('.crud-next').addEventListener('click', () => { page++; load(); });
+    document.querySelector('.ms-f-keyword').addEventListener('keydown', e => { if (e.key === 'Enter') { page = 1; load(); } });
+    document.querySelector('.ms-del-all').addEventListener('click', () => {
+      const ids = selected();
+      if (!ids.length) { message.error('请选择要删除的消息'); return; }
+      if (!confirm('确认删除选中 ' + ids.length + ' 条消息？')) return;
+      util.post({ url: API + 'del', data: { list: ids }, done: r => { message.success(r.msg); load(); }, error: r => message.error(r.msg) });
+    });
+    document.querySelector('.message-form [name=audience_type]').addEventListener('change', auditTypeChange);
+    document.querySelector('.ms-audience-preview').addEventListener('click', () => {
+      const at = Number(document.querySelector('.message-form [name=audience_type]').value);
+      const groupId = document.querySelector('.message-form [name=group_id]').value;
+      const userId = document.querySelector('.message-form [name=user_id]').value;
+      const data = { audience_type: at };
+      if (at === 1 && groupId) data.group_id = groupId;
+      if (at === 2 && userId) data.user_id = userId;
+      util.post({ url: API + 'audienceCount', data, loader: false, done: r => { document.querySelector('.msg-audience-num').value = r.data.count || 0; }, error: r => message.error(r.msg) });
+    });
+    document.querySelector('.msg-user-search-btn').addEventListener('click', () => {
+      const kw = document.querySelector('.msg-user-search').value.trim();
+      const sel = document.querySelector('.message-form [name=user_id]');
+      const box = document.querySelector('.msg-user-result');
+      if (!kw) { message.error('请输入用户关键词'); return; }
+      util.post({ url: API + 'users', data: { keyword: kw }, loader: false, done: r => {
+        const list = r.data.list || [];
+        sel.innerHTML = '<option value="">请选择用户</option>';
+        list.forEach(u => {
+          const o = document.createElement('option');
+          o.value = u.id;
+          o.textContent = '#' + u.id + ' ' + u.username + (u.group_name ? ' (' + u.group_name + ')' : '');
+          sel.appendChild(o);
+        });
+        sel.classList.toggle('d-none', !list.length);
+        box.textContent = list.length ? ('找到 ' + list.length + ' 个用户，请选择') : '未找到匹配用户';
+      }, error: r => message.error(r.msg) });
+    });
+    document.querySelector('.message-form').addEventListener('submit', e => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      const data = { title: f.get('title'), content: f.get('content'), jump_url: f.get('jump_url') || '', audience_type: f.get('audience_type') };
+      const id = f.get('id');
+      if (id) data.id = id;
+      if (Number(data.audience_type) === 1) data.group_id = f.get('group_id') || 0;
+      if (Number(data.audience_type) === 2) data.user_id = f.get('user_id') || 0;
+      data.send_email = e.target.querySelector('[name=send_email]').checked ? 1 : 0;
+      util.post({ url: API + 'save', data, done: r => {
+        message.success(r.msg);
+        bootstrap.Modal.getOrCreateInstance(document.getElementById('msgModal')).hide();
+        page = 1;
+        load();
+      }, error: r => message.error(r.msg) });
+    });
+    tbody.addEventListener('click', e => {
+      const tr = e.target.closest('tr'); if (!tr) return;
+      const id = tr.dataset.id;
+      if (e.target.closest('.row-view')) {
+        util.post({ url: API + 'detail', data: { id }, loader: false, done: r => {
+          const m = r.data;
+          const content = document.createElement('div');
+          content.innerHTML = '<dl class="row mb-0">' +
+            '<dt class="col-sm-3">标题</dt><dd class="col-sm-9">' + esc(m.title) + '</dd>' +
+            '<dt class="col-sm-3">范围</dt><dd class="col-sm-9">' + audienceBadge(m.audience_type) + ' ' + esc(m.audience_name || '') + '（接收 ' + m.recipient_count + ' 人）</dd>' +
+            '<dt class="col-sm-3">创建人</dt><dd class="col-sm-9">' + esc(m.manage_name || '-') + ' / ' + esc(m.update_manage_name || '-') + '</dd>' +
+            '<dt class="col-sm-3">时间</dt><dd class="col-sm-9">' + (m.create_time ? new Date(m.create_time * 1000).toLocaleString() : '-') + '</dd>' +
+            '</dl><hr><div class="border rounded p-3 bg-light">' + (m.content || '') + '</div>';
+          message.alert(content.innerHTML, 'info', undefined, true);
+        }, error: r => message.error(r.msg) });
+      } else if (e.target.closest('.row-edit')) {
+        util.post({ url: API + 'detail', data: { id }, loader: false, done: r => showModal(r.data), error: r => message.error(r.msg) });
+      } else if (e.target.closest('.row-del')) {
+        if (!confirm('确认删除该消息？')) return;
+        util.post({ url: API + 'del', data: { list: [id] }, done: r => { message.success(r.msg); load(); }, error: r => message.error(r.msg) });
+      }
+    });
+    // 载入会员等级选项
+    util.post({ url: API + 'groups', data: {}, loader: false, done: r => {
+      const list = (r.data && r.data.list) || (r.data || []);
+      if (Array.isArray(list)) {
+        const sel = document.querySelector('.message-form [name=group_id]');
+        list.forEach(g => {
+          const o = document.createElement('option');
+          o.value = g.id;
+          o.textContent = g.name;
+          sel.appendChild(o);
+        });
+      }
+    }, error: () => {} });
+    load();
+  });`;
+
+  return renderCrudPage({ cfg, manage, title: '消息管理', activePath: '/admin/message/index', body, readyJs: js });
+}

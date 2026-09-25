@@ -17,7 +17,7 @@ import {
 } from './admin.js';
 import {
   renderAdminLoginPage, renderAdminShell, renderAdminDashboardPage,
-  renderAdminCategoryPage, renderAdminCommodityPage, renderAdminCardPage, renderAdminOrderPage, renderAdminUserPage, renderAdminRechargePage, renderAdminCouponPage, renderAdminTicketPage,
+  renderAdminCategoryPage, renderAdminCommodityPage, renderAdminCardPage, renderAdminOrderPage, renderAdminUserPage, renderAdminRechargePage, renderAdminCouponPage, renderAdminTicketPage, renderAdminMessagePage,
 } from './admin-pages.js';
 import {
   renderAuthHeader, renderAuthFooter, pageLogin, pageRegister,
@@ -760,6 +760,9 @@ async function route(env, request, url, ctx) {
     }
     if (s === '/admin/ticket/index') {
       return pageRes(renderAdminTicketPage(cfg, manage));
+    }
+    if (s === '/admin/message/index') {
+      return pageRes(renderAdminMessagePage(cfg, manage));
     }
     return pageRes(renderAdminShell({ cfg, manage, title: '建设中', activePath: s }, 'text/html'));
   }
