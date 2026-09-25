@@ -1,26 +1,22 @@
-# DCSHOP 发卡系统 - Cloudflare 部署版
+# ACG_Faka-cloud
 
-基于原项目（DCSHOP / acg-faka PHP 发卡系统）改造的 Cloudflare 版本。
+基于 Acg-faka 改造的 Cloudflare 版本。
 前台样式与原版完全一致（复用原项目全部静态资源），后端由 **Workers + D1** 实现
 商品浏览、下单、支付、自动发货、订单查询与管理后台，前台/后台/订单闭环开箱即用。
 
 ## 快速部署（GitHub Actions）
 
-仓库内置 CI（`.github/workflows/deploy.yml`），**仅手动触发**：
-`Actions → Deploy to Cloudflare Workers → Run workflow`，自动完成
-D1 创建（幂等）→ 初始化 → 灌种子数据 → 部署。
-
 在仓库 `Settings → Secrets and variables → Actions` 配置：
 
 | Secret | 必填 | 说明 |
 |---|---|---|
-| `CLOUDFLARE_API_TOKEN` | 是 | Cloudflare API Token（My Profile → API Tokens 创建）。所需权限：Account › Workers Scripts › Edit、Account › D1 › Edit、Account › Account Settings › Read（如需绑定自定义域名，另加 Zone › Zone › Read 与 Zone › Workers Routes › Edit） |
-| `CLOUDFLARE_ACCOUNT_ID` | 是 | Cloudflare Account ID（Cloudflare dashboard 右侧边栏） |
+| `CLOUDFLARE_API_TOKEN` | 是 | Cloudflare API Token（My Profile → API Tokens 创建）。<br>所需权限：<br>Account › Workers Scripts › Edit<br>Account › D1 › Edit<br>Account › Account Settings › Read<br>以下可选<br>Zone › Zone › Read<br>Zone › Workers Routes › Edit |
+| `CLOUDFLARE_ACCOUNT_ID` | 是 | Cloudflare Account ID（Cloudflare 账户ID） |
 | `FK_SECRET` | 否 | 签名密钥（建议 32+ 位随机串） |
 | `FK_ADMIN_USERNAME` | 否 | 后台用户名（默认 `admin`） |
 | `FK_ADMIN_PASSWORD` | 否 | 后台密码（默认 `admin123`，**必改**） |
 
-> 首次部署会自动创建 D1 并把 `database_id` 写回 `wrangler.toml`，请提交该改动。
+> 首次部署会自动创建 D1 并把 `database_id` 写回 `wrangler.toml`
 
 ## 本地部署
 
