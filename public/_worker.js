@@ -1,3 +1,5 @@
+// DCSHOP faka - Pages 单文件入口 (由 worker.js+admin.js+lib.js 自动打包生成, 勿手改)
+
 // lib.js
 function esc(s) {
   if (s === null || s === void 0) return "";
@@ -105,13 +107,13 @@ function pageHead(opts) {
 <meta name="keywords" content="${esc(kw)}">
 <meta name="description" content="${esc(desc)}">
 <link rel="icon" href="/favicon.ico">
-<script src="/vendor/jquery.min.js"><\/script>
+<script src="/vendor/jquery.min.js"></script>
 <link rel="stylesheet" href="/vendor/font-awesome/css/font-awesome.min.css">
 <link rel="stylesheet" href="/vendor/remixicon/remixicon.css">
 <link rel="stylesheet" href="/vendor/layui/css/layui.css">
-<script src="/vendor/layui/layui.js"><\/script>
+<script src="/vendor/layui/layui.js"></script>
 <link rel="stylesheet" href="/css/header.css">
-<script src="/js/header.js"><\/script>
+<script src="/js/header.js"></script>
 <link rel="stylesheet" href="/css/em.css">
 <link rel="stylesheet" href="/css/style.css">
 <link rel="stylesheet" href="/css/goods-layout.css">
@@ -190,7 +192,7 @@ function footerHtml(env, opts) {
 </footer>
 <script>
 if (window.tipsMsg === undefined) { window.tipsMsg = function(msg, type) { alert(msg); }; }
-<\/script>
+</script>
 `;
 }
 function pageFoot() {
@@ -199,7 +201,7 @@ function pageFoot() {
 </html>`;
 }
 function layout(env, opts, navItems, body) {
-  return pageHead(opts) + headerHtml(env, opts, navItems) + '<div id="app-main">' + body + "</div>" + footerHtml(env, opts) + '<script src="/js/header.js"><\/script>' + pageFoot();
+  return pageHead(opts) + headerHtml(env, opts, navItems) + '<div id="app-main">' + body + "</div>" + footerHtml(env, opts) + '<script src="/js/header.js"></script>' + pageFoot();
 }
 async function buildNav(db, activePath) {
   const items = [{ name: "\u9996\u9875", url: "/", active: activePath === "/" }];
@@ -320,8 +322,8 @@ function adminPage(request, env, title, content) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)} - \u540E\u53F0\u7BA1\u7406</title>
 <link rel="stylesheet" href="/vendor/remixicon/remixicon.css">
-<script src="/vendor/jquery.min.js"><\/script>
-<script src="/vendor/layui/layui.js"><\/script>
+<script src="/vendor/jquery.min.js"></script>
+<script src="/vendor/layui/layui.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 body{background:#f2f4f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;color:#333;}
@@ -371,7 +373,7 @@ label{display:block;font-size:13px;color:#64748b;margin:8px 0 4px;}
 </div>
 <script>
 $(function(){ var p=location.pathname; $('.side a').each(function(){ if($(this).attr('href')===p) $(this).addClass('on'); }); });
-<\/script>
+</script>
 </body></html>`,
     { headers: HTML_HEADERS }
   );
@@ -393,7 +395,7 @@ $('#btnLogin').on('click', function(){
   }, 'json');
 });
 $(document).on('keydown', function(e){ if (e.key === 'Enter') $('#btnLogin').click(); });
-<\/script>`;
+</script>`;
 }
 async function dashboard(request, env) {
   const s = {
@@ -445,7 +447,7 @@ async function goodsList(request, env, q) {
   <table><thead><tr><th>ID</th><th>\u6807\u9898</th><th>\u5206\u7C7B</th><th>\u7C7B\u578B</th><th>\u5E93\u5B58</th><th>\u9500\u91CF</th><th>\u72B6\u6001</th><th>\u64CD\u4F5C</th></tr></thead>
   <tbody>${rows || '<tr><td colspan="8" style="text-align:center;color:#999;">\u6682\u65E0\u5546\u54C1</td></tr>'}</tbody></table>
   </div>
-  <script>function delGoods(id){ if(!confirm('\u786E\u8BA4\u5220\u9664\u8BE5\u5546\u54C1\uFF1F')) return; $.post('/admin/goods/delete',{id:id},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }<\/script>`;
+  <script>function delGoods(id){ if(!confirm('\u786E\u8BA4\u5220\u9664\u8BE5\u5546\u54C1\uFF1F')) return; $.post('/admin/goods/delete',{id:id},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }</script>`;
   return adminPage(request, env, "\u5546\u54C1\u7BA1\u7406", content);
 }
 var TNAME = { once: "\u4E00\u5361\u4E00\u5BC6", general: "\u901A\u7528\u5361\u5BC6", service: "\u865A\u62DF\u670D\u52A1", duli: "\u72EC\u7ACB\u5BF9\u63A5", physical: "\u5B9E\u7269" };
@@ -497,7 +499,7 @@ async function goodsEdit(request, env, q) {
       if (r.code === 0) { location.href = '/admin/goods'; } else { $('#fmsg').text(r.msg); }
     }, 'json');
   });
-  <\/script>`;
+  </script>`;
   return adminPage(request, env, id ? "\u7F16\u8F91\u5546\u54C1 #" + id : "\u65B0\u589E\u5546\u54C1", content);
 }
 async function saveGoods(form, env) {
@@ -581,7 +583,7 @@ async function kamiManage(request, env, q) {
   function impKami(){ $.post('/admin/kami/import',{goods_id:${gid},text:$('#importKami').val()},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
   function delK(id){ if(!confirm('\u786E\u8BA4\u5220\u9664\u8BE5\u5361\u5BC6\uFF1F')) return; $.post('/admin/kami/delete',{id:id,goods_id:${gid},type:'once'},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
   function delG(id){ if(!confirm('\u786E\u8BA4\u5220\u9664\u8BE5\u5361\u5BC6\uFF1F')) return; $.post('/admin/kami/delete',{id:id,goods_id:${gid},type:'general'},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
-  <\/script>`;
+  </script>`;
   return adminPage(request, env, "\u5361\u5BC6\u7BA1\u7406", content);
 }
 async function addKami(form, env) {
@@ -664,7 +666,7 @@ async function ordersList(request, env, q) {
   <script>
   function refund(id){ if(!confirm('\u786E\u8BA4\u9000\u6B3E\uFF1F')) return; $.post('/admin/order/refund',{id:id},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
   function delO(id){ if(!confirm('\u786E\u8BA4\u5220\u9664\u8BA2\u5355\uFF1F')) return; $.post('/admin/order/delete',{id:id},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
-  <\/script>`;
+  </script>`;
   return adminPage(request, env, "\u8BA2\u5355\u7BA1\u7406", content);
 }
 async function refundOrder(form, env) {
@@ -702,7 +704,7 @@ async function sortsList(request, env, q) {
   <script>
   function addS(){ $.post('/admin/sort/save',{name:$('#sName').val(),alias:$('#sAlias').val(),taxis:$('#sTaxis').val(),icon:$('#sIcon').val()},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
   function delS(id){ if(!confirm('\u786E\u8BA4\u5220\u9664\u8BE5\u5206\u7C7B\uFF1F')) return; $.post('/admin/sort/delete',{sid:id},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
-  <\/script>`;
+  </script>`;
   return adminPage(request, env, "\u5206\u7C7B\u7BA1\u7406", content);
 }
 async function saveSort(form, env) {
@@ -748,7 +750,7 @@ async function settingsPage(request, env) {
       else { $('#fmsg').text(r.msg); }
     }, 'json');
   });
-  <\/script>`;
+  </script>`;
   return adminPage(request, env, "\u7AD9\u70B9\u8BBE\u7F6E", content);
 }
 async function saveSettings(form, env) {
@@ -1167,7 +1169,7 @@ async function pageGoods(request, env, q) {
       }, 'json').fail(function(){ paying=false; layer.msg('\u7F51\u7EDC\u9519\u8BEF'); });
     });
   })();
-  <\/script>`;
+  </script>`;
   return new Response(layout(env, { ...opts, title: g.title }, navItems, body), { headers: HTML_HEADERS2 });
 }
 function paymentMethodsHtml(opts) {
@@ -1179,7 +1181,7 @@ function paymentMethodsHtml(opts) {
   <div class="payment-item" data-method="epay_ali"><i class="ri-alipay-line payment-icon"></i><div class="payment-info"><span class="payment-name">\u6613\u652F\u4ED8/\u652F\u4ED8\u5B9D</span></div><i class="ri-checkbox-circle-fill payment-checked"></i></div>` : ""}
   </div>
   <style>.payment-methods .payment-item{cursor:pointer;}</style>
-  <script>$(function(){ $('.payment-methods .payment-item').on('click', function(){ $('.payment-methods .payment-item').removeClass('active'); $(this).addClass('active'); }); });<\/script>`;
+  <script>$(function(){ $('.payment-methods .payment-item').on('click', function(){ $('.payment-methods .payment-item').removeClass('active'); $(this).addClass('active'); }); });</script>`;
 }
 function epayConfig(opts) {
   try {
@@ -1294,7 +1296,7 @@ async function pagePay(request, env, q) {
   }
   $('#btnMockPay').on('click', function(){ doPay('test'); });
   $('#btnBalancePay').on('click', function(){ doPay('balance'); });
-  <\/script>`;
+  </script>`;
   return new Response(layout(env, { ...opts, title: "\u8BA2\u5355\u652F\u4ED8" }, navItems, body), { headers: HTML_HEADERS2 });
 }
 async function apiPaySubmit(request, env) {
@@ -1471,7 +1473,7 @@ async function pageOrderQuery(request, env, q) {
   }
   $('#queryOrder').on('click', doQuery);
   $('#queryInput').on('keydown', function(e){ if (e.key === 'Enter') doQuery(); });
-  <\/script>`;
+  </script>`;
   return new Response(layout(env, { ...opts, title: "\u8BA2\u5355\u67E5\u8BE2" }, navItems, body), { headers: HTML_HEADERS2 });
 }
 async function apiOrderQuery(request, env, q) {
@@ -1541,7 +1543,7 @@ async function pageHelp(request, env, q) {
   $(function(){
     $('.faq-title').on('click', function(){ var a=$(this).next(); a.slideToggle(150); $(this).find('.faq-arrow').text(a.is(':visible')?'-':'+'); });
   });
-  <\/script>`;
+  </script>`;
   return new Response(layout(env, { ...opts, title: "\u4E70\u5BB6\u5E2E\u52A9" }, navItems, body), { headers: HTML_HEADERS2 });
 }
 async function pageUser(request, env, q) {
@@ -1575,7 +1577,7 @@ async function pageUser(request, env, q) {
         if (res.code === 0) { location.reload(); } else { layer.msg(res.msg || '\u767B\u5F55\u5931\u8D25'); }
       }, 'json');
     });
-    <\/script>`;
+    </script>`;
   }
   const body = `<main class="blog-container" style="max-width:960px;margin:30px auto;padding:0 16px;">${inner}</main>`;
   return new Response(layout(env, { ...opts, title: "\u4F1A\u5458\u4E2D\u5FC3" }, navItems, body), { headers: HTML_HEADERS2 });
@@ -1665,7 +1667,7 @@ function buildKamiHtml(kamiLines) {
     (k, i) => '<div class="kami-item"><span class="kami-index">' + (i + 1) + "</span><code>" + esc(k.content) + '</code><button class="kami-item-copy" data-c="' + esc(k.content) + '">\u590D\u5236</button></div>'
   ).join("");
   const allText = JSON.stringify(kamiLines.map((k) => k.content).join("\n"));
-  return '<div class="kami-list" id="kamiList"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><b>\u5361\u5BC6\u4FE1\u606F\uFF08\u5171 ' + kamiLines.length + ' \u6761\uFF09</b><button class="action-btn" id="btnCopyAll">\u4E00\u952E\u590D\u5236</button></div>' + items + "</div><script>$('#btnCopyAll').on('click', function(){  var t = " + allText + ";  if (navigator.clipboard) navigator.clipboard.writeText(t).then(function(){ layer.msg('\u5DF2\u590D\u5236\u5168\u90E8'); });  else { var ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); layer.msg('\u5DF2\u590D\u5236\u5168\u90E8'); }});$(document).on('click', '.kami-item-copy', function(){  var t = $(this).data('c');  if (navigator.clipboard) navigator.clipboard.writeText(t).then(function(){ layer.msg('\u5DF2\u590D\u5236'); });  else { var ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); layer.msg('\u5DF2\u590D\u5236'); }});<\/script><style>.kami-list{margin-top:18px;background:#fff;border:1px solid #eee;border-radius:10px;padding:18px;}.kami-item{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px dashed #eee;}.kami-item:last-child{border-bottom:none;}.kami-index{width:24px;height:24px;border-radius:50%;background:var(--theme-primary);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;}.kami-item code{flex:1;word-break:break-all;color:#333;}.kami-item-copy{color:var(--theme-primary);cursor:pointer;background:none;border:none;font-size:13px;}.action-btn{padding:8px 18px;border-radius:6px;border:1px solid #ddd;background:#fff;color:#555;cursor:pointer;}.action-btn.primary{background:var(--theme-primary);border-color:var(--theme-primary);color:#fff;}</style>";
+  return '<div class="kami-list" id="kamiList"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><b>\u5361\u5BC6\u4FE1\u606F\uFF08\u5171 ' + kamiLines.length + ' \u6761\uFF09</b><button class="action-btn" id="btnCopyAll">\u4E00\u952E\u590D\u5236</button></div>' + items + "</div><script>$('#btnCopyAll').on('click', function(){  var t = " + allText + ";  if (navigator.clipboard) navigator.clipboard.writeText(t).then(function(){ layer.msg('\u5DF2\u590D\u5236\u5168\u90E8'); });  else { var ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); layer.msg('\u5DF2\u590D\u5236\u5168\u90E8'); }});$(document).on('click', '.kami-item-copy', function(){  var t = $(this).data('c');  if (navigator.clipboard) navigator.clipboard.writeText(t).then(function(){ layer.msg('\u5DF2\u590D\u5236'); });  else { var ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); layer.msg('\u5DF2\u590D\u5236'); }});</script><style>.kami-list{margin-top:18px;background:#fff;border:1px solid #eee;border-radius:10px;padding:18px;}.kami-item{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px dashed #eee;}.kami-item:last-child{border-bottom:none;}.kami-index{width:24px;height:24px;border-radius:50%;background:var(--theme-primary);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;}.kami-item code{flex:1;word-break:break-all;color:#333;}.kami-item-copy{color:var(--theme-primary);cursor:pointer;background:none;border:none;font-size:13px;}.action-btn{padding:8px 18px;border-radius:6px;border:1px solid #ddd;background:#fff;color:#555;cursor:pointer;}.action-btn.primary{background:var(--theme-primary);border-color:var(--theme-primary);color:#fff;}</style>";
 }
 function json2(o) {
   return new Response(JSON.stringify(o), { headers: JSON_HEADERS2 });
