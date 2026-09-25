@@ -17,6 +17,7 @@ import {
 } from './admin.js';
 import {
   renderAdminLoginPage, renderAdminShell, renderAdminDashboardPage,
+  renderAdminCategoryPage, renderAdminCommodityPage, renderAdminCardPage,
 } from './admin-pages.js';
 import {
   renderAuthHeader, renderAuthFooter, pageLogin, pageRegister,
@@ -716,6 +717,12 @@ async function route(env, request, url, ctx) {
       try { parsed = body ? JSON.parse(body) : {}; } catch (e) {
         if (body) { try { parsed = Object.fromEntries(new URLSearchParams(body)); } catch (e2) {} }
       }
+      // GET 查询参数并入 body(e.g. /admin/api/card/data?status=2)
+      if (!body) {
+        for (const [k, v] of url.searchParams) {
+          if (!(k in parsed)) parsed[k] = v;
+        }
+      }
       const res = await adminEndpoint(env, request, url, ...rest.split('/'), parsed);
       return res;
     }
@@ -729,8 +736,17 @@ async function route(env, request, url, ctx) {
     if (s === '/admin/dashboard/index' || s === '/admin/dashboard') {
       return pageRes(renderAdminDashboardPage(cfg, manage));
     }
-    // TODO(P2 后续): /admin/user|commodity|order|card|config 等 CRUD 页面
-    return pageRes(renderAdminShell({ cfg, manage, title: '建设中', activePath: s }), 'text/html');
+    if (s === '/admin/category/index') {
+      return pageRes(renderAdminCategoryPage(cfg, manage));
+    }
+    if (s === '/admin/commodity/index') {
+      return pageRes(renderAdminCommodityPage(cfg, manage));
+    }
+    if (s === '/admin/card/index') {
+      const cid = Number(url.searchParams.get('commodity_id')) || 0;
+      return pageRes(renderAdminCardPage(cfg, manage, cid));
+    }
+    return pageRes(renderAdminShell({ cfg, manage, title: '建设中', activePath: s }, 'text/html'));
   }
 
   // ---- 验证码 ----

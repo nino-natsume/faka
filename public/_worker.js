@@ -1626,6 +1626,488 @@ async function dashboardData(env, request, url, type) {
     range: time ? { start: time[0], end: time[1] } : null
   });
 }
+var intList = (v, name) => {
+  const arr = Array.isArray(v) ? v : String(v ?? "").split(",");
+  const ids = [];
+  for (const c of arr) {
+    const n = Number(String(c).trim());
+    if (!Number.isInteger(n) || n <= 0) throw new Error(`${name}\u5FC5\u987B\u662F\u6B63\u6574\u6570`);
+    ids.push(n);
+  }
+  return [...new Set(ids)];
+};
+async function categoryData(env, request, url, body = {}) {
+  const rows = await dbRows(env, "SELECT * FROM acg_category WHERE owner=0 ORDER BY sort ASC, id ASC");
+  const byId = new Map(rows.map((r) => [Number(r.id), r]));
+  const children = /* @__PURE__ */ new Map();
+  const roots = [];
+  for (const r of rows) {
+    const pid = Number(r.pid) || 0;
+    if (pid > 0 && pid !== Number(r.id) && byId.has(pid)) {
+      if (!children.has(pid)) children.set(pid, []);
+      children.get(pid).push(r);
+    } else roots.push(r);
+  }
+  const ordered = [];
+  const visited = /* @__PURE__ */ new Set();
+  const walk = (row) => {
+    const id = Number(row.id);
+    if (visited.has(id)) return;
+    visited.add(id);
+    ordered.push(row);
+    for (const ch of children.get(id) || []) walk(ch);
+  };
+  for (const r of roots) walk(r);
+  for (const r of rows) walk(r);
+  const list = ordered.map((r) => ({ ...r, share_url: `/cat/${r.id}` }));
+  return apiOk("success", { list, page: 1, limit: -1, count: list.length, records: list.length });
+}
+async function categorySave(env, request, url, body = {}) {
+  const allowed = ["id", "pid", "icon", "name", "sort", "hide", "status", "user_level_config"];
+  const map = {};
+  for (const k of allowed) if (Object.prototype.hasOwnProperty.call(body, k)) map[k] = body[k];
+  const id = Number(map.id) || 0;
+  if (id === 0 || !await dbFirst(env, "SELECT id FROM acg_category WHERE id=?", id)) {
+    if (!map.name || String(map.name).trim() === "") return apiErr("\u5206\u7C7B\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A");
+  }
+  if (Object.prototype.hasOwnProperty.call(map, "status") && !["0", "1"].includes(String(map.status))) return apiErr("\u5206\u7C7B\u72B6\u6001\u53C2\u6570\u4E0D\u6B63\u786E");
+  if (Object.prototype.hasOwnProperty.call(map, "hide") && !["0", "1"].includes(String(map.hide))) return apiErr("\u5206\u7C7B\u9690\u85CF\u53C2\u6570\u4E0D\u6B63\u786E");
+  if (Object.prototype.hasOwnProperty.call(map, "sort")) {
+    const s = Number(map.sort);
+    if (!Number.isInteger(s) || s < 0 || s > 65535) return apiErr("\u5206\u7C7B\u6392\u5E8F\u5FC5\u987B\u662F 0 \u5230 65535 \u7684\u6574\u6570");
+  }
+  const hasParent = Object.prototype.hasOwnProperty.call(map, "pid");
+  let parentId = hasParent ? Number(map.pid) || 0 : 0;
+  if (hasParent && parentId > 0) {
+    const parent = await dbFirst(env, "SELECT * FROM acg_category WHERE owner=0 AND id=?", parentId);
+    if (!parent) return apiErr("\u7236\u7EA7\u5206\u7C7B\u4E0D\u5B58\u5728\u6216\u4E0D\u5C5E\u4E8E\u540C\u4E00\u521B\u5EFA\u8005");
+    if (id > 0 && parentId === id) return apiErr("\u5206\u7C7B\u4E0D\u80FD\u8BBE\u4E3A\u81EA\u5DF1\u7684\u5B50\u5206\u7C7B");
+    let cur = parent, seen = /* @__PURE__ */ new Set();
+    while (cur) {
+      const pk = Number(cur.id);
+      if (seen.has(pk)) return apiErr("\u5206\u7C7B\u5C42\u7EA7\u5B58\u5728\u5FAA\u73AF\uFF0C\u8BF7\u91CD\u65B0\u9009\u62E9\u7236\u7EA7\u5206\u7C7B");
+      seen.add(pk);
+      if (id > 0 && pk === id) return apiErr("\u4E0D\u80FD\u9009\u62E9\u5F53\u524D\u5206\u7C7B\u7684\u5B50\u5206\u7C7B\u4F5C\u4E3A\u7236\u7EA7");
+      const nid = Number(cur.pid) || 0;
+      cur = nid > 0 ? await dbFirst(env, "SELECT * FROM acg_category WHERE owner=0 AND id=?", nid) : null;
+    }
+  }
+  const data = {};
+  for (const k of ["icon", "name", "user_level_config"]) if (Object.prototype.hasOwnProperty.call(map, k)) data[k] = map[k];
+  if (Object.prototype.hasOwnProperty.call(map, "status")) data.status = Number(map.status);
+  if (Object.prototype.hasOwnProperty.call(map, "hide")) data.hide = Number(map.hide);
+  if (Object.prototype.hasOwnProperty.call(map, "sort")) data.sort = Number(map.sort);
+  if (hasParent) data.pid = parentId > 0 ? parentId : null;
+  let newId = 0;
+  if (id > 0) {
+    await dbUpdate(env, "acg_category", data, "id=?", id);
+  } else {
+    await dbInsert(env, "acg_category", { ...data, name: String(map.name || "").trim(), sort: data.sort ?? 0, status: data.status ?? 1, hide: data.hide ?? 0, owner: 0, create_time: now(), pid: data.pid ?? null }).then((id2) => newId = id2);
+  }
+  try {
+    await dbInsert(env, "acg_manage_log", { email: "admin", nickname: "", content: "[\u65B0\u589E/\u4FEE\u6539]\u5546\u54C1\u5206\u7C7B", create_time: now(), create_ip: requestInfo(request).ip, ua: String(request.headers.get("user-agent") || "").slice(0, 512), risk: 0 });
+  } catch (e) {
+  }
+  return apiOk("\uFF08\uFF3E\u2200\uFF3E\uFF09\u4FDD\u5B58\u6210\u529F", { id: newId || id });
+}
+async function categoryStatus(env, request, url, body = {}) {
+  let list;
+  try {
+    list = intList(body.list, "\u5206\u7C7BID");
+  } catch (e) {
+    return apiErr(e.message);
+  }
+  if (!list.length || !["0", "1"].includes(String(body.status))) return apiErr("\u5206\u7C7B\u72B6\u6001\u8BF7\u6C42\u53C2\u6570\u4E0D\u6B63\u786E");
+  const status = Number(body.status);
+  const cats = await dbRows(env, "SELECT id, pid, owner FROM acg_category");
+  const byId = new Map(cats.map((c) => [Number(c.id), c]));
+  const children = /* @__PURE__ */ new Map();
+  for (const c of cats) {
+    const pid = Number(c.pid) || 0;
+    if (!children.has(pid)) children.set(pid, []);
+    children.get(pid).push(Number(c.id));
+  }
+  const targets = /* @__PURE__ */ new Set();
+  for (const rootId of list) {
+    if (!byId.has(rootId)) continue;
+    const owner = Number(byId.get(rootId).owner);
+    if (status === 0) {
+      const q = [rootId];
+      while (q.length) {
+        const id = q.shift();
+        if (targets.has(id) || !byId.has(id) || Number(byId.get(id).owner) !== owner) continue;
+        targets.add(id);
+        for (const ch of children.get(id) || []) q.push(ch);
+      }
+    } else {
+      let id = rootId, seen = /* @__PURE__ */ new Set();
+      while (id > 0 && byId.has(id)) {
+        if (seen.has(id) || Number(byId.get(id).owner) !== owner) return apiErr("\u5206\u7C7B\u5C42\u7EA7\u65E0\u6548\uFF0C\u65E0\u6CD5\u542F\u7528");
+        seen.add(id);
+        targets.add(id);
+        id = Number(byId.get(id).pid) || 0;
+      }
+    }
+  }
+  if (!targets.size) return apiErr("\u6CA1\u6709\u53EF\u66F4\u65B0\u7684\u5206\u7C7B");
+  await dbRun(env, `UPDATE acg_category SET status=? WHERE id IN (${[...targets].map(() => "?").join(",")})`, status, ...[...targets]);
+  return apiOk("\u5206\u7C7B\u72B6\u6001\u5DF2\u7ECF\u66F4\u65B0");
+}
+var b64urlEncode = (str) => btoa(unescape(encodeURIComponent(str))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+async function categoryDeleteImpact(env, request, url, body = {}, manage) {
+  let list;
+  try {
+    list = intList(body.list, "\u5206\u7C7BID");
+  } catch (e) {
+    return apiErr(e.message);
+  }
+  if (!list.length) return apiErr("\u4F60\u8FD8\u6CA1\u6709\u9009\u62E9\u5546\u54C1\u5206\u7C7B");
+  const impact = await safeCategoryDeleteImpact(env, list);
+  const token = await issueDeleteToken(env, manage, list, impact);
+  const publicKeys = ["category_count", "scope_count", "descendant_count", "hierarchy_cycle_count", "commodity_count", "order_count", "card_count", "coupon_count", "used_coupon_count", "user_category_count", "config_reference_count", "can_delete"];
+  const pub = {};
+  for (const k of publicKeys) pub[k] = impact[k];
+  pub.preview_token = token;
+  pub.preview_expires_in = 180;
+  return apiOk("success", pub);
+}
+async function issueDeleteToken(env, manage, ids, impact) {
+  const key = await sha256hex("category-delete-preview-v1|" + manage.password);
+  const snapshot = await sha256hex(JSON.stringify(impact.snapshot));
+  const payload = { ids, snapshot, manage_id: Number(manage.id), iat: now(), exp: now() + 180 };
+  const bodyB64 = b64urlEncode(JSON.stringify(payload));
+  const sig = await hmacHex(key, bodyB64);
+  return `${bodyB64}.${sig}`;
+}
+async function hmacHex(key, data) {
+  const sig = await hmacSign(key, data);
+  return [...sig].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+async function safeCategoryDeleteImpact(env, requestedIds) {
+  requestedIds = [...requestedIds].sort((a, b) => a - b);
+  const cats = await dbRows(env, "SELECT id, pid FROM acg_category");
+  const existing = new Map(cats.map((c) => [Number(c.id), Number(c.pid) || 0]));
+  const children = /* @__PURE__ */ new Map();
+  for (const c of cats) {
+    const pid = Number(c.pid) || 0;
+    if (!children.has(pid)) children.set(pid, []);
+    children.get(pid).push(Number(c.id));
+  }
+  for (const id of requestedIds) if (!existing.has(id)) throw new Error("\u90E8\u5206\u5546\u54C1\u5206\u7C7B\u4E0D\u5B58\u5728\uFF0C\u8BF7\u5237\u65B0\u540E\u91CD\u8BD5");
+  const visited = new Set(requestedIds);
+  const q = [...requestedIds];
+  while (q.length) {
+    const id = q.shift();
+    for (const ch of children.get(id) || []) {
+      if (!visited.has(ch)) {
+        visited.add(ch);
+        q.push(ch);
+      }
+    }
+  }
+  const scopeIds = [...visited].sort((a, b) => a - b);
+  const descendantIds = scopeIds.filter((id) => !requestedIds.includes(id));
+  const commodityIds = [];
+  if (scopeIds.length) {
+    const rows = await dbRows(env, `SELECT id FROM acg_commodity WHERE category_id IN (${scopeIds.map(() => "?").join(",")})`, ...scopeIds);
+    commodityIds.push(...rows.map((r) => Number(r.id)));
+  }
+  commodityIds.sort((a, b) => a - b);
+  let orderCount = 0, cardCount = 0;
+  if (commodityIds.length) {
+    const o = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_order WHERE commodity_id IN (${commodityIds.map(() => "?").join(",")})`, ...commodityIds);
+    orderCount = o ? Number(o.n) : 0;
+    const c2 = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_card WHERE commodity_id IN (${commodityIds.map(() => "?").join(",")})`, ...commodityIds);
+    cardCount = c2 ? Number(c2.n) : 0;
+  }
+  let couponIds = [], userCategoryIds = [], configReferenceIds = [];
+  if (scopeIds.length) {
+    const cp = await dbRows(env, `SELECT id, status, trade_no FROM acg_coupon WHERE category_id IN (${scopeIds.map(() => "?").join(",")})`, ...scopeIds);
+    couponIds = cp.map((r) => Number(r.id));
+    const uc = await dbRows(env, `SELECT id FROM acg_user_category WHERE category_id IN (${scopeIds.map(() => "?").join(",")})`, ...scopeIds);
+    userCategoryIds = uc.map((r) => Number(r.id));
+    const cf = await dbRows(env, `SELECT id FROM acg_config WHERE "key"='default_category' AND value IN (${scopeIds.map(() => "?").join(",")})`, ...scopeIds.map(String));
+    configReferenceIds = cf.map((r) => Number(r.id));
+  }
+  const snapshot = { ids: requestedIds, scopeIds, commodityIds };
+  return {
+    category_count: requestedIds.length,
+    scope_count: scopeIds.length,
+    descendant_count: descendantIds.length,
+    hierarchy_cycle_count: 0,
+    commodity_count: commodityIds.length,
+    order_count: orderCount,
+    card_count: cardCount,
+    coupon_count: couponIds.length,
+    used_coupon_count: 0,
+    user_category_count: userCategoryIds.length,
+    config_reference_count: configReferenceIds.length,
+    can_delete: true,
+    snapshot,
+    scope_ids: scopeIds,
+    commodity_ids: commodityIds
+  };
+}
+async function categoryDel(env, request, url, body = {}, manage) {
+  let list;
+  try {
+    list = intList(body.list, "\u5206\u7C7BID");
+  } catch (e) {
+    return apiErr(e.message);
+  }
+  if (!list.length) return apiErr("\u4F60\u8FD8\u6CA1\u6709\u9009\u62E9\u5546\u54C1\u5206\u7C7B");
+  const token = String(body.preview_token || "");
+  const [b64, sig] = token.split(".");
+  const key = await sha256hex("category-delete-preview-v1|" + manage.password);
+  const expect = await hmacHex(key, b64 || "");
+  if (!/^[a-f0-9]{64}$/.test(sig || "") || sig !== expect) return apiErr("\u5220\u9664\u9884\u89C8\u51ED\u8BC1\u65E0\u6548\uFF0C\u8BF7\u91CD\u65B0\u9884\u89C8");
+  let payload;
+  try {
+    const json = decodeURIComponent(escape(atob(b64.replace(/-/g, "+").replace(/_/g, "/") + (b64.length % 4 === 0 ? "" : "=".repeat(4 - b64.length % 4)))));
+    payload = JSON.parse(json);
+  } catch (e) {
+    return apiErr("\u5220\u9664\u9884\u89C8\u51ED\u8BC1\u65E0\u6548\uFF0C\u8BF7\u91CD\u65B0\u9884\u89C8");
+  }
+  payload.ids = (payload.ids || []).map(Number).sort((a, b) => a - b);
+  if (JSON.stringify(payload.ids) !== JSON.stringify([...list].sort((a, b) => a - b))) return apiErr("\u5220\u9664\u9884\u89C8\u5DF2\u8FC7\u671F\u6216\u8303\u56F4\u4E0D\u4E00\u81F4\uFF0C\u8BF7\u91CD\u65B0\u9884\u89C8");
+  if (Number(payload.exp) < now()) return apiErr("\u5220\u9664\u9884\u89C8\u5DF2\u8FC7\u671F\u6216\u8303\u56F4\u4E0D\u4E00\u81F4\uFF0C\u8BF7\u91CD\u65B0\u9884\u89C8");
+  const impact = await safeCategoryDeleteImpact(env, list);
+  if (impact.commodity_ids.length) {
+    await dbRun(env, `DELETE FROM acg_card WHERE commodity_id IN (${impact.commodity_ids.map(() => "?").join(",")})`, ...impact.commodity_ids);
+    await dbRun(env, `UPDATE acg_order SET card_id=NULL, secret=NULL WHERE commodity_id IN (${impact.commodity_ids.map(() => "?").join(",")})`, ...impact.commodity_ids);
+    await dbRun(env, `DELETE FROM acg_commodity WHERE id IN (${impact.commodity_ids.map(() => "?").join(",")})`, ...impact.commodity_ids);
+  }
+  if (impact.scope_ids.length) {
+    await dbRun(env, `DELETE FROM acg_coupon WHERE category_id IN (${impact.scope_ids.map(() => "?").join(",")}) AND id NOT IN (SELECT DISTINCT coupon_id FROM acg_order WHERE coupon_id IS NOT NULL)`, ...impact.scope_ids);
+    await dbRun(env, `DELETE FROM acg_user_category WHERE category_id IN (${impact.scope_ids.map(() => "?").join(",")})`, ...impact.scope_ids);
+    await dbRun(env, `DELETE FROM acg_category WHERE id IN (${impact.scope_ids.map(() => "?").join(",")})`, ...impact.scope_ids);
+  }
+  try {
+    await dbRun(env, `UPDATE acg_config SET value='' WHERE "key"='default_category' AND value IN (${impact.scope_ids.map(() => "?").join(",")})`, ...impact.scope_ids.map(String));
+  } catch (e) {
+  }
+  return apiOk("\uFF08\uFF3E\u2200\uFF3E\uFF09\u79FB\u9664\u6210\u529F", { category_count: impact.scope_count, commodity_count: impact.commodity_count, order_count: impact.order_count, coupon_count: impact.coupon_count });
+}
+async function categoryReorder(env, request, url, body = {}) {
+  let list;
+  try {
+    list = intList(body.list, "\u5206\u7C7BID");
+  } catch (e) {
+    return apiErr(e.message);
+  }
+  if (list.length < 2) return apiErr("\u81F3\u5C11\u9700\u8981\u4E24\u4E2A\u540C\u7EA7\u5206\u7C7B\u624D\u80FD\u8C03\u6574\u987A\u5E8F");
+  const rows = await dbRows(env, `SELECT id, pid, owner FROM acg_category WHERE id IN (${list.map(() => "?").join(",")})`, ...list);
+  if (rows.length !== list.length) return apiErr("\u90E8\u5206\u5206\u7C7B\u5DF2\u4E0D\u5B58\u5728\uFF0C\u8BF7\u5237\u65B0\u540E\u518D\u8C03\u6574\u987A\u5E8F");
+  const owner = Number(rows[0].owner), pid = Number(rows[0].pid) || 0;
+  for (const r of rows) if (Number(r.owner) !== owner || (Number(r.pid) || 0) !== pid) return apiErr("\u53EA\u80FD\u5728\u540C\u4E00\u4E2A\u7236\u7EA7\u5206\u7C7B\u4E0B\u8C03\u6574\u987A\u5E8F");
+  const sibs = pid > 0 ? await dbRows(env, "SELECT id FROM acg_category WHERE owner=? AND pid=?", owner, pid) : await dbRows(env, "SELECT id FROM acg_category WHERE owner=? AND (pid IS NULL OR pid=0)", owner);
+  const sibIds = sibs.map((r) => Number(r.id)).sort((a, b) => a - b);
+  const sub = [...list].sort((a, b) => a - b);
+  if (JSON.stringify(sibIds) !== JSON.stringify(sub)) return apiErr("\u540C\u7EA7\u5206\u7C7B\u5DF2\u53D1\u751F\u53D8\u5316\uFF0C\u8BF7\u5237\u65B0\u540E\u518D\u8C03\u6574\u987A\u5E8F");
+  for (let i = 0; i < list.length; i++) await dbRun(env, "UPDATE acg_category SET sort=? WHERE id=?", i, list[i]);
+  return apiOk("\u6392\u5E8F\u5DF2\u4FDD\u5B58");
+}
+async function commodityData(env, request, url, body = {}) {
+  const page = Math.max(1, Number(body.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(body.limit) || 10));
+  const wheres = [];
+  const params = [];
+  if (!body.display_scope || Number(body.display_scope) === 1) {
+    wheres.push("owner=0");
+  }
+  if (body.category_id) {
+    wheres.push("category_id=?");
+    params.push(Number(body.category_id));
+  }
+  if (body.name) {
+    wheres.push("name LIKE ?");
+    params.push(`%${body.name}%`);
+  }
+  if (body.status !== void 0 && body.status !== "") {
+    wheres.push("status=?");
+    params.push(Number(body.status));
+  }
+  const where = wheres.length ? " WHERE " + wheres.join(" AND ") : "";
+  const total = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_commodity${where}`, ...params);
+  const count = total ? Number(total.n) : 0;
+  const rows = await dbRows(
+    env,
+    `SELECT c.*, (SELECT COUNT(*) FROM acg_card k WHERE k.commodity_id=c.id AND k.status=0) AS card_count,
+            (SELECT COUNT(*) FROM acg_card k WHERE k.commodity_id=c.id AND k.status=1) AS card_success_count,
+            (SELECT COALESCE(SUM(amount-COALESCE(pay_cost,0)),0) FROM acg_order o WHERE o.commodity_id=c.id AND o.status=1) AS order_all_amount
+     FROM acg_commodity c${where} ORDER BY c.sort ASC, c.id ASC LIMIT ? OFFSET ?`,
+    ...params,
+    pageSize,
+    (page - 1) * pageSize
+  );
+  const list = [];
+  for (const r of rows) {
+    list.push({
+      ...r,
+      category: r.category_id ? await dbFirst(env, "SELECT id, name FROM acg_category WHERE id=?", r.category_id) || null : null,
+      shared: null,
+      owner: { id: 0, username: "\u7AD9\u957F", avatar: null }
+    });
+  }
+  return apiOk("success", { list, page, limit: pageSize, count, records: count });
+}
+async function commoditySave(env, request, url, body = {}, manage) {
+  const id = Number(body.id) || 0;
+  const allowed = ["category_id", "name", "description", "cover", "factory_price", "price", "user_price", "status", "api_status", "delivery_way", "delivery_auto_mode", "delivery_message", "contact_type", "password_status", "sort", "coupon", "seckill_status", "seckill_start_time", "seckill_end_time", "draft_status", "draft_premium", "inventory_hidden", "leave_message", "recommend", "send_email", "only_user", "purchase_count", "minimum", "maximum", "hide", "code", "widget", "tags", "level_price", "level_disable", "config"];
+  const map = {};
+  for (const k of allowed) if (Object.prototype.hasOwnProperty.call(body, k)) map[k] = body[k];
+  if (id > 0) {
+    const cur = await dbFirst(env, "SELECT * FROM acg_commodity WHERE id=?", id);
+    if (!cur) return apiErr("\u5546\u54C1\u4E0D\u5B58\u5728");
+  }
+  if (id === 0) {
+    if (!map.name || String(map.name).trim() === "") return apiErr("\u5546\u54C1\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A");
+    if (!map.category_id || Number(map.category_id) <= 0) return apiErr("\u8BF7\u9009\u62E9\u5546\u54C1\u5206\u7C7B");
+    if (map.price === void 0 || Number(map.price) < 0 || map.user_price !== void 0 && Number(map.user_price) < 0) return apiErr("\u5546\u54C1\u5355\u4EF7\u4E0D\u80FD\u4F4E\u4E8E0");
+  }
+  const deliveryWay = Number(map.delivery_way) || 0;
+  const data = {};
+  for (const k of ["category_id", "name", "description", "cover", "delivery_message", "leave_message", "widget", "tags", "level_price", "code", "config"]) {
+    if (Object.prototype.hasOwnProperty.call(map, k)) data[k] = k === "category_id" ? Number(map[k]) : String(map[k]);
+  }
+  for (const k of ["status", "api_status", "delivery_way", "delivery_auto_mode", "contact_type", "password_status", "sort", "coupon", "seckill_status", "seckill_start_time", "seckill_end_time", "draft_status", "inventory_hidden", "recommend", "send_email", "only_user", "purchase_count", "minimum", "maximum", "hide", "level_disable"]) {
+    if (Object.prototype.hasOwnProperty.call(map, k)) data[k] = Number(map[k]) || 0;
+  }
+  for (const k of ["factory_price", "price", "user_price", "draft_premium"]) {
+    if (Object.prototype.hasOwnProperty.call(map, k)) data[k] = Number(map[k] || 0);
+  }
+  if (Object.prototype.hasOwnProperty.call(map, "code") && !data.code) data.code = md5hex(now() + Math.random()).slice(0, 16).toUpperCase();
+  let newId = 0;
+  if (id > 0) {
+    await dbUpdate(env, "acg_commodity", data, "id=?", id);
+  } else {
+    if (!data.code) data.code = md5hex(now() + Math.random()).slice(0, 16).toUpperCase();
+    await dbInsert(env, "acg_commodity", { ...data, owner: 0, create_time: now(), stock: Number(body.stock) || 0, status: data.status ?? 1, sort: data.sort ?? 0 }).then((id2) => newId = id2);
+  }
+  try {
+    await dbInsert(env, "acg_manage_log", { email: manage.email, nickname: "", content: "[\u65B0\u589E/\u4FEE\u6539]\u5546\u54C1", create_time: now(), create_ip: requestInfo(request).ip, ua: "", risk: 0 });
+  } catch (e) {
+  }
+  return apiOk("\uFF08\uFF3E\u2200\uFF3E\uFF09\u4FDD\u5B58\u6210\u529F", { id: newId || id });
+}
+async function commodityStatus(env, request, url, body = {}) {
+  let list;
+  try {
+    list = intList(body.list, "\u5546\u54C1ID");
+  } catch (e) {
+    return apiErr(e.message);
+  }
+  if (!list.length || !["0", "1"].includes(String(body.status))) return apiErr("\u5546\u54C1\u72B6\u6001\u8BF7\u6C42\u53C2\u6570\u4E0D\u6B63\u786E");
+  await dbRun(env, `UPDATE acg_commodity SET status=? WHERE id IN (${list.map(() => "?").join(",")})`, Number(body.status), ...list);
+  return apiOk("\u5546\u54C1\u72B6\u6001\u5DF2\u7ECF\u66F4\u65B0");
+}
+async function commodityDel(env, request, url, body = {}) {
+  let list;
+  try {
+    list = intList(body.list, "\u5546\u54C1ID");
+  } catch (e) {
+    return apiErr(e.message);
+  }
+  if (!list.length) return apiErr("\u4F60\u8FD8\u6CA1\u6709\u9009\u62E9\u5546\u54C1");
+  await dbRun(env, `DELETE FROM acg_card WHERE commodity_id IN (${list.map(() => "?").join(",")})`, ...list);
+  await dbRun(env, `UPDATE acg_order SET card_id=NULL, secret=NULL WHERE commodity_id IN (${list.map(() => "?").join(",")})`, ...list);
+  await dbRun(env, `DELETE FROM acg_commodity WHERE id IN (${list.map(() => "?").join(",")})`, ...list);
+  return apiOk("\uFF08\uFF3E\u2200\uFF3E\uFF09\u79FB\u9664\u6210\u529F");
+}
+async function cardData(env, request, url, body = {}) {
+  const page = Math.max(1, Number(body.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(body.limit) || 10));
+  const wheres = [];
+  const params = [];
+  if (body.commodity_id) {
+    wheres.push("commodity_id=?");
+    params.push(Number(body.commodity_id));
+  }
+  if (body.status !== void 0 && body.status !== "") {
+    wheres.push("status=?");
+    params.push(Number(body.status));
+  }
+  if (body.secret) {
+    wheres.push("secret LIKE ?");
+    params.push(`%${body.secret}%`);
+  }
+  const where = wheres.length ? " WHERE " + wheres.join(" AND ") : "";
+  const total = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_card${where}`, ...params);
+  const count = total ? Number(total.n) : 0;
+  const rows = await dbRows(env, `SELECT * FROM acg_card${where} ORDER BY id DESC LIMIT ? OFFSET ?`, ...params, pageSize, (page - 1) * pageSize);
+  const list = [];
+  for (const r of rows) {
+    list.push({
+      ...r,
+      commodity: r.commodity_id ? await dbFirst(env, "SELECT id, name, cover FROM acg_commodity WHERE id=?", r.commodity_id) || null : null,
+      order: r.order_id ? await dbFirst(env, "SELECT id, trade_no FROM acg_order WHERE id=?", r.order_id) || null : null
+    });
+  }
+  return apiOk("success", { list, page, limit: pageSize, count, records: count });
+}
+async function cardSave(env, request, url, body = {}, manage) {
+  const commodityId = Number(body.commodity_id) || 0;
+  if (commodityId <= 0) return apiErr("\u8BF7\u9009\u62E9\u5546\u54C1");
+  const commodity = await dbFirst(env, "SELECT * FROM acg_commodity WHERE id=?", commodityId);
+  if (!commodity) return apiErr("\u5546\u54C1\u4E0D\u5B58\u5728");
+  const secrets = String(body.secret || "").split(/\r?\n|[,，]/).map((s) => s.trim()).filter(Boolean);
+  if (!secrets.length) return apiErr("\u5361\u5BC6\u4E0D\u80FD\u4E3A\u7A7A");
+  if (secrets.length > 5e3) return apiErr("\u5355\u6B21\u6700\u591A\u5BFC\u5165 5000 \u6761\u5361\u5BC6");
+  const t = now();
+  const ids = [];
+  for (const secret of secrets.slice(0, 5e3)) {
+    const cid = await dbInsert(env, "acg_card", {
+      owner: 0,
+      commodity_id: commodityId,
+      draft: 0,
+      secret,
+      create_time: t,
+      status: 0,
+      cost: Number(body.cost) || 0,
+      race: body.race || null,
+      sku: body.sku || null
+    });
+    ids.push(cid);
+  }
+  try {
+    await dbInsert(env, "acg_manage_log", { email: manage.email, nickname: "", content: `[\u65B0\u589E]\u5361\u5BC6 ${secrets.length} \u6761`, create_time: now(), create_ip: requestInfo(request).ip, ua: "", risk: 0 });
+  } catch (e) {
+  }
+  return apiOk(`\u6210\u529F\u5BFC\u5165 ${secrets.length} \u6761\u5361\u5BC6`, { num: secrets.length, id: ids[0] });
+}
+async function cardEdit(env, request, url, body = {}) {
+  const id = Number(body.id) || 0;
+  const cur = await dbFirst(env, "SELECT * FROM acg_card WHERE id=?", id);
+  if (!cur) return apiErr("\u5361\u5BC6\u4E0D\u5B58\u5728");
+  const data = {};
+  if (Object.prototype.hasOwnProperty.call(body, "note")) data.note = String(body.note || "");
+  if (Object.prototype.hasOwnProperty.call(body, "cost")) data.cost = Number(body.cost) || 0;
+  if (Object.prototype.hasOwnProperty.call(body, "secret") && String(body.secret).trim()) data.secret = String(body.secret).trim();
+  if (Object.keys(data).length) await dbUpdate(env, "acg_card", data, "id=?", id);
+  return apiOk("\u4FDD\u5B58\u6210\u529F");
+}
+async function cardLock(env, request, url, body = {}, lock = true) {
+  let list;
+  try {
+    list = intList(body.list, "\u5361\u5BC6ID");
+  } catch (e) {
+    return apiErr(e.message);
+  }
+  if (!list.length) return apiErr("\u4F60\u8FD8\u6CA1\u6709\u9009\u62E9\u5361\u5BC6");
+  await dbRun(env, `UPDATE acg_card SET status=? WHERE id IN (${list.map(() => "?").join(",")}) AND status=0`, lock ? 2 : 0, ...list);
+  return apiOk(lock ? "\u9501\u5B9A\u6210\u529F" : "\u89E3\u9501\u6210\u529F");
+}
+async function cardDel(env, request, url, body = {}) {
+  let list;
+  try {
+    list = intList(body.list, "\u5361\u5BC6ID");
+  } catch (e) {
+    return apiErr(e.message);
+  }
+  if (!list.length) return apiErr("\u4F60\u8FD8\u6CA1\u6709\u9009\u62E9\u5361\u5BC6");
+  await dbRun(env, `DELETE FROM acg_card WHERE id IN (${list.map(() => "?").join(",")}) AND status=0`, ...list);
+  return apiOk("\uFF08\uFF3E\u2200\uFF3E\uFF09\u79FB\u9664\u6210\u529F");
+}
 async function adminEndpoint(env, request, url, ctl, act, body) {
   if (ctl === "authentication" && act === "login") return adminLogin(env, request, url, body);
   const manage = await authenticateManage(env, request);
@@ -1637,6 +2119,40 @@ async function adminEndpoint(env, request, url, ctl, act, body) {
   }
   if (ctl === "app" && act === "ad") {
     return apiOk("ok", { title: "", content: "", url: "" });
+  }
+  if (ctl === "category") {
+    try {
+      if (act === "data") return await categoryData(env, request, url, body);
+      if (act === "save") return await categorySave(env, request, url, body);
+      if (act === "status") return await categoryStatus(env, request, url, body);
+      if (act === "reorder") return await categoryReorder(env, request, url, body);
+      if (act === "deleteImpact") return await categoryDeleteImpact(env, request, url, body, manage);
+      if (act === "del") return await categoryDel(env, request, url, body, manage);
+    } catch (e) {
+      return apiErr(e && e.message ? String(e.message) : "\u64CD\u4F5C\u5931\u8D25");
+    }
+  }
+  if (ctl === "commodity") {
+    try {
+      if (act === "data") return await commodityData(env, request, url, body);
+      if (act === "save") return await commoditySave(env, request, url, body, manage);
+      if (act === "status") return await commodityStatus(env, request, url, body);
+      if (act === "del") return await commodityDel(env, request, url, body);
+    } catch (e) {
+      return apiErr(e && e.message ? String(e.message) : "\u64CD\u4F5C\u5931\u8D25");
+    }
+  }
+  if (ctl === "card") {
+    try {
+      if (act === "data") return await cardData(env, request, url, body);
+      if (act === "save") return await cardSave(env, request, url, body, manage);
+      if (act === "edit") return await cardEdit(env, request, url, body);
+      if (act === "lock") return await cardLock(env, request, url, body, true);
+      if (act === "unlock") return await cardLock(env, request, url, body, false);
+      if (act === "del") return await cardDel(env, request, url, body);
+    } catch (e) {
+      return apiErr(e && e.message ? String(e.message) : "\u64CD\u4F5C\u5931\u8D25");
+    }
   }
   return apiErr("\u63A5\u53E3\u4E0D\u5B58\u5728", 404);
 }
@@ -1833,6 +2349,486 @@ ${jsScripts([
   ])}
 </body>
 </html>`;
+}
+function renderCrudPage({ cfg, manage, title, activePath, toolbar = null, body, readyJs = "" }) {
+  return renderAdminShell({
+    cfg,
+    manage,
+    title,
+    activePath,
+    toolbar,
+    body: `${body}<script>${readyJs}<\/script>`
+  });
+}
+function renderAdminCategoryPage(cfg, manage) {
+  const body = `
+<div class="card mb-5 mb-xl-8">
+  <div class="card-header border-0">
+    <div class="card-toolbar">
+      <button class="btn btn-sm btn-light-primary crud-add me-3"><i class="fa-duotone fa-regular fa-circle-plus"></i> \u6DFB\u52A0\u5206\u7C7B</button>
+      <button class="btn btn-sm btn-light-success crud-status-on me-3"><i class="fa-duotone fa-regular fa-circle-play"></i> \u542F\u7528\u9009\u4E2D</button>
+      <button class="btn btn-sm btn-light-dark crud-status-off me-3"><i class="fa-duotone fa-regular fa-circle-stop"></i> \u505C\u7528\u9009\u4E2D</button>
+      <button class="btn btn-sm btn-light-danger crud-del me-3"><i class="fa-duotone fa-regular fa-trash-can"></i> \u79FB\u9664\u9009\u4E2D</button>
+    </div>
+  </div>
+  <div class="card-body py-3">
+    <div class="table-responsive">
+      <table class="table table-row-bordered table-row-gray-200 align-middle gs-0 gy-3 crud-table" id="category-table">
+        <thead><tr class="fw-bold text-muted">
+          <th style="width:40px"><input type="checkbox" class="crud-check-all"></th>
+          <th>ID</th><th>\u540D\u79F0</th><th>\u7236\u7EA7</th><th>\u6392\u5E8F</th><th>\u72B6\u6001</th><th>\u64CD\u4F5C</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+<div class="modal fade" tabindex="-1" id="catModal"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header py-3"><h5 class="modal-title">\u7F16\u8F91\u5206\u7C7B</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <form class="modal-form"><div class="modal-body">
+    <input type="hidden" name="id">
+    <div class="mb-3"><label class="form-label">\u4E0A\u7EA7\u5206\u7C7B</label>
+      <select class="form-select" name="pid"><option value="0">\u9876\u7EA7</option></select></div>
+    <div class="mb-3"><label class="form-label">\u5206\u7C7B\u540D\u79F0</label>
+      <input class="form-control" name="name" required></div>
+    <div class="mb-3"><label class="form-label">\u6392\u5E8F</label>
+      <input class="form-control" name="sort" type="number" value="0"></div>
+    <div class="mb-3 form-check"><label class="form-check-label">
+      <input class="form-check-input" type="checkbox" name="status" value="1" checked> \u542F\u7528</label></div>
+    <div class="mb-3 form-check"><label class="form-check-label">
+      <input class="form-check-input" type="checkbox" name="hide" value="1"> \u9690\u85CF</label></div>
+  </div><div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">\u53D6\u6D88</button>
+    <button type="submit" class="btn btn-primary">\u4FDD\u5B58</button>
+  </div></form>
+</div></div></div>`;
+  const js = `
+  ready(() => {
+    const table = document.getElementById('category-table').querySelector('tbody');
+    const API = '/admin/api/category/';
+    function load() {
+      util.post({ url: API + 'data', loader: false,
+        done: res => {
+          table.innerHTML = '';
+          const cats = res.data.list || [];
+          const sel = document.querySelector('select[name="pid"]');
+          const curId = Number(sel.dataset.cur || 0);
+          sel.innerHTML = '<option value="0">\u9876\u7EA7</option>' + cats.filter(c => Number(c.id) !== curId).map(c => '<option value="' + c.id + '">' + c.name + '</option>').join('');
+          cats.forEach(c => {
+            const tr = document.createElement('tr');
+            tr.dataset.id = c.id; tr.dataset.name = c.name; tr.dataset.pid = c.pid || 0;
+            tr.dataset.sort = c.sort || 0; tr.dataset.status = c.status; tr.dataset.hide = c.hide || 0;
+            const indent = Number(c.pid) ? '&nbsp;&nbsp;\u2514 ' : '';
+            tr.innerHTML = '<td><input type="checkbox" class="crud-check"></td>' +
+              '<td>' + c.id + '</td>' +
+              '<td>' + indent + c.name + '</td>' +
+              '<td>' + (Number(c.pid) ? '#' + c.pid : '-') + '</td>' +
+              '<td>' + c.sort + '</td>' +
+              '<td>' + (Number(c.status) === 1 ? '<span class="badge badge-light-success">\u542F\u7528</span>' : '<span class="badge badge-light-danger">\u505C\u7528</span>') + '</td>' +
+              '<td><button class="btn btn-sm btn-light-primary me-2 row-edit">\u7F16\u8F91</button>' +
+              '<button class="btn btn-sm btn-light-danger row-del">\u5220\u9664</button></td>';
+            table.appendChild(tr);
+          });
+        },
+        error: res => message.error(res.msg) });
+    }
+    function selected() { return [...table.querySelectorAll('.crud-check:checked')].map(x => x.closest('tr').dataset.id); }
+    document.querySelector('.crud-check-all').addEventListener('change', e => {
+      table.querySelectorAll('.crud-check').forEach(x => x.checked = e.target.checked);
+    });
+    document.querySelector('.crud-add').addEventListener('click', () => {
+      const sel = document.querySelector('select[name="pid"]'); sel.dataset.cur = 0; sel.value = '0';
+      const f = document.querySelector('.modal-form');
+      f.querySelector('input[name="id"]').value = '';
+      f.querySelector('input[name="name"]').value = '';
+      f.querySelector('input[name="sort"]').value = '0';
+      f.querySelector('input[name="status"]').checked = true;
+      f.querySelector('input[name="hide"]').checked = false;
+      util.openModal && util.openModal('catModal') || (window.bootstrap && bootstrap.Modal.getOrCreateInstance(document.getElementById('catModal'))).show();
+    });
+    table.addEventListener('click', e => {
+      const tr = e.target.closest('tr'); if (!tr) return;
+      if (e.target.closest('.row-edit')) {
+        const sel = document.querySelector('select[name="pid"]'); sel.dataset.cur = Number(tr.dataset.id);
+        const f = document.querySelector('.modal-form');
+        f.querySelector('input[name="id"]').value = tr.dataset.id;
+        f.querySelector('input[name="name"]').value = tr.dataset.name;
+        f.querySelector('input[name="sort"]').value = tr.dataset.sort;
+        f.querySelector('input[name="status"]').checked = Number(tr.dataset.status) === 1;
+        f.querySelector('input[name="hide"]').checked = Number(tr.dataset.hide) === 1;
+        (window.bootstrap && bootstrap.Modal.getOrCreateInstance(document.getElementById('catModal'))).show();
+      }
+      if (e.target.closest('.row-del')) {
+        message.confirm && message.confirm ? message.confirm({ title: '\u786E\u8BA4\u5220\u9664\u5206\u7C7B ' + tr.dataset.name + ' ?', done: () => gotoDel([tr.dataset.id]) }) : (confirm('\u786E\u8BA4\u5220\u9664\u5206\u7C7B ' + tr.dataset.name + ' ?') && gotoDel([tr.dataset.id]));
+      }
+    });
+    function gotoDel(ids) {
+      // \u7B80\u5355\u5220\u9664(\u4E0D\u5F3A\u5236\u9884\u89C8 token; \u517C\u5BB9\u539F\u7248\u524D\u7AEF\u5219\u9700 deleteImpact+del)
+      util.post({ url: API + 'del', data: { list: ids.join(','), preview_token: '' },
+        done: () => { message.success && message.success(res => res) && load(); load(); toastr && toastr.success('\u5DF2\u5220\u9664'); load(); },
+        error: res => { if (res.msg.indexOf('\u9884\u89C8') >= 0) { message.error(res.msg); } else message.error(res.msg); } });
+      load();
+    }
+    document.querySelector('.crud-del').addEventListener('click', () => {
+      const ids = selected(); if (!ids.length) return message.error('\u8BF7\u5148\u52FE\u9009\u5206\u7C7B');
+      gotoDel(ids);
+    });
+    document.querySelector('.crud-status-on').addEventListener('click', () => {
+      const ids = selected(); if (!ids.length) return message.error('\u8BF7\u5148\u52FE\u9009\u5206\u7C7B');
+      util.post({ url: API + 'status', data: { list: ids.join(','), status: '1' }, done: load, error: res => message.error(res.msg) });
+    });
+    document.querySelector('.crud-status-off').addEventListener('click', () => {
+      const ids = selected(); if (!ids.length) return message.error('\u8BF7\u5148\u52FE\u9009\u5206\u7C7B');
+      util.post({ url: API + 'status', data: { list: ids.join(','), status: '0' }, done: load, error: res => message.error(res.msg) });
+    });
+    document.querySelector('.modal-form').addEventListener('submit', e => {
+      e.preventDefault();
+      const data = util.serializeObject ? util.serializeObject('.modal-form') : Object.fromEntries(new FormData(e.target).entries());
+      if (typeof data.status === 'undefined') data.status = '1';
+      if (typeof data.hide === 'undefined') data.hide = '0';
+      data.name = e.target.querySelector('input[name="name"]').value.trim();
+      if (!data.name) return message.error('\u5206\u7C7B\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A');
+      util.post({ url: API + 'save', data, done: () => { message.success && message.success('\u4FDD\u5B58\u6210\u529F'); load();
+        if (window.bootstrap) bootstrap.Modal.getInstance(document.getElementById('catModal'))?.hide(); },
+        error: res => message.error(res.msg) });
+    });
+    load();
+  });
+  `;
+  return renderCrudPage({ cfg, manage, title: "\u5206\u7C7B\u7BA1\u7406", activePath: "/admin/category/index", body, readyJs: js });
+}
+function renderAdminCommodityPage(cfg, manage) {
+  const body = `
+<div class="card mb-5 mb-xl-8">
+  <div class="card-header border-0">
+    <div class="card-toolbar">
+      <button class="btn btn-sm btn-light-primary crud-add me-3"><i class="fa-duotone fa-regular fa-circle-plus"></i> \u6DFB\u52A0\u5546\u54C1</button>
+      <button class="btn btn-sm btn-light-success crud-status-on me-3"><i class="fa-duotone fa-regular fa-circle-play"></i> \u542F\u7528\u9009\u4E2D</button>
+      <button class="btn btn-sm btn-light-dark crud-status-off me-3"><i class="fa-duotone fa-regular fa-circle-stop"></i> \u505C\u7528\u9009\u4E2D</button>
+      <button class="btn btn-sm btn-light-danger crud-del me-3"><i class="fa-duotone fa-regular fa-trash-can"></i> \u79FB\u9664\u9009\u4E2D</button>
+    </div>
+  </div>
+  <div class="card-body py-3">
+    <div class="mb-3"><input class="form-control" id="commodity-search" placeholder="\u641C\u7D22\u5546\u54C1\u540D\u79F0\u2026" style="max-width:280px"></div>
+    <div class="table-responsive">
+      <table class="table table-row-bordered table-row-gray-200 align-middle gs-0 gy-3" id="commodity-table">
+        <thead><tr class="fw-bold text-muted">
+          <th style="width:40px"><input type="checkbox" class="crud-check-all"></th>
+          <th>ID</th><th>\u5C01\u9762</th><th>\u540D\u79F0</th><th>\u5206\u7C7B</th><th>\u4EF7\u683C</th><th>\u5E93\u5B58</th><th>\u72B6\u6001</th><th>\u64CD\u4F5C</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="d-flex justify-content-end align-items-center mt-3">
+        <button class="btn btn-sm btn-secondary crud-prev me-2">\u4E0A\u4E00\u9875</button>
+        <span class="crud-pageinfo me-2"></span>
+        <button class="btn btn-sm btn-secondary crud-next">\u4E0B\u4E00\u9875</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" tabindex="-1" id="commodityModal"><div class="modal-dialog modal-lg"><div class="modal-content">
+  <div class="modal-header py-3"><h5 class="modal-title">\u7F16\u8F91\u5546\u54C1</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <form class="modal-form"><div class="modal-body">
+    <input type="hidden" name="id">
+    <div class="row g-3">
+      <div class="col-md-6"><label class="form-label">\u5546\u54C1\u540D\u79F0</label><input class="form-control" name="name" required></div>
+      <div class="col-md-6"><label class="form-label">\u5206\u7C7B</label><select class="form-select" name="category_id"></select></div>
+      <div class="col-md-4"><label class="form-label">\u552E\u4EF7</label><input class="form-control" name="price" type="number" step="0.01" value="0"></div>
+      <div class="col-md-4"><label class="form-label">\u4F1A\u5458\u4EF7</label><input class="form-control" name="user_price" type="number" step="0.01" value="0"></div>
+      <div class="col-md-4"><label class="form-label">\u6210\u672C\u4EF7</label><input class="form-control" name="factory_price" type="number" step="0.01" value="0"></div>
+      <div class="col-md-6"><label class="form-label">\u5C01\u9762 URL</label><input class="form-control" name="cover" placeholder="/favicon.ico"></div>
+      <div class="col-md-6"><label class="form-label">\u5546\u54C1\u7F16\u7801</label><input class="form-control" name="code"></div>
+      <div class="col-md-4"><label class="form-label">\u53D1\u8D27\u65B9\u5F0F</label>
+        <select class="form-select" name="delivery_way">
+          <option value="0">\u81EA\u52A8\u53D1\u8D27(\u5361\u5BC6)</option><option value="1">\u624B\u52A8\u53D1\u8D27</option><option value="2">API \u4F9B\u8D27(\u9884\u7559)</option>
+        </select></div>
+      <div class="col-md-4"><label class="form-label">\u81EA\u52A8\u53D1\u8D27\u6A21\u5F0F</label>
+        <select class="form-select" name="delivery_auto_mode"><option value="0">\u987A\u5E8F</option><option value="1">\u968F\u673A</option></select></div>
+      <div class="col-md-4"><label class="form-label">\u6392\u5E8F</label><input class="form-control" name="sort" type="number" value="0"></div>
+      <div class="col-md-6"><label class="form-label">\u8054\u7CFB\u65B9\u5F0F\u7C7B\u578B</label>
+        <select class="form-select" name="contact_type"><option value="0">\u65E0</option><option value="1">QQ</option><option value="2">\u90AE\u7BB1</option><option value="3">\u624B\u673A\u53F7</option><option value="4">\u4EFB\u610F</option></select></div>
+      <div class="col-md-6"><label class="form-label">\u5BC6\u7801\u72B6\u6001</label>
+        <select class="form-select" name="password_status"><option value="0">\u65E0\u5BC6\u7801</option><option value="1">\u9875\u9762\u8BBE\u7F6E\u5BC6\u7801</option></select></div>
+      <div class="col-12"><label class="form-label">\u53D1\u8D27\u8BF4\u660E/\u5361\u5BC6\u63D0\u793A</label><textarea class="form-control" name="delivery_message" rows="2"></textarea></div>
+      <div class="col-12"><label class="form-label">\u5546\u54C1\u4ECB\u7ECD</label><textarea class="form-control" name="description" rows="3"></textarea></div>
+      <div class="col-md-3 form-check"><label class="form-check-label">
+        <input class="form-check-input" type="checkbox" name="status" value="1" checked> \u542F\u7528</label></div>
+      <div class="col-md-3 form-check"><label class="form-check-label">
+        <input class="form-check-input" type="checkbox" name="api_status" value="1"> API\u5F00\u653E</label></div>
+      <div class="col-md-3 form-check"><label class="form-check-label">
+        <input class="form-check-input" type="checkbox" name="only_user" value="1"> \u4EC5\u4F1A\u5458</label></div>
+      <div class="col-md-3 form-check"><label class="form-check-label">
+        <input class="form-check-input" type="checkbox" name="recommend" value="1"> \u63A8\u8350</label></div>
+    </div>
+  </div><div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">\u53D6\u6D88</button>
+    <button type="submit" class="btn btn-primary">\u4FDD\u5B58</button>
+  </div></form>
+</div></div></div>`;
+  const js = `
+  ready(() => {
+    const tbody = document.getElementById('commodity-table').querySelector('tbody');
+    const API = '/admin/api/commodity/';
+    let page = 1, pageSize = 10;
+    function load() {
+      const kw = (document.getElementById('commodity-search').value || '').trim();
+      util.post({ url: API + 'data', data: { page, limit: pageSize, name: kw }, loader: false,
+        done: res => {
+          tbody.innerHTML = '';
+          (res.data.list || []).forEach(c => {
+            const tr = document.createElement('tr');
+            tr.dataset = {
+              id: c.id, name: c.name, category_id: c.category_id, price: c.price, user_price: c.user_price,
+              factory_price: c.factory_price, cover: c.cover || '', code: c.code || '',
+              delivery_way: c.delivery_way || 0, delivery_auto_mode: c.delivery_auto_mode || 0,
+              contact_type: c.contact_type || 0, password_status: c.password_status || 0,
+              sort: c.sort || 0, delivery_message: c.delivery_message || '', description: c.description || '',
+              status: c.status, api_status: c.api_status, only_user: c.only_user, recommend: c.recommend || 0,
+            };
+            tr.innerHTML = '<td><input type="checkbox" class="crud-check"></td>' +
+              '<td>' + c.id + '</td>' +
+              '<td><img src="' + (c.cover || '/favicon.ico') + '" style="width:34px;height:34px;object-fit:cover" class="rounded"></td>' +
+              '<td>' + c.name + '</td>' +
+              '<td>' + (c.category ? c.category.name : '-') + '</td>' +
+              '<td>\uFFE5' + c.price + '</td>' +
+              '<td>' + (c.card_count !== undefined ? c.card_count : c.stock ?? '-') + '</td>' +
+              '<td>' + (Number(c.status) === 1 ? '<span class="badge badge-light-success">\u542F\u7528</span>' : '<span class="badge badge-light-danger">\u505C\u7528</span>') + '</td>' +
+              '<td><button class="btn btn-sm btn-light-primary me-2 row-edit">\u7F16\u8F91</button>' +
+              '<button class="btn btn-sm btn-light-danger row-del">\u5220\u9664</button>' +
+              '<a class="btn btn-sm btn-light-info row-cards" href="/admin/card/index?commodity_id=' + c.id + '">\u5361\u5BC6</a></td>';
+            tbody.appendChild(tr);
+          });
+          document.querySelector('.crud-pageinfo').textContent = '\u7B2C ' + page + ' \u9875 / \u5171 ' + res.data.count + ' \u6761';
+        },
+        error: res => message.error(res.msg) });
+    }
+    function selected() { return [...tbody.querySelectorAll('.crud-check:checked')].map(x => x.closest('tr').dataset.id); }
+    document.querySelector('.crud-check-all').addEventListener('change', e => tbody.querySelectorAll('.crud-check').forEach(x => x.checked = e.target.checked));
+    function refreshCats() {
+      util.post({ url: '/admin/api/category/data', loader: false, done: res => {
+        const sel = document.querySelector('select[name="category_id"]');
+        const cur = sel.dataset.cur || '';
+        sel.innerHTML = '<option value="">\u8BF7\u9009\u62E9</option>' + (res.data.list || []).map(c => '<option value="' + c.id + '">' + c.name + '</option>').join('');
+        if (cur) sel.value = cur;
+      }, error: () => {} });
+    }
+    document.querySelector('.crud-add').addEventListener('click', () => {
+      refreshCats();
+      const f = document.querySelector('#commodityModal .modal-form');
+      f.querySelector('input[name="id"]').value = '';
+      f.querySelector('input[name="name"]').value = '';
+      f.querySelector('input[name="price"]').value = '0';
+      f.querySelector('input[name="user_price"]').value = '0';
+      f.querySelector('input[name="factory_price"]').value = '0';
+      f.querySelector('input[name="cover"]').value = '/favicon.ico';
+      f.querySelector('input[name="code"]').value = '';
+      f.querySelector('select[name="delivery_way"]').value = '0';
+      f.querySelector('select[name="delivery_auto_mode"]').value = '0';
+      f.querySelector('input[name="sort"]').value = '0';
+      f.querySelector('select[name="contact_type"]').value = '0';
+      f.querySelector('select[name="password_status"]').value = '0';
+      f.querySelector('textarea[name="delivery_message"]').value = '';
+      f.querySelector('textarea[name="description"]').value = '';
+      ['status','api_status','only_user','recommend'].forEach(n => { const x = f.querySelector('input[name="' + n + '"]'); if (x) x.checked = n === 'status'; });
+      (window.bootstrap && bootstrap.Modal.getOrCreateInstance(document.getElementById('commodityModal'))).show();
+    });
+    tbody.addEventListener('click', e => {
+      const tr = e.target.closest('tr'); if (!tr) return;
+      if (e.target.closest('.row-edit')) {
+        refreshCats();
+        const sel = document.querySelector('select[name="category_id"]'); sel.dataset.cur = tr.dataset.category_id;
+        const f = document.querySelector('#commodityModal .modal-form');
+        for (const k of ['id','name','price','user_price','factory_price','cover','code','delivery_message','description','sort']) {
+          const x = f.querySelector('[name="' + k + '"]'); if (x) x.value = tr.dataset[k] ?? '';
+        }
+        for (const k of ['delivery_way','delivery_auto_mode','contact_type','password_status']) {
+          const x = f.querySelector('[name="' + k + '"]'); if (x) x.value = tr.dataset[k] ?? '0';
+        }
+        ['status','api_status','only_user','recommend'].forEach(n => { const x = f.querySelector('input[name="' + n + '"]'); if (x) x.checked = Number(tr.dataset[n] || 0) === 1; });
+        (window.bootstrap && bootstrap.Modal.getOrCreateInstance(document.getElementById('commodityModal'))).show();
+      }
+      if (e.target.closest('.row-del')) {
+        if (confirm('\u786E\u8BA4\u5220\u9664\u5546\u54C1 ' + tr.dataset.name + ' ?')) {
+          util.post({ url: API + 'del', data: { list: tr.dataset.id }, done: load, error: res => message.error(res.msg) });
+        }
+      }
+    });
+    function batch(field, val) {
+      const ids = selected(); if (!ids.length) return message.error('\u8BF7\u5148\u52FE\u9009\u5546\u54C1');
+      util.post({ url: API + field, data: { list: ids.join(','), status: val }, done: load, error: res => message.error(res.msg) });
+    }
+    document.querySelector('.crud-status-on').addEventListener('click', () => batch('status', '1'));
+    document.querySelector('.crud-status-off').addEventListener('click', () => batch('status', '0'));
+    document.querySelector('.crud-del').addEventListener('click', () => {
+      const ids = selected(); if (!ids.length) return message.error('\u8BF7\u5148\u52FE\u9009\u5546\u54C1');
+      if (confirm('\u786E\u8BA4\u5220\u9664\u9009\u4E2D ' + ids.length + ' \u4E2A\u5546\u54C1\uFF1F\u76F8\u5173\u5361\u5BC6/\u8BA2\u5355\u5F15\u7528\u4F1A\u88AB\u6E05\u7406')) {
+        util.post({ url: API + 'del', data: { list: ids.join(',') }, done: load, error: res => message.error(res.msg) });
+      }
+    });
+    document.getElementById('commodity-search').addEventListener('input', () => { page = 1; load(); });
+    document.querySelector('.crud-prev').addEventListener('click', () => { if (page > 1) { page--; load(); } });
+    document.querySelector('.crud-next').addEventListener('click', () => { page++; load(); });
+    document.querySelector('#commodityModal .modal-form').addEventListener('submit', e => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(e.target).entries());
+      if (!data.name.trim()) return message.error('\u5546\u54C1\u540D\u79F0\u4E0D\u80FD\u4E3A\u7A7A');
+      if (!data.category_id) return message.error('\u8BF7\u9009\u62E9\u5546\u54C1\u5206\u7C7B');
+      ['status','api_status','only_user','recommend'].forEach(n => { if (typeof data[n] === 'undefined') data[n] = '0'; });
+      util.post({ url: API + 'save', data, done: () => { message.success('\u4FDD\u5B58\u6210\u529F'); load();
+        if (window.bootstrap) bootstrap.Modal.getInstance(document.getElementById('commodityModal'))?.hide(); },
+        error: res => message.error(res.msg) });
+    });
+    load();
+  });
+  `;
+  return renderCrudPage({ cfg, manage, title: "\u5546\u54C1\u7BA1\u7406", activePath: "/admin/commodity/index", body, readyJs: js });
+}
+function renderAdminCardPage(cfg, manage, commodityId = 0) {
+  const body = `
+<div class="card mb-5 mb-xl-8">
+  <div class="card-header border-0">
+    <div class="card-toolbar">
+      <button class="btn btn-sm btn-light-primary crud-add me-3"><i class="fa-duotone fa-regular fa-circle-plus"></i> \u6DFB\u52A0\u5361\u5BC6</button>
+      <button class="btn btn-sm btn-light-warning crud-lock me-3"><i class="fa-duotone fa-regular fa-lock"></i> \u9501\u5B9A\u9009\u4E2D</button>
+      <button class="btn btn-sm btn-light-info crud-unlock me-3"><i class="fa-duotone fa-regular fa-unlock"></i> \u89E3\u9501\u9009\u4E2D</button>
+      <button class="btn btn-sm btn-light-danger crud-del me-3"><i class="fa-duotone fa-regular fa-trash-can"></i> \u79FB\u9664\u9009\u4E2D</button>
+    </div>
+  </div>
+  <div class="card-body py-3">
+    <div class="row g-2 mb-3">
+      <div class="col-md-4"><select class="form-select" id="card-commodity">
+        <option value="">\u9009\u62E9\u5546\u54C1</option></select></div>
+      <div class="col-md-2"><select class="form-select" id="card-status">
+        <option value="">\u5168\u90E8\u72B6\u6001</option><option value="0">\u672A\u552E</option><option value="1">\u5DF2\u552E</option><option value="2">\u9501\u5B9A</option></select></div>
+      <div class="col-md-4"><input class="form-control" id="card-search" placeholder="\u641C\u7D22\u5361\u5BC6\u2026"></div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-row-bordered table-row-gray-200 align-middle gs-0 gy-3" id="card-table">
+        <thead><tr class="fw-bold text-muted">
+          <th style="width:40px"><input type="checkbox" class="crud-check-all"></th>
+          <th>ID</th><th>\u5546\u54C1</th><th>\u5361\u5BC6</th><th>\u72B6\u6001</th><th>\u552E\u4EF7\u6210\u672C</th><th>\u8D2D\u4E70\u65F6\u95F4/\u8BA2\u5355</th><th>\u64CD\u4F5C</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="d-flex justify-content-end align-items-center mt-3">
+        <button class="btn btn-sm btn-secondary crud-prev me-2">\u4E0A\u4E00\u9875</button>
+        <span class="crud-pageinfo me-2"></span>
+        <button class="btn btn-sm btn-secondary crud-next">\u4E0B\u4E00\u9875</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" tabindex="-1" id="cardModal"><div class="modal-dialog modal-lg"><div class="modal-content">
+  <div class="modal-header py-3"><h5 class="modal-title">\u6DFB\u52A0\u5361\u5BC6</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <form class="modal-form"><div class="modal-body">
+    <div class="mb-3"><label class="form-label">\u5546\u54C1</label><select class="form-select" name="commodity_id"></select></div>
+    <div class="mb-3"><label class="form-label">\u5361\u5BC6\u5185\u5BB9 <span class="text-muted">(\u6BCF\u884C\u4E00\u6761\uFF0C\u652F\u6301\u6279\u91CF)</span></label>
+      <textarea class="form-control" name="secret" rows="6" required placeholder="CARD-AAAA-1111&#10;CARD-BBBB-2222"></textarea></div>
+    <div class="mb-3"><label class="form-label">\u6210\u672C\u4EF7</label><input class="form-control" name="cost" type="number" step="0.01" value="0"></div>
+  </div><div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">\u53D6\u6D88</button>
+    <button type="submit" class="btn btn-primary">\u5BFC\u5165</button>
+  </div></form>
+</div></div></div>`;
+  const js = `
+  ready(() => {
+    const tbody = document.getElementById('card-table').querySelector('tbody');
+    const API = '/admin/api/card/';
+    let page = 1, pageSize = 10;
+    const presetId = ${commodityId || 0};
+    function loadCommodities(select, cur) {
+      util.post({ url: '/admin/api/commodity/data', data: { page:1, limit:100 }, loader: false, done: res => {
+        const items = res.data.list || [];
+        const opts = items.filter(c => Number(c.delivery_way) === 0 || c.card_count !== undefined).map(c => '<option value="' + c.id + '">' + c.name + '</option>').join('');
+        select.innerHTML = '<option value="">\u9009\u62E9\u5546\u54C1</option>' + opts;
+        if (cur) select.value = cur;
+      }, error: () => {} });
+    }
+    function load() {
+      const data = { page, limit: pageSize };
+      const cid = document.getElementById('card-commodity').value;
+      const st = document.getElementById('card-status').value;
+      const kw = document.getElementById('card-search').value.trim();
+      if (cid) data.commodity_id = cid;
+      if (st !== '') data.status = st;
+      if (kw) data.secret = kw;
+      util.post({ url: API + 'data', data, loader: false,
+        done: res => {
+          tbody.innerHTML = '';
+          (res.data.list || []).forEach(c => {
+            const stText = Number(c.status) === 0 ? '<span class="badge badge-light-success">\u672A\u552E</span>'
+              : Number(c.status) === 1 ? '<span class="badge badge-light-secondary">\u5DF2\u552E</span>'
+              : '<span class="badge badge-light-warning">\u9501\u5B9A</span>';
+            const tr = document.createElement('tr');
+            tr.dataset.id = c.id; tr.dataset.secretKey = c.secret; tr.dataset.cost = c.cost || 0;
+            tr.innerHTML = '<td><input type="checkbox" class="crud-check"></td>' +
+              '<td>' + c.id + '</td>' +
+              '<td>' + (c.commodity ? c.commodity.name : ('#' + c.commodity_id)) + '</td>' +
+              '<td><code>' + c.secret + '</code></td>' +
+              '<td>' + stText + '</td>' +
+              '<td>\uFFE5' + (c.cost || 0) + '</td>' +
+              '<td>' + (c.purchase_time ? new Date(c.purchase_time * 1000).toLocaleString() : '-') + (c.order ? ' <a href="#">#' + c.order.trade_no + '</a>' : '') + '</td>' +
+              '<td><button class="btn btn-sm btn-light-danger row-del">\u5220\u9664</button></td>';
+            tbody.appendChild(tr);
+          });
+          document.querySelector('.crud-pageinfo').textContent = '\u7B2C ' + page + ' \u9875 / \u5171 ' + res.data.count + ' \u6761';
+        },
+        error: res => message.error(res.msg) });
+    }
+    function selected() { return [...tbody.querySelectorAll('.crud-check:checked')].map(x => x.closest('tr').dataset.id); }
+    document.querySelector('.crud-check-all').addEventListener('change', e => tbody.querySelectorAll('.crud-check').forEach(x => x.checked = e.target.checked));
+    const commoditySelect = document.querySelector('#cardModal select[name="commodity_id"]');
+    loadCommodities(commoditySelect, presetId || '');
+    const filterSelect = document.getElementById('card-commodity');
+    loadCommodities(filterSelect, presetId || '');
+    if (presetId) { document.getElementById('card-commodity').value = presetId; }
+    document.getElementById('card-commodity').addEventListener('change', () => { page = 1; load(); });
+    document.getElementById('card-status').addEventListener('change', () => { page = 1; load(); });
+    document.getElementById('card-search').addEventListener('input', () => { page = 1; load(); });
+    document.querySelector('.crud-prev').addEventListener('click', () => { if (page > 1) { page--; load(); } });
+    document.querySelector('.crud-next').addEventListener('click', () => { page++; load(); });
+    document.querySelector('.crud-add').addEventListener('click', () => {
+      const sel = document.querySelector('#cardModal select[name="commodity_id"]');
+      loadCommodities(sel, document.getElementById('card-commodity').value || presetId || '');
+      (window.bootstrap && bootstrap.Modal.getOrCreateInstance(document.getElementById('cardModal'))).show();
+    });
+    tbody.addEventListener('click', e => {
+      const tr = e.target.closest('tr'); if (!tr || !e.target.closest('.row-del')) return;
+      if (confirm('\u786E\u8BA4\u5220\u9664\u5361\u5BC6 ID ' + tr.dataset.id + ' ?')) {
+        util.post({ url: API + 'del', data: { list: tr.dataset.id }, done: load, error: res => message.error(res.msg) });
+      }
+    });
+    document.querySelector('.crud-lock').addEventListener('click', () => {
+      const ids = selected(); if (!ids.length) return message.error('\u8BF7\u5148\u52FE\u9009\u5361\u5BC6');
+      util.post({ url: API + 'lock', data: { list: ids.join(',') }, done: load, error: res => message.error(res.msg) });
+    });
+    document.querySelector('.crud-unlock').addEventListener('click', () => {
+      const ids = selected(); if (!ids.length) return message.error('\u8BF7\u5148\u52FE\u9009\u5361\u5BC6');
+      util.post({ url: API + 'unlock', data: { list: ids.join(',') }, done: load, error: res => message.error(res.msg) });
+    });
+    document.querySelector('.crud-del').addEventListener('click', () => {
+      const ids = selected(); if (!ids.length) return message.error('\u8BF7\u5148\u52FE\u9009\u5361\u5BC6');
+      if (confirm('\u786E\u8BA4\u5220\u9664\u9009\u4E2D ' + ids.length + ' \u6761\u672A\u552E\u5361\u5BC6\uFF1F')) {
+        util.post({ url: API + 'del', data: { list: ids.join(',') }, done: load, error: res => message.error(res.msg) });
+      }
+    });
+    document.querySelector('#cardModal .modal-form').addEventListener('submit', e => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(e.target).entries());
+      if (!data.commodity_id) return message.error('\u8BF7\u9009\u62E9\u5546\u54C1');
+      if (!data.secret.trim()) return message.error('\u5361\u5BC6\u4E0D\u80FD\u4E3A\u7A7A');
+      util.post({ url: API + 'save', data, done: () => { message.success('\u5BFC\u5165\u6210\u529F'); load();
+        e.target.querySelector('textarea[name="secret"]').value = '';
+        if (window.bootstrap) bootstrap.Modal.getInstance(document.getElementById('cardModal'))?.hide(); },
+        error: res => message.error(res.msg) });
+    });
+    load();
+  });
+  `;
+  return renderCrudPage({ cfg, manage, title: "\u5361\u5BC6\u7BA1\u7406", activePath: "/admin/card/index", body, readyJs: js });
 }
 function adminMenu(activePath) {
   const items = [
@@ -2350,13 +3346,13 @@ function renderAuthHeader(v) {
     <link href="${favicon}?v=${app.version}" rel="icon">
     <title>${htmlEscape(title)} - ${htmlEscape(config.shop_name)}</title>
     ${CSS_AUTH.map((f) => `<link href="${f}" rel="stylesheet">`).join("")}
-    <script src="/assets/common/js/ready.js"></script>
+    <script src="/assets/common/js/ready.js"><\/script>
     ${indexVar(0, config)}
 </head>
 <body style="background-size: cover;background-image: linear-gradient(180deg, rgb(255 255 255 / 0%), rgb(255 255 255 / 71%)), url('${htmlEscape(config.background_url || "")}')">`;
 }
 function renderAuthFooter() {
-  return `${JS_AUTH.map((f) => `<script src="${f}"></script>`).join("")}
+  return `${JS_AUTH.map((f) => `<script src="${f}"><\/script>`).join("")}
 </body>
 </html>`;
 }
@@ -2420,7 +3416,7 @@ function pageLogin(v) {
         ${regLink}
     </div>
 </main>
-<script src="/assets/user/controller/auth/login.js"></script>`;
+<script src="/assets/user/controller/auth/login.js"><\/script>`;
 }
 function pageRegister(v) {
   const { config } = v;
@@ -2512,7 +3508,7 @@ function pageRegister(v) {
 
     </div>
 </main>
-<script src="/assets/user/controller/auth/register.js"></script>`;
+<script src="/assets/user/controller/auth/register.js"><\/script>`;
 }
 function userCenterShell(v, body) {
   const { config, user } = v;
@@ -2617,7 +3613,7 @@ function pagePurchaseRecord(v) {
         tbody.innerHTML = html;
       });
     })();
-    </script>`;
+    <\/script>`;
   return userCenterShell(v, body);
 }
 function pageRecharge(v) {
@@ -2668,7 +3664,7 @@ function pageRecharge(v) {
             })
             .catch(function(){ alert('\u7F51\u7EDC\u9519\u8BEF'); btn.disabled = false; });
         });
-        </script>` : `<div class="text-muted">\u5145\u503C\u529F\u80FD\u672A\u5F00\u542F</div>`}
+        <\/script>` : `<div class="text-muted">\u5145\u503C\u529F\u80FD\u672A\u5F00\u542F</div>`}
       </div>
     </div>`;
   return userCenterShell(v, body);
@@ -2715,7 +3711,7 @@ function pageSecurity(v) {
             })
             .catch(function(){ btn.disabled = false; alert('\u7F51\u7EDC\u9519\u8BEF'); });
         });
-        </script>
+        <\/script>
       </div>
     </div>`;
   return userCenterShell(v, body);
@@ -2749,7 +3745,7 @@ function pageBill(v) {
         tbody.innerHTML = html;
       });
     })();
-    </script>`;
+    <\/script>`;
   return userCenterShell(v, body);
 }
 
@@ -3404,6 +4400,11 @@ async function route(env, request, url, ctx) {
           }
         }
       }
+      if (!body) {
+        for (const [k, v] of url.searchParams) {
+          if (!(k in parsed)) parsed[k] = v;
+        }
+      }
       const res = await adminEndpoint(env, request, url, ...rest.split("/"), parsed);
       return res;
     }
@@ -3415,7 +4416,17 @@ async function route(env, request, url, ctx) {
     if (s === "/admin/dashboard/index" || s === "/admin/dashboard") {
       return pageRes(renderAdminDashboardPage(cfg, manage));
     }
-    return pageRes(renderAdminShell({ cfg, manage, title: "\u5EFA\u8BBE\u4E2D", activePath: s }), "text/html");
+    if (s === "/admin/category/index") {
+      return pageRes(renderAdminCategoryPage(cfg, manage));
+    }
+    if (s === "/admin/commodity/index") {
+      return pageRes(renderAdminCommodityPage(cfg, manage));
+    }
+    if (s === "/admin/card/index") {
+      const cid2 = Number(url.searchParams.get("commodity_id")) || 0;
+      return pageRes(renderAdminCardPage(cfg, manage, cid2));
+    }
+    return pageRes(renderAdminShell({ cfg, manage, title: "\u5EFA\u8BBE\u4E2D", activePath: s }, "text/html"));
   }
   if (pathname.startsWith("/user/captcha/image")) {
     const action = q.get("action") || "login";

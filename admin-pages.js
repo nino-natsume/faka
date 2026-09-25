@@ -207,7 +207,492 @@ ${jsScripts([
 </html>`;
 }
 
-// ---------- 后台壳 (Header + Footer, 对齐原版结构) ----------
+// ---------- 通用 CRUD 列表页 (自绘, 复用原版 assets) ----------
+export function renderCrudPage({ cfg, manage, title, activePath, toolbar = null, body, readyJs = '' }) {
+  return renderAdminShell({
+    cfg, manage, title, activePath, toolbar,
+    body: `${body}<script>${readyJs}</script>`,
+  });
+}
+
+// 分类管理页
+export function renderAdminCategoryPage(cfg, manage) {
+  const body = `
+<div class="card mb-5 mb-xl-8">
+  <div class="card-header border-0">
+    <div class="card-toolbar">
+      <button class="btn btn-sm btn-light-primary crud-add me-3"><i class="fa-duotone fa-regular fa-circle-plus"></i> 添加分类</button>
+      <button class="btn btn-sm btn-light-success crud-status-on me-3"><i class="fa-duotone fa-regular fa-circle-play"></i> 启用选中</button>
+      <button class="btn btn-sm btn-light-dark crud-status-off me-3"><i class="fa-duotone fa-regular fa-circle-stop"></i> 停用选中</button>
+      <button class="btn btn-sm btn-light-danger crud-del me-3"><i class="fa-duotone fa-regular fa-trash-can"></i> 移除选中</button>
+    </div>
+  </div>
+  <div class="card-body py-3">
+    <div class="table-responsive">
+      <table class="table table-row-bordered table-row-gray-200 align-middle gs-0 gy-3 crud-table" id="category-table">
+        <thead><tr class="fw-bold text-muted">
+          <th style="width:40px"><input type="checkbox" class="crud-check-all"></th>
+          <th>ID</th><th>名称</th><th>父级</th><th>排序</th><th>状态</th><th>操作</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+<div class="modal fade" tabindex="-1" id="catModal"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header py-3"><h5 class="modal-title">编辑分类</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <form class="modal-form"><div class="modal-body">
+    <input type="hidden" name="id">
+    <div class="mb-3"><label class="form-label">上级分类</label>
+      <select class="form-select" name="pid"><option value="0">顶级</option></select></div>
+    <div class="mb-3"><label class="form-label">分类名称</label>
+      <input class="form-control" name="name" required></div>
+    <div class="mb-3"><label class="form-label">排序</label>
+      <input class="form-control" name="sort" type="number" value="0"></div>
+    <div class="mb-3 form-check"><label class="form-check-label">
+      <input class="form-check-input" type="checkbox" name="status" value="1" checked> 启用</label></div>
+    <div class="mb-3 form-check"><label class="form-check-label">
+      <input class="form-check-input" type="checkbox" name="hide" value="1"> 隐藏</label></div>
+  </div><div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+    <button type="submit" class="btn btn-primary">保存</button>
+  </div></form>
+</div></div></div>`;
+
+  const js = `
+  ready(() => {
+    const table = document.getElementById('category-table').querySelector('tbody');
+    const API = '/admin/api/category/';
+    function load() {
+      util.post({ url: API + 'data', loader: false,
+        done: res => {
+          table.innerHTML = '';
+          const cats = res.data.list || [];
+          const sel = document.querySelector('select[name="pid"]');
+          const curId = Number(sel.dataset.cur || 0);
+          sel.innerHTML = '<option value="0">顶级</option>' + cats.filter(c => Number(c.id) !== curId).map(c => '<option value="' + c.id + '">' + c.name + '</option>').join('');
+          cats.forEach(c => {
+            const tr = document.createElement('tr');
+            tr.dataset.id = c.id; tr.dataset.name = c.name; tr.dataset.pid = c.pid || 0;
+            tr.dataset.sort = c.sort || 0; tr.dataset.status = c.status; tr.dataset.hide = c.hide || 0;
+            const indent = Number(c.pid) ? '&nbsp;&nbsp;└ ' : '';
+            tr.innerHTML = '<td><input type="checkbox" class="crud-check"></td>' +
+              '<td>' + c.id + '</td>' +
+              '<td>' + indent + c.name + '</td>' +
+              '<td>' + (Number(c.pid) ? '#' + c.pid : '-') + '</td>' +
+              '<td>' + c.sort + '</td>' +
+              '<td>' + (Number(c.status) === 1 ? '<span class="badge badge-light-success">启用</span>' : '<span class="badge badge-light-danger">停用</span>') + '</td>' +
+              '<td><button class="btn btn-sm btn-light-primary me-2 row-edit">编辑</button>' +
+              '<button class="btn btn-sm btn-light-danger row-del">删除</button></td>';
+            table.appendChild(tr);
+          });
+        },
+        error: res => message.error(res.msg) });
+    }
+    function selected() { return [...table.querySelectorAll('.crud-check:checked')].map(x => x.closest('tr').dataset.id); }
+    document.querySelector('.crud-check-all').addEventListener('change', e => {
+      table.querySelectorAll('.crud-check').forEach(x => x.checked = e.target.checked);
+    });
+    document.querySelector('.crud-add').addEventListener('click', () => {
+      const sel = document.querySelector('select[name="pid"]'); sel.dataset.cur = 0; sel.value = '0';
+      const f = document.querySelector('.modal-form');
+      f.querySelector('input[name="id"]').value = '';
+      f.querySelector('input[name="name"]').value = '';
+      f.querySelector('input[name="sort"]').value = '0';
+      f.querySelector('input[name="status"]').checked = true;
+      f.querySelector('input[name="hide"]').checked = false;
+      util.openModal && util.openModal('catModal') || (window.bootstrap && bootstrap.Modal.getOrCreateInstance(document.getElementById('catModal'))).show();
+    });
+    table.addEventListener('click', e => {
+      const tr = e.target.closest('tr'); if (!tr) return;
+      if (e.target.closest('.row-edit')) {
+        const sel = document.querySelector('select[name="pid"]'); sel.dataset.cur = Number(tr.dataset.id);
+        const f = document.querySelector('.modal-form');
+        f.querySelector('input[name="id"]').value = tr.dataset.id;
+        f.querySelector('input[name="name"]').value = tr.dataset.name;
+        f.querySelector('input[name="sort"]').value = tr.dataset.sort;
+        f.querySelector('input[name="status"]').checked = Number(tr.dataset.status) === 1;
+        f.querySelector('input[name="hide"]').checked = Number(tr.dataset.hide) === 1;
+        (window.bootstrap && bootstrap.Modal.getOrCreateInstance(document.getElementById('catModal'))).show();
+      }
+      if (e.target.closest('.row-del')) {
+        message.confirm && message.confirm ? message.confirm({ title: '确认删除分类 ' + tr.dataset.name + ' ?', done: () => gotoDel([tr.dataset.id]) }) : (confirm('确认删除分类 ' + tr.dataset.name + ' ?') && gotoDel([tr.dataset.id]));
+      }
+    });
+    function gotoDel(ids) {
+      // 简单删除(不强制预览 token; 兼容原版前端则需 deleteImpact+del)
+      util.post({ url: API + 'del', data: { list: ids.join(','), preview_token: '' },
+        done: () => { message.success && message.success(res => res) && load(); load(); toastr && toastr.success('已删除'); load(); },
+        error: res => { if (res.msg.indexOf('预览') >= 0) { message.error(res.msg); } else message.error(res.msg); } });
+      load();
+    }
+    document.querySelector('.crud-del').addEventListener('click', () => {
+      const ids = selected(); if (!ids.length) return message.error('请先勾选分类');
+      gotoDel(ids);
+    });
+    document.querySelector('.crud-status-on').addEventListener('click', () => {
+      const ids = selected(); if (!ids.length) return message.error('请先勾选分类');
+      util.post({ url: API + 'status', data: { list: ids.join(','), status: '1' }, done: load, error: res => message.error(res.msg) });
+    });
+    document.querySelector('.crud-status-off').addEventListener('click', () => {
+      const ids = selected(); if (!ids.length) return message.error('请先勾选分类');
+      util.post({ url: API + 'status', data: { list: ids.join(','), status: '0' }, done: load, error: res => message.error(res.msg) });
+    });
+    document.querySelector('.modal-form').addEventListener('submit', e => {
+      e.preventDefault();
+      const data = util.serializeObject ? util.serializeObject('.modal-form') : Object.fromEntries(new FormData(e.target).entries());
+      if (typeof data.status === 'undefined') data.status = '1';
+      if (typeof data.hide === 'undefined') data.hide = '0';
+      data.name = e.target.querySelector('input[name="name"]').value.trim();
+      if (!data.name) return message.error('分类名称不能为空');
+      util.post({ url: API + 'save', data, done: () => { message.success && message.success('保存成功'); load();
+        if (window.bootstrap) bootstrap.Modal.getInstance(document.getElementById('catModal'))?.hide(); },
+        error: res => message.error(res.msg) });
+    });
+    load();
+  });
+  `;
+  return renderCrudPage({ cfg, manage, title: '分类管理', activePath: '/admin/category/index', body, readyJs: js });
+}
+
+// 商品管理页
+export function renderAdminCommodityPage(cfg, manage) {
+  const body = `
+<div class="card mb-5 mb-xl-8">
+  <div class="card-header border-0">
+    <div class="card-toolbar">
+      <button class="btn btn-sm btn-light-primary crud-add me-3"><i class="fa-duotone fa-regular fa-circle-plus"></i> 添加商品</button>
+      <button class="btn btn-sm btn-light-success crud-status-on me-3"><i class="fa-duotone fa-regular fa-circle-play"></i> 启用选中</button>
+      <button class="btn btn-sm btn-light-dark crud-status-off me-3"><i class="fa-duotone fa-regular fa-circle-stop"></i> 停用选中</button>
+      <button class="btn btn-sm btn-light-danger crud-del me-3"><i class="fa-duotone fa-regular fa-trash-can"></i> 移除选中</button>
+    </div>
+  </div>
+  <div class="card-body py-3">
+    <div class="mb-3"><input class="form-control" id="commodity-search" placeholder="搜索商品名称…" style="max-width:280px"></div>
+    <div class="table-responsive">
+      <table class="table table-row-bordered table-row-gray-200 align-middle gs-0 gy-3" id="commodity-table">
+        <thead><tr class="fw-bold text-muted">
+          <th style="width:40px"><input type="checkbox" class="crud-check-all"></th>
+          <th>ID</th><th>封面</th><th>名称</th><th>分类</th><th>价格</th><th>库存</th><th>状态</th><th>操作</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="d-flex justify-content-end align-items-center mt-3">
+        <button class="btn btn-sm btn-secondary crud-prev me-2">上一页</button>
+        <span class="crud-pageinfo me-2"></span>
+        <button class="btn btn-sm btn-secondary crud-next">下一页</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" tabindex="-1" id="commodityModal"><div class="modal-dialog modal-lg"><div class="modal-content">
+  <div class="modal-header py-3"><h5 class="modal-title">编辑商品</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <form class="modal-form"><div class="modal-body">
+    <input type="hidden" name="id">
+    <div class="row g-3">
+      <div class="col-md-6"><label class="form-label">商品名称</label><input class="form-control" name="name" required></div>
+      <div class="col-md-6"><label class="form-label">分类</label><select class="form-select" name="category_id"></select></div>
+      <div class="col-md-4"><label class="form-label">售价</label><input class="form-control" name="price" type="number" step="0.01" value="0"></div>
+      <div class="col-md-4"><label class="form-label">会员价</label><input class="form-control" name="user_price" type="number" step="0.01" value="0"></div>
+      <div class="col-md-4"><label class="form-label">成本价</label><input class="form-control" name="factory_price" type="number" step="0.01" value="0"></div>
+      <div class="col-md-6"><label class="form-label">封面 URL</label><input class="form-control" name="cover" placeholder="/favicon.ico"></div>
+      <div class="col-md-6"><label class="form-label">商品编码</label><input class="form-control" name="code"></div>
+      <div class="col-md-4"><label class="form-label">发货方式</label>
+        <select class="form-select" name="delivery_way">
+          <option value="0">自动发货(卡密)</option><option value="1">手动发货</option><option value="2">API 供货(预留)</option>
+        </select></div>
+      <div class="col-md-4"><label class="form-label">自动发货模式</label>
+        <select class="form-select" name="delivery_auto_mode"><option value="0">顺序</option><option value="1">随机</option></select></div>
+      <div class="col-md-4"><label class="form-label">排序</label><input class="form-control" name="sort" type="number" value="0"></div>
+      <div class="col-md-6"><label class="form-label">联系方式类型</label>
+        <select class="form-select" name="contact_type"><option value="0">无</option><option value="1">QQ</option><option value="2">邮箱</option><option value="3">手机号</option><option value="4">任意</option></select></div>
+      <div class="col-md-6"><label class="form-label">密码状态</label>
+        <select class="form-select" name="password_status"><option value="0">无密码</option><option value="1">页面设置密码</option></select></div>
+      <div class="col-12"><label class="form-label">发货说明/卡密提示</label><textarea class="form-control" name="delivery_message" rows="2"></textarea></div>
+      <div class="col-12"><label class="form-label">商品介绍</label><textarea class="form-control" name="description" rows="3"></textarea></div>
+      <div class="col-md-3 form-check"><label class="form-check-label">
+        <input class="form-check-input" type="checkbox" name="status" value="1" checked> 启用</label></div>
+      <div class="col-md-3 form-check"><label class="form-check-label">
+        <input class="form-check-input" type="checkbox" name="api_status" value="1"> API开放</label></div>
+      <div class="col-md-3 form-check"><label class="form-check-label">
+        <input class="form-check-input" type="checkbox" name="only_user" value="1"> 仅会员</label></div>
+      <div class="col-md-3 form-check"><label class="form-check-label">
+        <input class="form-check-input" type="checkbox" name="recommend" value="1"> 推荐</label></div>
+    </div>
+  </div><div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+    <button type="submit" class="btn btn-primary">保存</button>
+  </div></form>
+</div></div></div>`;
+
+  const js = `
+  ready(() => {
+    const tbody = document.getElementById('commodity-table').querySelector('tbody');
+    const API = '/admin/api/commodity/';
+    let page = 1, pageSize = 10;
+    function load() {
+      const kw = (document.getElementById('commodity-search').value || '').trim();
+      util.post({ url: API + 'data', data: { page, limit: pageSize, name: kw }, loader: false,
+        done: res => {
+          tbody.innerHTML = '';
+          (res.data.list || []).forEach(c => {
+            const tr = document.createElement('tr');
+            tr.dataset = {
+              id: c.id, name: c.name, category_id: c.category_id, price: c.price, user_price: c.user_price,
+              factory_price: c.factory_price, cover: c.cover || '', code: c.code || '',
+              delivery_way: c.delivery_way || 0, delivery_auto_mode: c.delivery_auto_mode || 0,
+              contact_type: c.contact_type || 0, password_status: c.password_status || 0,
+              sort: c.sort || 0, delivery_message: c.delivery_message || '', description: c.description || '',
+              status: c.status, api_status: c.api_status, only_user: c.only_user, recommend: c.recommend || 0,
+            };
+            tr.innerHTML = '<td><input type="checkbox" class="crud-check"></td>' +
+              '<td>' + c.id + '</td>' +
+              '<td><img src="' + (c.cover || '/favicon.ico') + '" style="width:34px;height:34px;object-fit:cover" class="rounded"></td>' +
+              '<td>' + c.name + '</td>' +
+              '<td>' + (c.category ? c.category.name : '-') + '</td>' +
+              '<td>￥' + c.price + '</td>' +
+              '<td>' + (c.card_count !== undefined ? c.card_count : c.stock ?? '-') + '</td>' +
+              '<td>' + (Number(c.status) === 1 ? '<span class="badge badge-light-success">启用</span>' : '<span class="badge badge-light-danger">停用</span>') + '</td>' +
+              '<td><button class="btn btn-sm btn-light-primary me-2 row-edit">编辑</button>' +
+              '<button class="btn btn-sm btn-light-danger row-del">删除</button>' +
+              '<a class="btn btn-sm btn-light-info row-cards" href="/admin/card/index?commodity_id=' + c.id + '">卡密</a></td>';
+            tbody.appendChild(tr);
+          });
+          document.querySelector('.crud-pageinfo').textContent = '第 ' + page + ' 页 / 共 ' + res.data.count + ' 条';
+        },
+        error: res => message.error(res.msg) });
+    }
+    function selected() { return [...tbody.querySelectorAll('.crud-check:checked')].map(x => x.closest('tr').dataset.id); }
+    document.querySelector('.crud-check-all').addEventListener('change', e => tbody.querySelectorAll('.crud-check').forEach(x => x.checked = e.target.checked));
+    function refreshCats() {
+      util.post({ url: '/admin/api/category/data', loader: false, done: res => {
+        const sel = document.querySelector('select[name="category_id"]');
+        const cur = sel.dataset.cur || '';
+        sel.innerHTML = '<option value="">请选择</option>' + (res.data.list || []).map(c => '<option value="' + c.id + '">' + c.name + '</option>').join('');
+        if (cur) sel.value = cur;
+      }, error: () => {} });
+    }
+    document.querySelector('.crud-add').addEventListener('click', () => {
+      refreshCats();
+      const f = document.querySelector('#commodityModal .modal-form');
+      f.querySelector('input[name="id"]').value = '';
+      f.querySelector('input[name="name"]').value = '';
+      f.querySelector('input[name="price"]').value = '0';
+      f.querySelector('input[name="user_price"]').value = '0';
+      f.querySelector('input[name="factory_price"]').value = '0';
+      f.querySelector('input[name="cover"]').value = '/favicon.ico';
+      f.querySelector('input[name="code"]').value = '';
+      f.querySelector('select[name="delivery_way"]').value = '0';
+      f.querySelector('select[name="delivery_auto_mode"]').value = '0';
+      f.querySelector('input[name="sort"]').value = '0';
+      f.querySelector('select[name="contact_type"]').value = '0';
+      f.querySelector('select[name="password_status"]').value = '0';
+      f.querySelector('textarea[name="delivery_message"]').value = '';
+      f.querySelector('textarea[name="description"]').value = '';
+      ['status','api_status','only_user','recommend'].forEach(n => { const x = f.querySelector('input[name="' + n + '"]'); if (x) x.checked = n === 'status'; });
+      (window.bootstrap && bootstrap.Modal.getOrCreateInstance(document.getElementById('commodityModal'))).show();
+    });
+    tbody.addEventListener('click', e => {
+      const tr = e.target.closest('tr'); if (!tr) return;
+      if (e.target.closest('.row-edit')) {
+        refreshCats();
+        const sel = document.querySelector('select[name="category_id"]'); sel.dataset.cur = tr.dataset.category_id;
+        const f = document.querySelector('#commodityModal .modal-form');
+        for (const k of ['id','name','price','user_price','factory_price','cover','code','delivery_message','description','sort']) {
+          const x = f.querySelector('[name="' + k + '"]'); if (x) x.value = tr.dataset[k] ?? '';
+        }
+        for (const k of ['delivery_way','delivery_auto_mode','contact_type','password_status']) {
+          const x = f.querySelector('[name="' + k + '"]'); if (x) x.value = tr.dataset[k] ?? '0';
+        }
+        ['status','api_status','only_user','recommend'].forEach(n => { const x = f.querySelector('input[name="' + n + '"]'); if (x) x.checked = Number(tr.dataset[n] || 0) === 1; });
+        (window.bootstrap && bootstrap.Modal.getOrCreateInstance(document.getElementById('commodityModal'))).show();
+      }
+      if (e.target.closest('.row-del')) {
+        if (confirm('确认删除商品 ' + tr.dataset.name + ' ?')) {
+          util.post({ url: API + 'del', data: { list: tr.dataset.id }, done: load, error: res => message.error(res.msg) });
+        }
+      }
+    });
+    function batch(field, val) {
+      const ids = selected(); if (!ids.length) return message.error('请先勾选商品');
+      util.post({ url: API + field, data: { list: ids.join(','), status: val }, done: load, error: res => message.error(res.msg) });
+    }
+    document.querySelector('.crud-status-on').addEventListener('click', () => batch('status', '1'));
+    document.querySelector('.crud-status-off').addEventListener('click', () => batch('status', '0'));
+    document.querySelector('.crud-del').addEventListener('click', () => {
+      const ids = selected(); if (!ids.length) return message.error('请先勾选商品');
+      if (confirm('确认删除选中 ' + ids.length + ' 个商品？相关卡密/订单引用会被清理')) {
+        util.post({ url: API + 'del', data: { list: ids.join(',') }, done: load, error: res => message.error(res.msg) });
+      }
+    });
+    document.getElementById('commodity-search').addEventListener('input', () => { page = 1; load(); });
+    document.querySelector('.crud-prev').addEventListener('click', () => { if (page > 1) { page--; load(); } });
+    document.querySelector('.crud-next').addEventListener('click', () => { page++; load(); });
+    document.querySelector('#commodityModal .modal-form').addEventListener('submit', e => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(e.target).entries());
+      if (!data.name.trim()) return message.error('商品名称不能为空');
+      if (!data.category_id) return message.error('请选择商品分类');
+      ['status','api_status','only_user','recommend'].forEach(n => { if (typeof data[n] === 'undefined') data[n] = '0'; });
+      util.post({ url: API + 'save', data, done: () => { message.success('保存成功'); load();
+        if (window.bootstrap) bootstrap.Modal.getInstance(document.getElementById('commodityModal'))?.hide(); },
+        error: res => message.error(res.msg) });
+    });
+    load();
+  });
+  `;
+  return renderCrudPage({ cfg, manage, title: '商品管理', activePath: '/admin/commodity/index', body, readyJs: js });
+}
+
+// 卡密管理页
+export function renderAdminCardPage(cfg, manage, commodityId = 0) {
+  const body = `
+<div class="card mb-5 mb-xl-8">
+  <div class="card-header border-0">
+    <div class="card-toolbar">
+      <button class="btn btn-sm btn-light-primary crud-add me-3"><i class="fa-duotone fa-regular fa-circle-plus"></i> 添加卡密</button>
+      <button class="btn btn-sm btn-light-warning crud-lock me-3"><i class="fa-duotone fa-regular fa-lock"></i> 锁定选中</button>
+      <button class="btn btn-sm btn-light-info crud-unlock me-3"><i class="fa-duotone fa-regular fa-unlock"></i> 解锁选中</button>
+      <button class="btn btn-sm btn-light-danger crud-del me-3"><i class="fa-duotone fa-regular fa-trash-can"></i> 移除选中</button>
+    </div>
+  </div>
+  <div class="card-body py-3">
+    <div class="row g-2 mb-3">
+      <div class="col-md-4"><select class="form-select" id="card-commodity">
+        <option value="">选择商品</option></select></div>
+      <div class="col-md-2"><select class="form-select" id="card-status">
+        <option value="">全部状态</option><option value="0">未售</option><option value="1">已售</option><option value="2">锁定</option></select></div>
+      <div class="col-md-4"><input class="form-control" id="card-search" placeholder="搜索卡密…"></div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-row-bordered table-row-gray-200 align-middle gs-0 gy-3" id="card-table">
+        <thead><tr class="fw-bold text-muted">
+          <th style="width:40px"><input type="checkbox" class="crud-check-all"></th>
+          <th>ID</th><th>商品</th><th>卡密</th><th>状态</th><th>售价成本</th><th>购买时间/订单</th><th>操作</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="d-flex justify-content-end align-items-center mt-3">
+        <button class="btn btn-sm btn-secondary crud-prev me-2">上一页</button>
+        <span class="crud-pageinfo me-2"></span>
+        <button class="btn btn-sm btn-secondary crud-next">下一页</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" tabindex="-1" id="cardModal"><div class="modal-dialog modal-lg"><div class="modal-content">
+  <div class="modal-header py-3"><h5 class="modal-title">添加卡密</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <form class="modal-form"><div class="modal-body">
+    <div class="mb-3"><label class="form-label">商品</label><select class="form-select" name="commodity_id"></select></div>
+    <div class="mb-3"><label class="form-label">卡密内容 <span class="text-muted">(每行一条，支持批量)</span></label>
+      <textarea class="form-control" name="secret" rows="6" required placeholder="CARD-AAAA-1111&#10;CARD-BBBB-2222"></textarea></div>
+    <div class="mb-3"><label class="form-label">成本价</label><input class="form-control" name="cost" type="number" step="0.01" value="0"></div>
+  </div><div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+    <button type="submit" class="btn btn-primary">导入</button>
+  </div></form>
+</div></div></div>`;
+
+  const js = `
+  ready(() => {
+    const tbody = document.getElementById('card-table').querySelector('tbody');
+    const API = '/admin/api/card/';
+    let page = 1, pageSize = 10;
+    const presetId = ${commodityId || 0};
+    function loadCommodities(select, cur) {
+      util.post({ url: '/admin/api/commodity/data', data: { page:1, limit:100 }, loader: false, done: res => {
+        const items = res.data.list || [];
+        const opts = items.filter(c => Number(c.delivery_way) === 0 || c.card_count !== undefined).map(c => '<option value="' + c.id + '">' + c.name + '</option>').join('');
+        select.innerHTML = '<option value="">选择商品</option>' + opts;
+        if (cur) select.value = cur;
+      }, error: () => {} });
+    }
+    function load() {
+      const data = { page, limit: pageSize };
+      const cid = document.getElementById('card-commodity').value;
+      const st = document.getElementById('card-status').value;
+      const kw = document.getElementById('card-search').value.trim();
+      if (cid) data.commodity_id = cid;
+      if (st !== '') data.status = st;
+      if (kw) data.secret = kw;
+      util.post({ url: API + 'data', data, loader: false,
+        done: res => {
+          tbody.innerHTML = '';
+          (res.data.list || []).forEach(c => {
+            const stText = Number(c.status) === 0 ? '<span class="badge badge-light-success">未售</span>'
+              : Number(c.status) === 1 ? '<span class="badge badge-light-secondary">已售</span>'
+              : '<span class="badge badge-light-warning">锁定</span>';
+            const tr = document.createElement('tr');
+            tr.dataset.id = c.id; tr.dataset.secretKey = c.secret; tr.dataset.cost = c.cost || 0;
+            tr.innerHTML = '<td><input type="checkbox" class="crud-check"></td>' +
+              '<td>' + c.id + '</td>' +
+              '<td>' + (c.commodity ? c.commodity.name : ('#' + c.commodity_id)) + '</td>' +
+              '<td><code>' + c.secret + '</code></td>' +
+              '<td>' + stText + '</td>' +
+              '<td>￥' + (c.cost || 0) + '</td>' +
+              '<td>' + (c.purchase_time ? new Date(c.purchase_time * 1000).toLocaleString() : '-') + (c.order ? ' <a href="#">#' + c.order.trade_no + '</a>' : '') + '</td>' +
+              '<td><button class="btn btn-sm btn-light-danger row-del">删除</button></td>';
+            tbody.appendChild(tr);
+          });
+          document.querySelector('.crud-pageinfo').textContent = '第 ' + page + ' 页 / 共 ' + res.data.count + ' 条';
+        },
+        error: res => message.error(res.msg) });
+    }
+    function selected() { return [...tbody.querySelectorAll('.crud-check:checked')].map(x => x.closest('tr').dataset.id); }
+    document.querySelector('.crud-check-all').addEventListener('change', e => tbody.querySelectorAll('.crud-check').forEach(x => x.checked = e.target.checked));
+    const commoditySelect = document.querySelector('#cardModal select[name="commodity_id"]');
+    loadCommodities(commoditySelect, presetId || '');
+    const filterSelect = document.getElementById('card-commodity');
+    loadCommodities(filterSelect, presetId || '');
+    if (presetId) { document.getElementById('card-commodity').value = presetId; }
+    document.getElementById('card-commodity').addEventListener('change', () => { page = 1; load(); });
+    document.getElementById('card-status').addEventListener('change', () => { page = 1; load(); });
+    document.getElementById('card-search').addEventListener('input', () => { page = 1; load(); });
+    document.querySelector('.crud-prev').addEventListener('click', () => { if (page > 1) { page--; load(); } });
+    document.querySelector('.crud-next').addEventListener('click', () => { page++; load(); });
+    document.querySelector('.crud-add').addEventListener('click', () => {
+      const sel = document.querySelector('#cardModal select[name="commodity_id"]');
+      loadCommodities(sel, document.getElementById('card-commodity').value || presetId || '');
+      (window.bootstrap && bootstrap.Modal.getOrCreateInstance(document.getElementById('cardModal'))).show();
+    });
+    tbody.addEventListener('click', e => {
+      const tr = e.target.closest('tr'); if (!tr || !e.target.closest('.row-del')) return;
+      if (confirm('确认删除卡密 ID ' + tr.dataset.id + ' ?')) {
+        util.post({ url: API + 'del', data: { list: tr.dataset.id }, done: load, error: res => message.error(res.msg) });
+      }
+    });
+    document.querySelector('.crud-lock').addEventListener('click', () => {
+      const ids = selected(); if (!ids.length) return message.error('请先勾选卡密');
+      util.post({ url: API + 'lock', data: { list: ids.join(',') }, done: load, error: res => message.error(res.msg) });
+    });
+    document.querySelector('.crud-unlock').addEventListener('click', () => {
+      const ids = selected(); if (!ids.length) return message.error('请先勾选卡密');
+      util.post({ url: API + 'unlock', data: { list: ids.join(',') }, done: load, error: res => message.error(res.msg) });
+    });
+    document.querySelector('.crud-del').addEventListener('click', () => {
+      const ids = selected(); if (!ids.length) return message.error('请先勾选卡密');
+      if (confirm('确认删除选中 ' + ids.length + ' 条未售卡密？')) {
+        util.post({ url: API + 'del', data: { list: ids.join(',') }, done: load, error: res => message.error(res.msg) });
+      }
+    });
+    document.querySelector('#cardModal .modal-form').addEventListener('submit', e => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(e.target).entries());
+      if (!data.commodity_id) return message.error('请选择商品');
+      if (!data.secret.trim()) return message.error('卡密不能为空');
+      util.post({ url: API + 'save', data, done: () => { message.success('导入成功'); load();
+        e.target.querySelector('textarea[name="secret"]').value = '';
+        if (window.bootstrap) bootstrap.Modal.getInstance(document.getElementById('cardModal'))?.hide(); },
+        error: res => message.error(res.msg) });
+    });
+    load();
+  });
+  `;
+  return renderCrudPage({ cfg, manage, title: '卡密管理', activePath: '/admin/card/index', body, readyJs: js });
+}
 function adminMenu(activePath) {
   const items = [
     { icon: '<path d="M19 5v2h-4V5h4M9 5v6H5V5h4m10 8v6h-4v-6h4M9 17v2H5v-2h4M21 3h-8v6h8V3zM11 3H3v10h8V3zm10 8h-8v10h8V11zm-10 4H3v6h8v-6z"/>', name: '控制台', url: '/admin/dashboard/index', section: 'Main' },
