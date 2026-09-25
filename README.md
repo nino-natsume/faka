@@ -46,8 +46,8 @@ d:/desktop/faka/
 ## 部署方式一：GitHub Actions（推荐）
 
 仓库 `nino-natsume/faka` 已内置 CI（`.github/workflows/deploy.yml`）：
-每次 push 到 `main` 或手动触发 `Actions → Deploy to Cloudflare Workers → Run workflow` 时，
-自动完成 **D1 创建（幂等）→ 初始化 schema → 灌入种子数据 → 部署 Worker**。
+**仅支持手动触发**——在仓库 `Actions → Deploy to Cloudflare Workers → Run workflow` 时，
+自动完成 **D1 创建（幂等）→ 初始化 schema → 灌入种子数据 → 部署 Worker**（push 不会自动触发）。
 
 只需在仓库配置以下 Secrets 即可：
 
