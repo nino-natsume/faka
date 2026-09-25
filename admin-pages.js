@@ -1655,3 +1655,240 @@ export function renderAdminRechargePage(cfg, manage) {
 
   return renderCrudPage({ cfg, manage, title: '充值订单', activePath: '/admin/recharge/order', body, readyJs: js });
 }
+
+// ============================================================
+// 优惠券管理页 (对齐 Admin/Api/Coupon)
+// ============================================================
+export function renderAdminCouponPage(cfg, manage) {
+  const body = `
+<div class="card mb-5 mb-xl-8">
+  <div class="card-header border-0">
+    <div class="card-toolbar d-flex flex-wrap">
+      <button class="btn btn-sm btn-light-primary crud-add me-3"><i class="fa-duotone fa-regular fa-ticket"></i> 批量生成</button>
+      <button class="btn btn-sm btn-light-warning coupon-lock me-3"><i class="fa-duotone fa-regular fa-lock"></i> 锁定选中</button>
+      <button class="btn btn-sm btn-light-info coupon-unlock me-3"><i class="fa-duotone fa-regular fa-unlock"></i> 解锁选中</button>
+      <button class="btn btn-sm btn-light-danger coupon-del me-3"><i class="fa-duotone fa-regular fa-trash-can"></i> 移除选中</button>
+      <button class="btn btn-sm btn-light-primary coupon-export me-3"><i class="fa-duotone fa-regular fa-file-export"></i> 导出券码</button>
+    </div>
+  </div>
+  <div class="card-body py-3">
+    <div class="row g-2 mb-3">
+      <div class="col-md-2"><input class="form-control cp-f-code" placeholder="券码"></div>
+      <div class="col-md-2"><select class="form-select cp-f-status"><option value="">全部状态</option><option value="0">未使用</option><option value="1">已使用</option><option value="2">已锁定</option></select></div>
+      <div class="col-md-2"><input class="form-control cp-f-money" placeholder="券面值" inputmode="numeric"></div>
+      <div class="col-md-2"><input class="form-control cp-f-owner" placeholder="会员ID" inputmode="numeric"></div>
+      <div class="col-md-2"><input class="form-control cp-f-note" placeholder="备注信息"></div>
+      <div class="col-md-2"><input class="form-control cp-f-commodity" placeholder="商品ID" inputmode="numeric"></div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-row-bordered table-row-gray-200 align-middle gs-0 gy-3" id="coupon-table">
+        <thead><tr class="fw-bold text-muted">
+          <th style="width:40px"><input type="checkbox" class="crud-check-all"></th>
+          <th>ID</th><th>券码</th><th>抵扣范围</th><th>面值</th><th>剩余/已用次数</th><th>状态</th><th>过期时间</th><th>生成时间</th><th>最后订单号</th><th>备注</th><th>操作</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="d-flex justify-content-end align-items-center mt-3">
+        <button class="btn btn-sm btn-secondary crud-prev me-2">上一页</button>
+        <span class="crud-pageinfo me-2"></span>
+        <button class="btn btn-sm btn-secondary crud-next">下一页</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" tabindex="-1" id="couponModal"><div class="modal-dialog modal-lg"><div class="modal-content">
+  <div class="modal-header py-3"><h5 class="modal-title">批量生成优惠券</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <form class="coupon-form"><div class="modal-body">
+    <div class="row g-3">
+      <div class="col-md-6"><label class="form-label">前缀 <span class="text-muted">(可选, 1-16位 数字字母_-)</span></label>
+        <input class="form-control" name="prefix" maxlength="16" placeholder="如 VIP"></div>
+      <div class="col-md-6"><label class="form-label">数量</label>
+        <input class="form-control" name="num" type="number" min="1" max="1000" value="10" required></div>
+      <div class="col-md-6"><label class="form-label">抵扣模式</label>
+        <select class="form-select" name="mode"><option value="0">金额抵扣</option><option value="1">百分比抵扣(0-1)</option></select></div>
+      <div class="col-md-6"><label class="form-label">优惠金额 / 比例</label>
+        <input class="form-control" name="money" type="number" step="0.01" value="1" required></div>
+      <div class="col-md-6"><label class="form-label">可用次数</label>
+        <input class="form-control" name="life" type="number" min="1" max="1000000" value="1" required></div>
+      <div class="col-md-6"><label class="form-label">过期时间 <span class="text-muted">(可选)</span></label>
+        <input class="form-control" name="expire_time" type="datetime-local"></div>
+      <div class="col-md-6"><label class="form-label">抵扣范围 <span class="text-muted">(商品ID 或 分类ID 选一)</span></label>
+        <input class="form-control" name="commodity_id" type="number" min="0" value="0"></div>
+      <div class="col-md-6"><label class="form-label">商品分类ID <span class="text-muted">(0 不限)</span></label>
+        <input class="form-control" name="category_id" type="number" min="0" value="0"></div>
+      <div class="col-md-6"><label class="form-label">商品种类 race</label>
+        <input class="form-control" name="race" maxlength="32"></div>
+      <div class="col-md-6"><label class="form-label">备注</label>
+        <input class="form-control" name="note" maxlength="32"></div>
+    </div>
+    <div class="mt-3"><label class="form-label">生成结果</label>
+      <textarea class="form-control coupon-result" rows="6" readonly placeholder="生成后券码将显示在此"></textarea></div>
+  </div><div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">关闭</button>
+    <button type="submit" class="btn btn-primary">立即生成</button>
+  </div></form>
+</div></div></div>`;
+
+  const js = `
+  ready(() => {
+    const tbody = document.getElementById('coupon-table').querySelector('tbody');
+    const API = '/admin/api/coupon/';
+    let page = 1, pageSize = 10;
+    const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const sym = '￥';
+    const filters = () => {
+      const d = { page, limit: pageSize };
+      const code = document.querySelector('.cp-f-code').value.trim();
+      const st = document.querySelector('.cp-f-status').value;
+      const mo = document.querySelector('.cp-f-money').value.trim();
+      const ow = document.querySelector('.cp-f-owner').value.trim();
+      const note = document.querySelector('.cp-f-note').value.trim();
+      const cm = document.querySelector('.cp-f-commodity').value.trim();
+      if (code) d['equal-code'] = code;
+      if (st !== '') d['equal-status'] = st;
+      if (mo) d['equal-money'] = mo;
+      if (ow) d['equal-owner'] = ow;
+      if (note) d['equal-note'] = note;
+      if (cm) d['equal-commodity_id'] = cm;
+      return d;
+    };
+    function load() {
+      util.post({ url: API + 'data', data: filters(), loader: false,
+        done: res => {
+          tbody.innerHTML = '';
+          (res.data.list || []).forEach(c => {
+            const stTxt = Number(c.status) === 0 ? '<span class="badge badge-light-success">未使用</span>'
+              : Number(c.status) === 1 ? '<span class="badge badge-light-secondary">已使用</span>'
+              : '<span class="badge badge-light-warning">已锁定</span>';
+            const modeTxt = Number(c.mode) === 1 ? (c.money * 100 + '%') : (sym + c.money);
+            const scope = c.category ? ('分类:' + esc(c.category.name)) : c.commodity ? ('商品:' + esc(c.commodity.name)) : '不限';
+            const tr = document.createElement('tr');
+            tr.dataset.id = c.id;
+            tr.innerHTML = '<td><input type="checkbox" class="crud-check"></td>' +
+              '<td>' + c.id + '</td>' +
+              '<td><code>' + c.code + '</code></td>' +
+              '<td>' + scope + '</td>' +
+              '<td>' + modeTxt + '</td>' +
+              '<td>' + (Number(c.life) - Number(c.use_life)) + ' / ' + c.use_life + '</td>' +
+              '<td>' + stTxt + '</td>' +
+              '<td>' + (c.expire_time ? new Date(c.expire_time * 1000).toLocaleString() : '-') + '</td>' +
+              '<td>' + (c.create_time ? new Date(c.create_time * 1000).toLocaleString() : '-') + '</td>' +
+              '<td>' + esc(c.trade_no || '-') + '</td>' +
+              '<td>' + esc(c.note || '-') + '</td>' +
+              '<td><button class="btn btn-sm btn-light-danger row-del me-1">删除</button>' +
+              (Number(c.status) === 0 ? '<button class="btn btn-sm btn-light-warning row-lock">锁定</button>'
+                : Number(c.status) === 2 ? '<button class="btn btn-sm btn-light-info row-unlock">解锁</button>' : '') +
+              '</td>';
+            tbody.appendChild(tr);
+          });
+          document.querySelector('.crud-pageinfo').textContent = '第 ' + page + ' 页 / 共 ' + (res.data.count || 0) + ' 条';
+        },
+        error: res => message.error(res.msg) });
+    }
+    function selected() { return [...tbody.querySelectorAll('.crud-check:checked')].map(x => x.closest('tr').dataset.id); }
+    document.querySelector('.crud-check-all').addEventListener('change', e => tbody.querySelectorAll('.crud-check').forEach(x => x.checked = e.target.checked));
+    ['.cp-f-code','.cp-f-status','.cp-f-money','.cp-f-owner','.cp-f-note','.cp-f-commodity'].forEach(sel => {
+      document.querySelector(sel).addEventListener('change', () => { page = 1; load(); });
+      document.querySelector(sel).addEventListener('input', () => { page = 1; load(); });
+    });
+    document.querySelector('.crud-prev').addEventListener('click', () => { if (page > 1) { page--; load(); } });
+    document.querySelector('.crud-next').addEventListener('click', () => { page++; load(); });
+
+    document.querySelector('.crud-add').addEventListener('click', () => {
+      (window.bootstrap && bootstrap.Modal.getOrCreateInstance(document.getElementById('couponModal'))).show();
+    });
+    document.querySelector('#couponModal .coupon-form').addEventListener('submit', e => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      const data = { prefix: f.get('prefix') || '', num: f.get('num'), mode: f.get('mode'), money: f.get('money'), life: f.get('life'), commodity_id: f.get('commodity_id') || 0, category_id: f.get('category_id') || 0, race: f.get('race') || '', note: f.get('note') || '' };
+      const exp = f.get('expire_time');
+      if (exp) data.expire_time = exp;
+      util.post({ url: API + 'save', data, done: res => {
+        message.alert(res.msg || '生成完毕', 'success');
+        document.querySelector('.coupon-result').value = (res.data && res.data.code) || '';
+        load();
+      }, error: res => message.error(res.msg) });
+    });
+
+    // 批量锁定/解锁/删除
+    function batch(act, msg, confirmTxt) {
+      const ids = selected();
+      if (!ids.length) { message.error('请至少勾选 1 张优惠卷！'); return; }
+      if (!confirm(confirmTxt + ' ' + ids.length + ' 张?')) return;
+      util.post({ url: API + act, data: { list: ids }, done: res => { message.success(res.msg); load(); }, error: res => message.error(res.msg) });
+    }
+    document.querySelector('.coupon-lock').addEventListener('click', () => batch('lock', '锁定', '确认锁定选中的'));
+    document.querySelector('.coupon-unlock').addEventListener('click', () => batch('unlock', '解锁', '确认解锁选中的'));
+    document.querySelector('.coupon-del').addEventListener('click', () => {
+      const ids = selected();
+      if (!ids.length) { message.error('请至少勾选 1 张优惠卷！'); return; }
+      util.post({ url: API + 'deleteImpact', data: { list: ids }, loader: false, done: res => {
+        const d = res.data || {};
+        const msg = '所选 ' + d.coupon_count + ' 张：未使用 ' + d.normal_count + '、已使用 ' + d.used_count + '、锁定 ' + d.locked_count + '。';
+        if (!d.can_delete) { message.alert(msg + ' 包含已使用/带订单号/被订单引用，已阻止删除。', 'error'); return; }
+        if (!confirm(msg + '\\n\\n确认永久删除？')) return;
+        util.post({ url: API + 'del', data: { list: ids }, done: r => { message.success(r.msg); load(); }, error: r => message.error(r.msg) });
+      }, error: res => message.error(res.msg) });
+    });
+
+    tbody.addEventListener('click', e => {
+      const tr = e.target.closest('tr'); if (!tr) return;
+      const id = tr.dataset.id;
+      if (e.target.closest('.row-del')) {
+        util.post({ url: API + 'deleteImpact', data: { list: id }, loader: false, done: res => {
+          const d = res.data || {};
+          if (!d.can_delete) { message.alert('该券已被使用或引用，无法删除。', 'error'); return; }
+          if (!confirm('确认删除券码 ' + tr.querySelector('code').textContent + ' ?')) return;
+          util.post({ url: API + 'del', data: { list: id }, done: r => { message.success(r.msg); load(); }, error: r => message.error(r.msg) });
+        }, error: res => message.error(res.msg) });
+      } else if (e.target.closest('.row-lock')) {
+        util.post({ url: API + 'lock', data: { list: id }, done: load, error: res => message.error(res.msg) });
+      } else if (e.target.closest('.row-unlock')) {
+        util.post({ url: API + 'unlock', data: { list: id }, done: load, error: res => message.error(res.msg) });
+      }
+    });
+
+    // 导出券码
+    document.querySelector('.coupon-export').addEventListener('click', () => {
+      const payload = {};
+      const code = document.querySelector('.cp-f-code').value.trim();
+      const st = document.querySelector('.cp-f-status').value;
+      const mo = document.querySelector('.cp-f-money').value.trim();
+      const ow = document.querySelector('.cp-f-owner').value.trim();
+      const note = document.querySelector('.cp-f-note').value.trim();
+      const cm = document.querySelector('.cp-f-commodity').value.trim();
+      if (code) payload.coupon_code_secret = code;
+      if (st !== '') payload['equal-status'] = st;
+      if (mo) payload['equal-money'] = mo;
+      if (ow) payload['equal-owner'] = ow;
+      if (note) payload['equal-note'] = note;
+      if (cm) payload['equal-commodity_id'] = cm;
+      util.post({ url: API + 'exportImpact', data: payload, loader: false, done: res => {
+        const d = res.data || {};
+        const total = Number(d.count || 0);
+        if (total < 1) { message.error('当前筛选没有可导出的优惠卷'); return; }
+        if (!confirm('当前筛选共 ' + total + ' 张优惠券（未使用 ' + d.normal_count + '、已使用 ' + d.used_count + '、锁定 ' + d.locked_count + '）。\\n确认导出券码为 txt 文件？')) return;
+        const dl = Object.assign({}, payload, { expected_count: total });
+        fetch(API + 'export', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dl) })
+          .then(r => {
+            const ct = r.headers.get('content-type') || '';
+            if (ct.includes('application/json')) return r.json().then(j => { throw new Error(j.msg || '导出失败'); });
+            return r.blob().then(blob => {
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url; a.download = 'coupons-' + total + '-' + new Date().toISOString().slice(0,10) + '.txt';
+              document.body.appendChild(a); a.click(); a.remove();
+              setTimeout(() => URL.revokeObjectURL(url), 1000);
+              message.success('已导出 ' + total + ' 张优惠券');
+            });
+          })
+          .catch(err => message.error(err.message));
+      }, error: res => message.error(res.msg) });
+    });
+
+    load();
+  });`;
+
+  return renderCrudPage({ cfg, manage, title: '优惠券', activePath: '/admin/coupon/index', body, readyJs: js });
+}

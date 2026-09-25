@@ -1316,6 +1316,250 @@ export async function rechargeClear(env, request, url, body = {}) {
   return apiOk('（＾∀＾）清理完成');
 }
 
+// ============================================================
+// 优惠券管理 (对齐 Admin/Api/Coupon: data/save/edit/lock/unlock/deleteImpact/del/exportImpact/export)
+// ============================================================
+const COUPON_MAX_BATCH = 500;
+const COUPON_MAX_EXPORT = 5000;
+
+function couponIds(value) {
+  const arr = Array.isArray(value) ? value : String(value ?? '').split(',');
+  const ids = [];
+  for (const c of arr) {
+    const id = typeof c === 'number' ? c : Number(String(c).trim());
+    if (!Number.isInteger(id) || id <= 0) throw new Error('优惠卷 ID 必须是正整数');
+    ids.push(id);
+  }
+  return [...new Set(ids)];
+}
+
+function couponCodeRandom() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let s = '';
+  for (let i = 0; i < 16; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
+}
+
+async function couponDeleteImpact2(env, requestedIds, lock = false) {
+  if (!requestedIds.length) throw new Error('请至少选择一张优惠卷');
+  const ph = requestedIds.map(() => '?').join(',');
+  const rows = await dbRows(env, `SELECT id, status, trade_no FROM acg_coupon WHERE id IN (${ph})`, ...requestedIds);
+  if (rows.length !== requestedIds.length) throw new Error('部分优惠卷不存在，请刷新后重试');
+  const ids = rows.map(r => Number(r.id));
+  let normalCount = 0, usedCount = 0, lockedCount = 0, tradeNoCount = 0;
+  for (const r of rows) {
+    const st = Number(r.status);
+    if (st === 0) normalCount++;
+    else if (st === 1) usedCount++;
+    else if (st === 2) lockedCount++;
+    if (String(r.trade_no || '').trim() !== '') tradeNoCount++;
+  }
+  let orderReferenceCount = 0;
+  if (ids.length) {
+    const ref = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_order WHERE coupon_id IN (${ids.map(() => '?').join(',')})`, ...ids);
+    orderReferenceCount = ref ? Number(ref.n) : 0;
+  }
+  return { coupon_ids: ids, coupon_count: ids.length, normal_count: normalCount, used_count: usedCount, locked_count: lockedCount, trade_no_count: tradeNoCount, order_reference_count: orderReferenceCount, can_delete: usedCount === 0 && tradeNoCount === 0 && orderReferenceCount === 0 };
+}
+
+export async function couponData(env, request, url, body = {}) {
+  const page = Math.max(1, Number(body.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(body.limit) || 10));
+  const wheres = [];
+  const params = [];
+  for (const [key, col] of [['equal-code', 'code'], ['equal-note', 'note'], ['equal-money', 'money'], ['equal-owner', 'owner'], ['equal-category_id', 'category_id'], ['equal-commodity_id', 'commodity_id'], ['equal-status', 'status'], ['equal-race', 'race']]) {
+    if (body[key] !== undefined && body[key] !== '') { wheres.push(`${col}=?`); params.push(String(body[key])); }
+  }
+  const where = wheres.length ? ' WHERE ' + wheres.join(' AND ') : '';
+  const total = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_coupon${where}`, ...params);
+  const count = total ? Number(total.n) : 0;
+  const rows = await dbRows(env, `SELECT * FROM acg_coupon${where} ORDER BY id DESC LIMIT ? OFFSET ?`, ...params, pageSize, (page - 1) * pageSize);
+  const list = [];
+  for (const r of rows) {
+    list.push({
+      ...r,
+      owner: r.owner ? (await dbFirst(env, 'SELECT id, username, avatar FROM acg_user WHERE id=?', r.owner)) || null : null,
+      commodity: r.commodity_id ? (await dbFirst(env, 'SELECT id, name, cover FROM acg_commodity WHERE id=?', r.commodity_id)) || null : null,
+      category: r.category_id ? (await dbFirst(env, 'SELECT id, name FROM acg_category WHERE id=?', r.category_id)) || null : null,
+    });
+  }
+  return apiOk('success', { list, page, limit: pageSize, count, records: count, total: count });
+}
+
+// 批量生成优惠卷
+export async function couponSave(env, request, url, body = {}, manage) {
+  const prefix = String(body.prefix || '').trim().toUpperCase();
+  const note = String(body.note || '').trim();
+  const commodityId = Number(body.commodity_id) || 0;
+  const categoryId = Number(body.category_id) || 0;
+  const expireTime = String(body.expire_time || '').trim();
+  const rawMoney = body.money;
+  const num = Number(body.num) || 0;
+  const life = Number(body.life) || 0;
+  const mode = Number(body.mode) ?? -1;
+
+  const money = Number(rawMoney);
+  if (!isFinite(money) || money <= 0) throw new Error('ಠ_ಠ请输入优惠卷价格');
+  if (![0, 1].includes(mode)) throw new Error('请选择正确的抵扣模式');
+  if (mode === 1 && money > 1) throw new Error('百分比抵扣必须大于 0 且小于或等于 1');
+  if (mode === 0 && money > 99999999.99) throw new Error('金额抵扣超出允许范围');
+  if (prefix !== '' && !/^[A-Z0-9_-]{1,16}$/.test(prefix)) throw new Error('优惠卷前缀仅支持 1 到 16 位字母、数字、下划线或短横线');
+  if (note.length > 32) throw new Error('备注信息最多 32 个字符');
+  if (commodityId > 0 && categoryId > 0) throw new Error('商品和商品分类只能选择一个抵扣范围');
+  if (expireTime !== '') {
+    const ts = Date.parse(expireTime.replace('T', ' ').replace(/-/g, '/'));
+    if (isNaN(ts) || Math.floor(ts / 1000) <= now()) throw new Error('ಠ_ಠ优惠卷的过期时间必须晚于当前时间');
+  }
+  if (num < 1 || num > 1000) throw new Error('每次只能生成 1 到 1000 张优惠卷');
+  if (life < 1 || life > 1000000) throw new Error('可用次数必须是 1 到 1000000 之间的整数');
+  if (categoryId > 0) {
+    const cat = await dbFirst(env, 'SELECT id FROM acg_category WHERE id=? AND owner=0', categoryId);
+    if (!cat) throw new Error('所选商品分类不存在');
+  }
+  if (commodityId > 0) {
+    const com = await dbFirst(env, 'SELECT id FROM acg_commodity WHERE id=? AND owner=0', commodityId);
+    if (!com) throw new Error('所选商品不存在');
+  }
+  const t = now();
+  const expireTs = expireTime !== '' ? Math.floor(Date.parse(expireTime.replace('T', ' ').replace(/-/g, '/')) / 1000) : 0;
+  let success = 0, error = 0;
+  const codes = [];
+  for (let i = 0; i < num; i++) {
+    const code = prefix + couponCodeRandom();
+    try {
+      await dbInsert(env, 'acg_coupon', {
+        code, commodity_id: commodityId, category_id: categoryId, owner: 0, create_time: t,
+        ...(expireTs ? { expire_time: expireTs } : {}),
+        money, status: 0, note, life, use_life: 0, mode, sku: body.sku && typeof body.sku === 'object' ? JSON.stringify(body.sku) : '',
+        ...(String(body.race || '').trim() !== '' ? { race: String(body.race).trim() } : {}),
+      });
+      success++;
+      codes.push(code);
+    } catch (e2) { error++; }
+  }
+  try { await dbInsert(env, 'acg_manage_log', { email: 'admin', nickname: '', content: `[生成优惠卷]成功:${success}张，失败：${error}张`, create_time: now(), create_ip: requestInfo(request).ip, ua: '', risk: 0 }); } catch (e) {}
+  return apiOk(`生成完毕，成功:${success}张，失败：${error}张`, { success, error, code: codes.join('\n') + (codes.length ? '\n' : '') });
+}
+
+// 修改单个优惠卷状态 (0/2)，已使用(1)不能改
+export async function couponEdit(env, request, url, body = {}) {
+  const id = Number(body.id) || 0;
+  const status = Number(body.status) ?? -1;
+  if (id <= 0 || ![0, 2].includes(status)) throw new Error('请求参数不正确');
+  const coupon = await dbFirst(env, 'SELECT * FROM acg_coupon WHERE id=?', id);
+  if (!coupon) throw new Error('优惠卷不存在');
+  if (Number(coupon.status) === 1) throw new Error('已使用的优惠卷不能修改状态');
+  await dbRun(env, 'UPDATE acg_coupon SET status=? WHERE id=?', status, id);
+  return apiOk('（＾∀＾）保存成功');
+}
+
+export async function couponLock(env, request, url, body = {}, doLock = true) {
+  const list = couponIds(body.list);
+  if (!list.length) throw new Error('请选择要锁定的优惠卷');
+  const ph = list.map(() => '?').join(',');
+  const st = doLock ? 2 : 0;
+  const src = doLock ? 0 : 2;
+  const r = await dbRun(env, `UPDATE acg_coupon SET status=? WHERE id IN (${ph}) AND status=?`, st, ...list, src);
+  const changes = (r && r.meta && r.meta.changes !== undefined) ? Number(r.meta.changes) : (r && r.changes !== undefined ? Number(r.changes) : list.length);
+  const count = changes;
+  try { await dbInsert(env, 'acg_manage_log', { email: 'admin', nickname: '', content: `[${doLock ? '锁定' : '解锁'}优惠卷]批量${doLock ? '锁定' : '解锁'}了优惠卷，共计：${count}`, create_time: now(), create_ip: requestInfo(request).ip, ua: '', risk: 0 }); } catch (e) {}
+  return apiOk(count > 0 ? (doLock ? '锁定成功' : '解锁成功') : (doLock ? '没有可锁定的优惠卷' : '没有可解锁的优惠卷'), { count, requested_count: list.length });
+}
+
+export async function couponDeleteImpact(env, request, url, body = {}) {
+  const impact = await couponDeleteImpact2(env, couponIds(body.list));
+  delete impact.coupon_ids;
+  return apiOk('success', impact);
+}
+
+// 物理删除(保护已使用/带订单号/被订单引用的优惠卷)
+export async function couponDel(env, request, url, body = {}, manage) {
+  const requestedIds = couponIds(body.list);
+  const impact = await couponDeleteImpact2(env, requestedIds, true);
+  if (!impact.can_delete) {
+    throw new Error(`所选优惠卷中包含 ${impact.used_count} 张已使用优惠卷、${impact.trade_no_count} 张带最后使用订单号的优惠卷，另有 ${impact.order_reference_count} 笔订单引用；为保护历史记录，已阻止删除。`);
+  }
+  const ids = impact.coupon_ids;
+  const ph = ids.map(() => '?').join(',');
+  await dbRun(env, `DELETE FROM acg_coupon WHERE id IN (${ph}) AND status!=1 AND (trade_no IS NULL OR trade_no='') AND id NOT IN (SELECT coupon_id FROM acg_order WHERE coupon_id IS NOT NULL)`, ...ids);
+  try { await dbInsert(env, 'acg_manage_log', { email: 'admin', nickname: '', content: `[批量删除]删除未使用优惠卷，共计：${impact.coupon_count}`, create_time: now(), create_ip: requestInfo(request).ip, ua: '', risk: 0 }); } catch (e) {}
+  return apiOk('（＾∀＾）移除成功', { count: impact.coupon_count });
+}
+
+// 构建导出筛选 (POST-only 白名单)
+function couponExportWhere(body) {
+  const wheres = [];
+  const params = [];
+  const addStr = (key, col, maxLen = 32) => {
+    const v = body[key];
+    if (v === undefined || v === null || v === '') return;
+    if (typeof v !== 'string' && typeof v !== 'number') throw new Error('优惠卷导出筛选条件不正确');
+    const s = String(v).trim();
+    if (!s) return;
+    if (s.length > maxLen) throw new Error('优惠卷导出筛选条件过长');
+    wheres.push(`${col}=?`); params.push(s);
+  };
+  addStr('coupon_code_secret', 'code', 32);
+  addStr('equal-note', 'note', 32);
+  addStr('equal-race', 'race', 32);
+  const rawMoney = body['equal-money'];
+  if (rawMoney !== undefined && rawMoney !== null && rawMoney !== '') {
+    const m = Number(rawMoney);
+    if (!isFinite(m) || m <= 0 || m > 99999999.99) throw new Error('优惠卷面值筛选不正确');
+    wheres.push('money=?'); params.push(m);
+  }
+  for (const [key, col] of [['equal-owner', 'owner'], ['equal-category_id', 'category_id'], ['equal-commodity_id', 'commodity_id'], ['equal-status', 'status']]) {
+    const v = body[key];
+    if (v === undefined || v === null || v === '') continue;
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < 0 || (col === 'status' && ![0, 1, 2].includes(n))) throw new Error('优惠卷导出筛选条件不正确');
+    wheres.push(`${col}=?`); params.push(n);
+  }
+  for (const key of Object.keys(body || {})) {
+    if (!key.startsWith('equal-sku-')) continue;
+    const v = body[key];
+    if (v === undefined || v === null || v === '') continue;
+    const skKey = key.slice(10);
+    const s = String(v).trim();
+    wheres.push(`sku LIKE ?`); params.push(`%"${skKey}":"${s}"%`);
+  }
+  return { where: wheres.length ? ' WHERE ' + wheres.join(' AND ') : '', params, hasFilter: wheres.length > 0 };
+}
+
+export async function couponExportImpact(env, request, url, body = {}) {
+  const { where, params, hasFilter } = couponExportWhere(body);
+  const total = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_coupon${where}`, ...params);
+  const count = total ? Number(total.n) : 0;
+  if (count === 0) throw new Error('当前筛选没有可导出的优惠卷');
+  if (count > COUPON_MAX_EXPORT) throw new Error(`当前范围过大，请增加筛选；单次最多导出 ${COUPON_MAX_EXPORT} 张优惠卷`);
+  const statusRows = await dbRows(env, `SELECT status FROM acg_coupon${where}`, ...params);
+  const statusCounts = { 0: 0, 1: 0, 2: 0 };
+  for (const r of statusRows) {
+    const st = Number(r.status);
+    if (st in statusCounts) statusCounts[st]++;
+  }
+  return apiOk('success', { count, total: count, has_filter: hasFilter, normal_count: statusCounts[0], used_count: statusCounts[1], locked_count: statusCounts[2], max_count: COUPON_MAX_EXPORT });
+}
+
+// 导出券码 (POST only, txt 文件)
+export async function couponExport(env, request, url, body = {}, manage) {
+  const expectedCount = Number(body.expected_count);
+  if (!Number.isInteger(expectedCount) || expectedCount < 1 || expectedCount > COUPON_MAX_EXPORT) throw new Error('请先预览并确认本次导出数量');
+  const { where, params } = couponExportWhere(body);
+  const total = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_coupon${where}`, ...params);
+  const count = total ? Number(total.n) : 0;
+  if (count === 0) throw new Error('当前筛选没有可导出的优惠卷');
+  if (count > COUPON_MAX_EXPORT) throw new Error(`当前范围过大，请增加筛选；单次最多导出 ${COUPON_MAX_EXPORT} 张优惠卷`);
+  if (count !== expectedCount) throw new Error('优惠卷数量已变化，请重新预览导出范围');
+  const rows = await dbRows(env, `SELECT code FROM acg_coupon${where} ORDER BY id ASC`, ...params);
+  if (rows.length !== expectedCount) throw new Error('优惠卷数据已变化，请重新预览导出范围');
+  const content = rows.map(r => String(r.code)).join('\n') + '\n';
+  try { await dbInsert(env, 'acg_manage_log', { email: 'admin', nickname: '', content: `[优惠卷导出]导出优惠卷，共计：${count}`, create_time: now(), create_ip: requestInfo(request).ip, ua: '', risk: 0 }); } catch (e) {}
+  const d = new Date();
+  const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, '0')}${String(d.getDate()).padStart(2, '0')}-${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}${String(d.getSeconds()).padStart(2, '0')}`;
+  return new Response(content, { status: 200, headers: { 'Content-Type': 'text/plain; charset=UTF-8', 'Content-Disposition': `attachment; filename=coupons-${count}-${stamp}.txt` } });
+}
+
 export async function adminEndpoint(env, request, url, ctl, act, body) {
   if (ctl === 'authentication' && act === 'login') return adminLogin(env, request, url, body);
   // 以下接口需要登录
@@ -1398,6 +1642,22 @@ export async function adminEndpoint(env, request, url, ctl, act, body) {
       if (act === 'data') return await rechargeData(env, request, url, body);
       if (act === 'success') return await rechargeSuccess(env, request, url, body);
       if (act === 'clear') return await rechargeClear(env, request, url, body);
+    } catch (e) {
+      return apiErr(e && e.message ? String(e.message) : '操作失败');
+    }
+  }
+  // 优惠券
+  if (ctl === 'coupon') {
+    try {
+      if (act === 'data') return await couponData(env, request, url, body);
+      if (act === 'save') return await couponSave(env, request, url, body, manage);
+      if (act === 'edit') return await couponEdit(env, request, url, body);
+      if (act === 'lock') return await couponLock(env, request, url, body, true);
+      if (act === 'unlock') return await couponLock(env, request, url, body, false);
+      if (act === 'deleteImpact') return await couponDeleteImpact(env, request, url, body);
+      if (act === 'del') return await couponDel(env, request, url, body, manage);
+      if (act === 'exportImpact') return await couponExportImpact(env, request, url, body);
+      if (act === 'export') return await couponExport(env, request, url, body, manage);
     } catch (e) {
       return apiErr(e && e.message ? String(e.message) : '操作失败');
     }

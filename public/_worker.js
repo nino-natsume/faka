@@ -1820,10 +1820,10 @@ async function safeCategoryDeleteImpact(env, requestedIds) {
     const c2 = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_card WHERE commodity_id IN (${commodityIds.map(() => "?").join(",")})`, ...commodityIds);
     cardCount = c2 ? Number(c2.n) : 0;
   }
-  let couponIds = [], userCategoryIds = [], configReferenceIds = [];
+  let couponIds2 = [], userCategoryIds = [], configReferenceIds = [];
   if (scopeIds.length) {
     const cp = await dbRows(env, `SELECT id, status, trade_no FROM acg_coupon WHERE category_id IN (${scopeIds.map(() => "?").join(",")})`, ...scopeIds);
-    couponIds = cp.map((r) => Number(r.id));
+    couponIds2 = cp.map((r) => Number(r.id));
     const uc = await dbRows(env, `SELECT id FROM acg_user_category WHERE category_id IN (${scopeIds.map(() => "?").join(",")})`, ...scopeIds);
     userCategoryIds = uc.map((r) => Number(r.id));
     const cf = await dbRows(env, `SELECT id FROM acg_config WHERE "key"='default_category' AND value IN (${scopeIds.map(() => "?").join(",")})`, ...scopeIds.map(String));
@@ -1838,7 +1838,7 @@ async function safeCategoryDeleteImpact(env, requestedIds) {
     commodity_count: commodityIds.length,
     order_count: orderCount,
     card_count: cardCount,
-    coupon_count: couponIds.length,
+    coupon_count: couponIds2.length,
     used_coupon_count: 0,
     user_category_count: userCategoryIds.length,
     config_reference_count: configReferenceIds.length,
@@ -2551,6 +2551,258 @@ async function rechargeClear(env, request, url, body = {}) {
   }
   return apiOk("\uFF08\uFF3E\u2200\uFF3E\uFF09\u6E05\u7406\u5B8C\u6210");
 }
+var COUPON_MAX_EXPORT = 5e3;
+function couponIds(value) {
+  const arr = Array.isArray(value) ? value : String(value ?? "").split(",");
+  const ids = [];
+  for (const c of arr) {
+    const id = typeof c === "number" ? c : Number(String(c).trim());
+    if (!Number.isInteger(id) || id <= 0) throw new Error("\u4F18\u60E0\u5377 ID \u5FC5\u987B\u662F\u6B63\u6574\u6570");
+    ids.push(id);
+  }
+  return [...new Set(ids)];
+}
+function couponCodeRandom() {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  let s = "";
+  for (let i = 0; i < 16; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
+}
+async function couponDeleteImpact2(env, requestedIds, lock = false) {
+  if (!requestedIds.length) throw new Error("\u8BF7\u81F3\u5C11\u9009\u62E9\u4E00\u5F20\u4F18\u60E0\u5377");
+  const ph = requestedIds.map(() => "?").join(",");
+  const rows = await dbRows(env, `SELECT id, status, trade_no FROM acg_coupon WHERE id IN (${ph})`, ...requestedIds);
+  if (rows.length !== requestedIds.length) throw new Error("\u90E8\u5206\u4F18\u60E0\u5377\u4E0D\u5B58\u5728\uFF0C\u8BF7\u5237\u65B0\u540E\u91CD\u8BD5");
+  const ids = rows.map((r) => Number(r.id));
+  let normalCount = 0, usedCount = 0, lockedCount = 0, tradeNoCount = 0;
+  for (const r of rows) {
+    const st = Number(r.status);
+    if (st === 0) normalCount++;
+    else if (st === 1) usedCount++;
+    else if (st === 2) lockedCount++;
+    if (String(r.trade_no || "").trim() !== "") tradeNoCount++;
+  }
+  let orderReferenceCount = 0;
+  if (ids.length) {
+    const ref = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_order WHERE coupon_id IN (${ids.map(() => "?").join(",")})`, ...ids);
+    orderReferenceCount = ref ? Number(ref.n) : 0;
+  }
+  return { coupon_ids: ids, coupon_count: ids.length, normal_count: normalCount, used_count: usedCount, locked_count: lockedCount, trade_no_count: tradeNoCount, order_reference_count: orderReferenceCount, can_delete: usedCount === 0 && tradeNoCount === 0 && orderReferenceCount === 0 };
+}
+async function couponData(env, request, url, body = {}) {
+  const page = Math.max(1, Number(body.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(body.limit) || 10));
+  const wheres = [];
+  const params = [];
+  for (const [key, col] of [["equal-code", "code"], ["equal-note", "note"], ["equal-money", "money"], ["equal-owner", "owner"], ["equal-category_id", "category_id"], ["equal-commodity_id", "commodity_id"], ["equal-status", "status"], ["equal-race", "race"]]) {
+    if (body[key] !== void 0 && body[key] !== "") {
+      wheres.push(`${col}=?`);
+      params.push(String(body[key]));
+    }
+  }
+  const where = wheres.length ? " WHERE " + wheres.join(" AND ") : "";
+  const total = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_coupon${where}`, ...params);
+  const count = total ? Number(total.n) : 0;
+  const rows = await dbRows(env, `SELECT * FROM acg_coupon${where} ORDER BY id DESC LIMIT ? OFFSET ?`, ...params, pageSize, (page - 1) * pageSize);
+  const list = [];
+  for (const r of rows) {
+    list.push({
+      ...r,
+      owner: r.owner ? await dbFirst(env, "SELECT id, username, avatar FROM acg_user WHERE id=?", r.owner) || null : null,
+      commodity: r.commodity_id ? await dbFirst(env, "SELECT id, name, cover FROM acg_commodity WHERE id=?", r.commodity_id) || null : null,
+      category: r.category_id ? await dbFirst(env, "SELECT id, name FROM acg_category WHERE id=?", r.category_id) || null : null
+    });
+  }
+  return apiOk("success", { list, page, limit: pageSize, count, records: count, total: count });
+}
+async function couponSave(env, request, url, body = {}, manage) {
+  const prefix = String(body.prefix || "").trim().toUpperCase();
+  const note = String(body.note || "").trim();
+  const commodityId = Number(body.commodity_id) || 0;
+  const categoryId = Number(body.category_id) || 0;
+  const expireTime = String(body.expire_time || "").trim();
+  const rawMoney = body.money;
+  const num = Number(body.num) || 0;
+  const life = Number(body.life) || 0;
+  const mode = Number(body.mode) ?? -1;
+  const money2 = Number(rawMoney);
+  if (!isFinite(money2) || money2 <= 0) throw new Error("\u0CA0_\u0CA0\u8BF7\u8F93\u5165\u4F18\u60E0\u5377\u4EF7\u683C");
+  if (![0, 1].includes(mode)) throw new Error("\u8BF7\u9009\u62E9\u6B63\u786E\u7684\u62B5\u6263\u6A21\u5F0F");
+  if (mode === 1 && money2 > 1) throw new Error("\u767E\u5206\u6BD4\u62B5\u6263\u5FC5\u987B\u5927\u4E8E 0 \u4E14\u5C0F\u4E8E\u6216\u7B49\u4E8E 1");
+  if (mode === 0 && money2 > 9999999999e-2) throw new Error("\u91D1\u989D\u62B5\u6263\u8D85\u51FA\u5141\u8BB8\u8303\u56F4");
+  if (prefix !== "" && !/^[A-Z0-9_-]{1,16}$/.test(prefix)) throw new Error("\u4F18\u60E0\u5377\u524D\u7F00\u4EC5\u652F\u6301 1 \u5230 16 \u4F4D\u5B57\u6BCD\u3001\u6570\u5B57\u3001\u4E0B\u5212\u7EBF\u6216\u77ED\u6A2A\u7EBF");
+  if (note.length > 32) throw new Error("\u5907\u6CE8\u4FE1\u606F\u6700\u591A 32 \u4E2A\u5B57\u7B26");
+  if (commodityId > 0 && categoryId > 0) throw new Error("\u5546\u54C1\u548C\u5546\u54C1\u5206\u7C7B\u53EA\u80FD\u9009\u62E9\u4E00\u4E2A\u62B5\u6263\u8303\u56F4");
+  if (expireTime !== "") {
+    const ts = Date.parse(expireTime.replace("T", " ").replace(/-/g, "/"));
+    if (isNaN(ts) || Math.floor(ts / 1e3) <= now()) throw new Error("\u0CA0_\u0CA0\u4F18\u60E0\u5377\u7684\u8FC7\u671F\u65F6\u95F4\u5FC5\u987B\u665A\u4E8E\u5F53\u524D\u65F6\u95F4");
+  }
+  if (num < 1 || num > 1e3) throw new Error("\u6BCF\u6B21\u53EA\u80FD\u751F\u6210 1 \u5230 1000 \u5F20\u4F18\u60E0\u5377");
+  if (life < 1 || life > 1e6) throw new Error("\u53EF\u7528\u6B21\u6570\u5FC5\u987B\u662F 1 \u5230 1000000 \u4E4B\u95F4\u7684\u6574\u6570");
+  if (categoryId > 0) {
+    const cat = await dbFirst(env, "SELECT id FROM acg_category WHERE id=? AND owner=0", categoryId);
+    if (!cat) throw new Error("\u6240\u9009\u5546\u54C1\u5206\u7C7B\u4E0D\u5B58\u5728");
+  }
+  if (commodityId > 0) {
+    const com = await dbFirst(env, "SELECT id FROM acg_commodity WHERE id=? AND owner=0", commodityId);
+    if (!com) throw new Error("\u6240\u9009\u5546\u54C1\u4E0D\u5B58\u5728");
+  }
+  const t = now();
+  const expireTs = expireTime !== "" ? Math.floor(Date.parse(expireTime.replace("T", " ").replace(/-/g, "/")) / 1e3) : 0;
+  let success = 0, error = 0;
+  const codes = [];
+  for (let i = 0; i < num; i++) {
+    const code = prefix + couponCodeRandom();
+    try {
+      await dbInsert(env, "acg_coupon", {
+        code,
+        commodity_id: commodityId,
+        category_id: categoryId,
+        owner: 0,
+        create_time: t,
+        ...expireTs ? { expire_time: expireTs } : {},
+        money: money2,
+        status: 0,
+        note,
+        life,
+        use_life: 0,
+        mode,
+        sku: body.sku && typeof body.sku === "object" ? JSON.stringify(body.sku) : "",
+        ...String(body.race || "").trim() !== "" ? { race: String(body.race).trim() } : {}
+      });
+      success++;
+      codes.push(code);
+    } catch (e2) {
+      error++;
+    }
+  }
+  try {
+    await dbInsert(env, "acg_manage_log", { email: "admin", nickname: "", content: `[\u751F\u6210\u4F18\u60E0\u5377]\u6210\u529F:${success}\u5F20\uFF0C\u5931\u8D25\uFF1A${error}\u5F20`, create_time: now(), create_ip: requestInfo(request).ip, ua: "", risk: 0 });
+  } catch (e) {
+  }
+  return apiOk(`\u751F\u6210\u5B8C\u6BD5\uFF0C\u6210\u529F:${success}\u5F20\uFF0C\u5931\u8D25\uFF1A${error}\u5F20`, { success, error, code: codes.join("\n") + (codes.length ? "\n" : "") });
+}
+async function couponEdit(env, request, url, body = {}) {
+  const id = Number(body.id) || 0;
+  const status = Number(body.status) ?? -1;
+  if (id <= 0 || ![0, 2].includes(status)) throw new Error("\u8BF7\u6C42\u53C2\u6570\u4E0D\u6B63\u786E");
+  const coupon = await dbFirst(env, "SELECT * FROM acg_coupon WHERE id=?", id);
+  if (!coupon) throw new Error("\u4F18\u60E0\u5377\u4E0D\u5B58\u5728");
+  if (Number(coupon.status) === 1) throw new Error("\u5DF2\u4F7F\u7528\u7684\u4F18\u60E0\u5377\u4E0D\u80FD\u4FEE\u6539\u72B6\u6001");
+  await dbRun(env, "UPDATE acg_coupon SET status=? WHERE id=?", status, id);
+  return apiOk("\uFF08\uFF3E\u2200\uFF3E\uFF09\u4FDD\u5B58\u6210\u529F");
+}
+async function couponLock(env, request, url, body = {}, doLock = true) {
+  const list = couponIds(body.list);
+  if (!list.length) throw new Error("\u8BF7\u9009\u62E9\u8981\u9501\u5B9A\u7684\u4F18\u60E0\u5377");
+  const ph = list.map(() => "?").join(",");
+  const st = doLock ? 2 : 0;
+  const src = doLock ? 0 : 2;
+  const r = await dbRun(env, `UPDATE acg_coupon SET status=? WHERE id IN (${ph}) AND status=?`, st, ...list, src);
+  const changes = r && r.meta && r.meta.changes !== void 0 ? Number(r.meta.changes) : r && r.changes !== void 0 ? Number(r.changes) : list.length;
+  const count = changes;
+  try {
+    await dbInsert(env, "acg_manage_log", { email: "admin", nickname: "", content: `[${doLock ? "\u9501\u5B9A" : "\u89E3\u9501"}\u4F18\u60E0\u5377]\u6279\u91CF${doLock ? "\u9501\u5B9A" : "\u89E3\u9501"}\u4E86\u4F18\u60E0\u5377\uFF0C\u5171\u8BA1\uFF1A${count}`, create_time: now(), create_ip: requestInfo(request).ip, ua: "", risk: 0 });
+  } catch (e) {
+  }
+  return apiOk(count > 0 ? doLock ? "\u9501\u5B9A\u6210\u529F" : "\u89E3\u9501\u6210\u529F" : doLock ? "\u6CA1\u6709\u53EF\u9501\u5B9A\u7684\u4F18\u60E0\u5377" : "\u6CA1\u6709\u53EF\u89E3\u9501\u7684\u4F18\u60E0\u5377", { count, requested_count: list.length });
+}
+async function couponDeleteImpact(env, request, url, body = {}) {
+  const impact = await couponDeleteImpact2(env, couponIds(body.list));
+  delete impact.coupon_ids;
+  return apiOk("success", impact);
+}
+async function couponDel(env, request, url, body = {}, manage) {
+  const requestedIds = couponIds(body.list);
+  const impact = await couponDeleteImpact2(env, requestedIds, true);
+  if (!impact.can_delete) {
+    throw new Error(`\u6240\u9009\u4F18\u60E0\u5377\u4E2D\u5305\u542B ${impact.used_count} \u5F20\u5DF2\u4F7F\u7528\u4F18\u60E0\u5377\u3001${impact.trade_no_count} \u5F20\u5E26\u6700\u540E\u4F7F\u7528\u8BA2\u5355\u53F7\u7684\u4F18\u60E0\u5377\uFF0C\u53E6\u6709 ${impact.order_reference_count} \u7B14\u8BA2\u5355\u5F15\u7528\uFF1B\u4E3A\u4FDD\u62A4\u5386\u53F2\u8BB0\u5F55\uFF0C\u5DF2\u963B\u6B62\u5220\u9664\u3002`);
+  }
+  const ids = impact.coupon_ids;
+  const ph = ids.map(() => "?").join(",");
+  await dbRun(env, `DELETE FROM acg_coupon WHERE id IN (${ph}) AND status!=1 AND (trade_no IS NULL OR trade_no='') AND id NOT IN (SELECT coupon_id FROM acg_order WHERE coupon_id IS NOT NULL)`, ...ids);
+  try {
+    await dbInsert(env, "acg_manage_log", { email: "admin", nickname: "", content: `[\u6279\u91CF\u5220\u9664]\u5220\u9664\u672A\u4F7F\u7528\u4F18\u60E0\u5377\uFF0C\u5171\u8BA1\uFF1A${impact.coupon_count}`, create_time: now(), create_ip: requestInfo(request).ip, ua: "", risk: 0 });
+  } catch (e) {
+  }
+  return apiOk("\uFF08\uFF3E\u2200\uFF3E\uFF09\u79FB\u9664\u6210\u529F", { count: impact.coupon_count });
+}
+function couponExportWhere(body) {
+  const wheres = [];
+  const params = [];
+  const addStr = (key, col, maxLen = 32) => {
+    const v = body[key];
+    if (v === void 0 || v === null || v === "") return;
+    if (typeof v !== "string" && typeof v !== "number") throw new Error("\u4F18\u60E0\u5377\u5BFC\u51FA\u7B5B\u9009\u6761\u4EF6\u4E0D\u6B63\u786E");
+    const s = String(v).trim();
+    if (!s) return;
+    if (s.length > maxLen) throw new Error("\u4F18\u60E0\u5377\u5BFC\u51FA\u7B5B\u9009\u6761\u4EF6\u8FC7\u957F");
+    wheres.push(`${col}=?`);
+    params.push(s);
+  };
+  addStr("coupon_code_secret", "code", 32);
+  addStr("equal-note", "note", 32);
+  addStr("equal-race", "race", 32);
+  const rawMoney = body["equal-money"];
+  if (rawMoney !== void 0 && rawMoney !== null && rawMoney !== "") {
+    const m = Number(rawMoney);
+    if (!isFinite(m) || m <= 0 || m > 9999999999e-2) throw new Error("\u4F18\u60E0\u5377\u9762\u503C\u7B5B\u9009\u4E0D\u6B63\u786E");
+    wheres.push("money=?");
+    params.push(m);
+  }
+  for (const [key, col] of [["equal-owner", "owner"], ["equal-category_id", "category_id"], ["equal-commodity_id", "commodity_id"], ["equal-status", "status"]]) {
+    const v = body[key];
+    if (v === void 0 || v === null || v === "") continue;
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < 0 || col === "status" && ![0, 1, 2].includes(n)) throw new Error("\u4F18\u60E0\u5377\u5BFC\u51FA\u7B5B\u9009\u6761\u4EF6\u4E0D\u6B63\u786E");
+    wheres.push(`${col}=?`);
+    params.push(n);
+  }
+  for (const key of Object.keys(body || {})) {
+    if (!key.startsWith("equal-sku-")) continue;
+    const v = body[key];
+    if (v === void 0 || v === null || v === "") continue;
+    const skKey = key.slice(10);
+    const s = String(v).trim();
+    wheres.push(`sku LIKE ?`);
+    params.push(`%"${skKey}":"${s}"%`);
+  }
+  return { where: wheres.length ? " WHERE " + wheres.join(" AND ") : "", params, hasFilter: wheres.length > 0 };
+}
+async function couponExportImpact(env, request, url, body = {}) {
+  const { where, params, hasFilter } = couponExportWhere(body);
+  const total = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_coupon${where}`, ...params);
+  const count = total ? Number(total.n) : 0;
+  if (count === 0) throw new Error("\u5F53\u524D\u7B5B\u9009\u6CA1\u6709\u53EF\u5BFC\u51FA\u7684\u4F18\u60E0\u5377");
+  if (count > COUPON_MAX_EXPORT) throw new Error(`\u5F53\u524D\u8303\u56F4\u8FC7\u5927\uFF0C\u8BF7\u589E\u52A0\u7B5B\u9009\uFF1B\u5355\u6B21\u6700\u591A\u5BFC\u51FA ${COUPON_MAX_EXPORT} \u5F20\u4F18\u60E0\u5377`);
+  const statusRows = await dbRows(env, `SELECT status FROM acg_coupon${where}`, ...params);
+  const statusCounts = { 0: 0, 1: 0, 2: 0 };
+  for (const r of statusRows) {
+    const st = Number(r.status);
+    if (st in statusCounts) statusCounts[st]++;
+  }
+  return apiOk("success", { count, total: count, has_filter: hasFilter, normal_count: statusCounts[0], used_count: statusCounts[1], locked_count: statusCounts[2], max_count: COUPON_MAX_EXPORT });
+}
+async function couponExport(env, request, url, body = {}, manage) {
+  const expectedCount = Number(body.expected_count);
+  if (!Number.isInteger(expectedCount) || expectedCount < 1 || expectedCount > COUPON_MAX_EXPORT) throw new Error("\u8BF7\u5148\u9884\u89C8\u5E76\u786E\u8BA4\u672C\u6B21\u5BFC\u51FA\u6570\u91CF");
+  const { where, params } = couponExportWhere(body);
+  const total = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_coupon${where}`, ...params);
+  const count = total ? Number(total.n) : 0;
+  if (count === 0) throw new Error("\u5F53\u524D\u7B5B\u9009\u6CA1\u6709\u53EF\u5BFC\u51FA\u7684\u4F18\u60E0\u5377");
+  if (count > COUPON_MAX_EXPORT) throw new Error(`\u5F53\u524D\u8303\u56F4\u8FC7\u5927\uFF0C\u8BF7\u589E\u52A0\u7B5B\u9009\uFF1B\u5355\u6B21\u6700\u591A\u5BFC\u51FA ${COUPON_MAX_EXPORT} \u5F20\u4F18\u60E0\u5377`);
+  if (count !== expectedCount) throw new Error("\u4F18\u60E0\u5377\u6570\u91CF\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u9884\u89C8\u5BFC\u51FA\u8303\u56F4");
+  const rows = await dbRows(env, `SELECT code FROM acg_coupon${where} ORDER BY id ASC`, ...params);
+  if (rows.length !== expectedCount) throw new Error("\u4F18\u60E0\u5377\u6570\u636E\u5DF2\u53D8\u5316\uFF0C\u8BF7\u91CD\u65B0\u9884\u89C8\u5BFC\u51FA\u8303\u56F4");
+  const content = rows.map((r) => String(r.code)).join("\n") + "\n";
+  try {
+    await dbInsert(env, "acg_manage_log", { email: "admin", nickname: "", content: `[\u4F18\u60E0\u5377\u5BFC\u51FA]\u5BFC\u51FA\u4F18\u60E0\u5377\uFF0C\u5171\u8BA1\uFF1A${count}`, create_time: now(), create_ip: requestInfo(request).ip, ua: "", risk: 0 });
+  } catch (e) {
+  }
+  const d = /* @__PURE__ */ new Date();
+  const stamp = `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}-${String(d.getHours()).padStart(2, "0")}${String(d.getMinutes()).padStart(2, "0")}${String(d.getSeconds()).padStart(2, "0")}`;
+  return new Response(content, { status: 200, headers: { "Content-Type": "text/plain; charset=UTF-8", "Content-Disposition": `attachment; filename=coupons-${count}-${stamp}.txt` } });
+}
 async function adminEndpoint(env, request, url, ctl, act, body) {
   if (ctl === "authentication" && act === "login") return adminLogin(env, request, url, body);
   const manage = await authenticateManage(env, request);
@@ -2625,6 +2877,21 @@ async function adminEndpoint(env, request, url, ctl, act, body) {
       if (act === "data") return await rechargeData(env, request, url, body);
       if (act === "success") return await rechargeSuccess(env, request, url, body);
       if (act === "clear") return await rechargeClear(env, request, url, body);
+    } catch (e) {
+      return apiErr(e && e.message ? String(e.message) : "\u64CD\u4F5C\u5931\u8D25");
+    }
+  }
+  if (ctl === "coupon") {
+    try {
+      if (act === "data") return await couponData(env, request, url, body);
+      if (act === "save") return await couponSave(env, request, url, body, manage);
+      if (act === "edit") return await couponEdit(env, request, url, body);
+      if (act === "lock") return await couponLock(env, request, url, body, true);
+      if (act === "unlock") return await couponLock(env, request, url, body, false);
+      if (act === "deleteImpact") return await couponDeleteImpact(env, request, url, body);
+      if (act === "del") return await couponDel(env, request, url, body, manage);
+      if (act === "exportImpact") return await couponExportImpact(env, request, url, body);
+      if (act === "export") return await couponExport(env, request, url, body, manage);
     } catch (e) {
       return apiErr(e && e.message ? String(e.message) : "\u64CD\u4F5C\u5931\u8D25");
     }
@@ -2832,7 +3099,7 @@ function renderCrudPage({ cfg, manage, title, activePath, toolbar = null, body, 
     title,
     activePath,
     toolbar,
-    body: `${body}<script>${readyJs}</script>`
+    body: `${body}<script>${readyJs}<\/script>`
   });
 }
 function renderAdminCategoryPage(cfg, manage) {
@@ -4240,6 +4507,237 @@ function renderAdminRechargePage(cfg, manage) {
   });`;
   return renderCrudPage({ cfg, manage, title: "\u5145\u503C\u8BA2\u5355", activePath: "/admin/recharge/order", body, readyJs: js });
 }
+function renderAdminCouponPage(cfg, manage) {
+  const body = `
+<div class="card mb-5 mb-xl-8">
+  <div class="card-header border-0">
+    <div class="card-toolbar d-flex flex-wrap">
+      <button class="btn btn-sm btn-light-primary crud-add me-3"><i class="fa-duotone fa-regular fa-ticket"></i> \u6279\u91CF\u751F\u6210</button>
+      <button class="btn btn-sm btn-light-warning coupon-lock me-3"><i class="fa-duotone fa-regular fa-lock"></i> \u9501\u5B9A\u9009\u4E2D</button>
+      <button class="btn btn-sm btn-light-info coupon-unlock me-3"><i class="fa-duotone fa-regular fa-unlock"></i> \u89E3\u9501\u9009\u4E2D</button>
+      <button class="btn btn-sm btn-light-danger coupon-del me-3"><i class="fa-duotone fa-regular fa-trash-can"></i> \u79FB\u9664\u9009\u4E2D</button>
+      <button class="btn btn-sm btn-light-primary coupon-export me-3"><i class="fa-duotone fa-regular fa-file-export"></i> \u5BFC\u51FA\u5238\u7801</button>
+    </div>
+  </div>
+  <div class="card-body py-3">
+    <div class="row g-2 mb-3">
+      <div class="col-md-2"><input class="form-control cp-f-code" placeholder="\u5238\u7801"></div>
+      <div class="col-md-2"><select class="form-select cp-f-status"><option value="">\u5168\u90E8\u72B6\u6001</option><option value="0">\u672A\u4F7F\u7528</option><option value="1">\u5DF2\u4F7F\u7528</option><option value="2">\u5DF2\u9501\u5B9A</option></select></div>
+      <div class="col-md-2"><input class="form-control cp-f-money" placeholder="\u5238\u9762\u503C" inputmode="numeric"></div>
+      <div class="col-md-2"><input class="form-control cp-f-owner" placeholder="\u4F1A\u5458ID" inputmode="numeric"></div>
+      <div class="col-md-2"><input class="form-control cp-f-note" placeholder="\u5907\u6CE8\u4FE1\u606F"></div>
+      <div class="col-md-2"><input class="form-control cp-f-commodity" placeholder="\u5546\u54C1ID" inputmode="numeric"></div>
+    </div>
+    <div class="table-responsive">
+      <table class="table table-row-bordered table-row-gray-200 align-middle gs-0 gy-3" id="coupon-table">
+        <thead><tr class="fw-bold text-muted">
+          <th style="width:40px"><input type="checkbox" class="crud-check-all"></th>
+          <th>ID</th><th>\u5238\u7801</th><th>\u62B5\u6263\u8303\u56F4</th><th>\u9762\u503C</th><th>\u5269\u4F59/\u5DF2\u7528\u6B21\u6570</th><th>\u72B6\u6001</th><th>\u8FC7\u671F\u65F6\u95F4</th><th>\u751F\u6210\u65F6\u95F4</th><th>\u6700\u540E\u8BA2\u5355\u53F7</th><th>\u5907\u6CE8</th><th>\u64CD\u4F5C</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="d-flex justify-content-end align-items-center mt-3">
+        <button class="btn btn-sm btn-secondary crud-prev me-2">\u4E0A\u4E00\u9875</button>
+        <span class="crud-pageinfo me-2"></span>
+        <button class="btn btn-sm btn-secondary crud-next">\u4E0B\u4E00\u9875</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" tabindex="-1" id="couponModal"><div class="modal-dialog modal-lg"><div class="modal-content">
+  <div class="modal-header py-3"><h5 class="modal-title">\u6279\u91CF\u751F\u6210\u4F18\u60E0\u5238</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <form class="coupon-form"><div class="modal-body">
+    <div class="row g-3">
+      <div class="col-md-6"><label class="form-label">\u524D\u7F00 <span class="text-muted">(\u53EF\u9009, 1-16\u4F4D \u6570\u5B57\u5B57\u6BCD_-)</span></label>
+        <input class="form-control" name="prefix" maxlength="16" placeholder="\u5982 VIP"></div>
+      <div class="col-md-6"><label class="form-label">\u6570\u91CF</label>
+        <input class="form-control" name="num" type="number" min="1" max="1000" value="10" required></div>
+      <div class="col-md-6"><label class="form-label">\u62B5\u6263\u6A21\u5F0F</label>
+        <select class="form-select" name="mode"><option value="0">\u91D1\u989D\u62B5\u6263</option><option value="1">\u767E\u5206\u6BD4\u62B5\u6263(0-1)</option></select></div>
+      <div class="col-md-6"><label class="form-label">\u4F18\u60E0\u91D1\u989D / \u6BD4\u4F8B</label>
+        <input class="form-control" name="money" type="number" step="0.01" value="1" required></div>
+      <div class="col-md-6"><label class="form-label">\u53EF\u7528\u6B21\u6570</label>
+        <input class="form-control" name="life" type="number" min="1" max="1000000" value="1" required></div>
+      <div class="col-md-6"><label class="form-label">\u8FC7\u671F\u65F6\u95F4 <span class="text-muted">(\u53EF\u9009)</span></label>
+        <input class="form-control" name="expire_time" type="datetime-local"></div>
+      <div class="col-md-6"><label class="form-label">\u62B5\u6263\u8303\u56F4 <span class="text-muted">(\u5546\u54C1ID \u6216 \u5206\u7C7BID \u9009\u4E00)</span></label>
+        <input class="form-control" name="commodity_id" type="number" min="0" value="0"></div>
+      <div class="col-md-6"><label class="form-label">\u5546\u54C1\u5206\u7C7BID <span class="text-muted">(0 \u4E0D\u9650)</span></label>
+        <input class="form-control" name="category_id" type="number" min="0" value="0"></div>
+      <div class="col-md-6"><label class="form-label">\u5546\u54C1\u79CD\u7C7B race</label>
+        <input class="form-control" name="race" maxlength="32"></div>
+      <div class="col-md-6"><label class="form-label">\u5907\u6CE8</label>
+        <input class="form-control" name="note" maxlength="32"></div>
+    </div>
+    <div class="mt-3"><label class="form-label">\u751F\u6210\u7ED3\u679C</label>
+      <textarea class="form-control coupon-result" rows="6" readonly placeholder="\u751F\u6210\u540E\u5238\u7801\u5C06\u663E\u793A\u5728\u6B64"></textarea></div>
+  </div><div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">\u5173\u95ED</button>
+    <button type="submit" class="btn btn-primary">\u7ACB\u5373\u751F\u6210</button>
+  </div></form>
+</div></div></div>`;
+  const js = `
+  ready(() => {
+    const tbody = document.getElementById('coupon-table').querySelector('tbody');
+    const API = '/admin/api/coupon/';
+    let page = 1, pageSize = 10;
+    const esc = s => String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const sym = '\uFFE5';
+    const filters = () => {
+      const d = { page, limit: pageSize };
+      const code = document.querySelector('.cp-f-code').value.trim();
+      const st = document.querySelector('.cp-f-status').value;
+      const mo = document.querySelector('.cp-f-money').value.trim();
+      const ow = document.querySelector('.cp-f-owner').value.trim();
+      const note = document.querySelector('.cp-f-note').value.trim();
+      const cm = document.querySelector('.cp-f-commodity').value.trim();
+      if (code) d['equal-code'] = code;
+      if (st !== '') d['equal-status'] = st;
+      if (mo) d['equal-money'] = mo;
+      if (ow) d['equal-owner'] = ow;
+      if (note) d['equal-note'] = note;
+      if (cm) d['equal-commodity_id'] = cm;
+      return d;
+    };
+    function load() {
+      util.post({ url: API + 'data', data: filters(), loader: false,
+        done: res => {
+          tbody.innerHTML = '';
+          (res.data.list || []).forEach(c => {
+            const stTxt = Number(c.status) === 0 ? '<span class="badge badge-light-success">\u672A\u4F7F\u7528</span>'
+              : Number(c.status) === 1 ? '<span class="badge badge-light-secondary">\u5DF2\u4F7F\u7528</span>'
+              : '<span class="badge badge-light-warning">\u5DF2\u9501\u5B9A</span>';
+            const modeTxt = Number(c.mode) === 1 ? (c.money * 100 + '%') : (sym + c.money);
+            const scope = c.category ? ('\u5206\u7C7B:' + esc(c.category.name)) : c.commodity ? ('\u5546\u54C1:' + esc(c.commodity.name)) : '\u4E0D\u9650';
+            const tr = document.createElement('tr');
+            tr.dataset.id = c.id;
+            tr.innerHTML = '<td><input type="checkbox" class="crud-check"></td>' +
+              '<td>' + c.id + '</td>' +
+              '<td><code>' + c.code + '</code></td>' +
+              '<td>' + scope + '</td>' +
+              '<td>' + modeTxt + '</td>' +
+              '<td>' + (Number(c.life) - Number(c.use_life)) + ' / ' + c.use_life + '</td>' +
+              '<td>' + stTxt + '</td>' +
+              '<td>' + (c.expire_time ? new Date(c.expire_time * 1000).toLocaleString() : '-') + '</td>' +
+              '<td>' + (c.create_time ? new Date(c.create_time * 1000).toLocaleString() : '-') + '</td>' +
+              '<td>' + esc(c.trade_no || '-') + '</td>' +
+              '<td>' + esc(c.note || '-') + '</td>' +
+              '<td><button class="btn btn-sm btn-light-danger row-del me-1">\u5220\u9664</button>' +
+              (Number(c.status) === 0 ? '<button class="btn btn-sm btn-light-warning row-lock">\u9501\u5B9A</button>'
+                : Number(c.status) === 2 ? '<button class="btn btn-sm btn-light-info row-unlock">\u89E3\u9501</button>' : '') +
+              '</td>';
+            tbody.appendChild(tr);
+          });
+          document.querySelector('.crud-pageinfo').textContent = '\u7B2C ' + page + ' \u9875 / \u5171 ' + (res.data.count || 0) + ' \u6761';
+        },
+        error: res => message.error(res.msg) });
+    }
+    function selected() { return [...tbody.querySelectorAll('.crud-check:checked')].map(x => x.closest('tr').dataset.id); }
+    document.querySelector('.crud-check-all').addEventListener('change', e => tbody.querySelectorAll('.crud-check').forEach(x => x.checked = e.target.checked));
+    ['.cp-f-code','.cp-f-status','.cp-f-money','.cp-f-owner','.cp-f-note','.cp-f-commodity'].forEach(sel => {
+      document.querySelector(sel).addEventListener('change', () => { page = 1; load(); });
+      document.querySelector(sel).addEventListener('input', () => { page = 1; load(); });
+    });
+    document.querySelector('.crud-prev').addEventListener('click', () => { if (page > 1) { page--; load(); } });
+    document.querySelector('.crud-next').addEventListener('click', () => { page++; load(); });
+
+    document.querySelector('.crud-add').addEventListener('click', () => {
+      (window.bootstrap && bootstrap.Modal.getOrCreateInstance(document.getElementById('couponModal'))).show();
+    });
+    document.querySelector('#couponModal .coupon-form').addEventListener('submit', e => {
+      e.preventDefault();
+      const f = new FormData(e.target);
+      const data = { prefix: f.get('prefix') || '', num: f.get('num'), mode: f.get('mode'), money: f.get('money'), life: f.get('life'), commodity_id: f.get('commodity_id') || 0, category_id: f.get('category_id') || 0, race: f.get('race') || '', note: f.get('note') || '' };
+      const exp = f.get('expire_time');
+      if (exp) data.expire_time = exp;
+      util.post({ url: API + 'save', data, done: res => {
+        message.alert(res.msg || '\u751F\u6210\u5B8C\u6BD5', 'success');
+        document.querySelector('.coupon-result').value = (res.data && res.data.code) || '';
+        load();
+      }, error: res => message.error(res.msg) });
+    });
+
+    // \u6279\u91CF\u9501\u5B9A/\u89E3\u9501/\u5220\u9664
+    function batch(act, msg, confirmTxt) {
+      const ids = selected();
+      if (!ids.length) { message.error('\u8BF7\u81F3\u5C11\u52FE\u9009 1 \u5F20\u4F18\u60E0\u5377\uFF01'); return; }
+      if (!confirm(confirmTxt + ' ' + ids.length + ' \u5F20?')) return;
+      util.post({ url: API + act, data: { list: ids }, done: res => { message.success(res.msg); load(); }, error: res => message.error(res.msg) });
+    }
+    document.querySelector('.coupon-lock').addEventListener('click', () => batch('lock', '\u9501\u5B9A', '\u786E\u8BA4\u9501\u5B9A\u9009\u4E2D\u7684'));
+    document.querySelector('.coupon-unlock').addEventListener('click', () => batch('unlock', '\u89E3\u9501', '\u786E\u8BA4\u89E3\u9501\u9009\u4E2D\u7684'));
+    document.querySelector('.coupon-del').addEventListener('click', () => {
+      const ids = selected();
+      if (!ids.length) { message.error('\u8BF7\u81F3\u5C11\u52FE\u9009 1 \u5F20\u4F18\u60E0\u5377\uFF01'); return; }
+      util.post({ url: API + 'deleteImpact', data: { list: ids }, loader: false, done: res => {
+        const d = res.data || {};
+        const msg = '\u6240\u9009 ' + d.coupon_count + ' \u5F20\uFF1A\u672A\u4F7F\u7528 ' + d.normal_count + '\u3001\u5DF2\u4F7F\u7528 ' + d.used_count + '\u3001\u9501\u5B9A ' + d.locked_count + '\u3002';
+        if (!d.can_delete) { message.alert(msg + ' \u5305\u542B\u5DF2\u4F7F\u7528/\u5E26\u8BA2\u5355\u53F7/\u88AB\u8BA2\u5355\u5F15\u7528\uFF0C\u5DF2\u963B\u6B62\u5220\u9664\u3002', 'error'); return; }
+        if (!confirm(msg + '\\n\\n\u786E\u8BA4\u6C38\u4E45\u5220\u9664\uFF1F')) return;
+        util.post({ url: API + 'del', data: { list: ids }, done: r => { message.success(r.msg); load(); }, error: r => message.error(r.msg) });
+      }, error: res => message.error(res.msg) });
+    });
+
+    tbody.addEventListener('click', e => {
+      const tr = e.target.closest('tr'); if (!tr) return;
+      const id = tr.dataset.id;
+      if (e.target.closest('.row-del')) {
+        util.post({ url: API + 'deleteImpact', data: { list: id }, loader: false, done: res => {
+          const d = res.data || {};
+          if (!d.can_delete) { message.alert('\u8BE5\u5238\u5DF2\u88AB\u4F7F\u7528\u6216\u5F15\u7528\uFF0C\u65E0\u6CD5\u5220\u9664\u3002', 'error'); return; }
+          if (!confirm('\u786E\u8BA4\u5220\u9664\u5238\u7801 ' + tr.querySelector('code').textContent + ' ?')) return;
+          util.post({ url: API + 'del', data: { list: id }, done: r => { message.success(r.msg); load(); }, error: r => message.error(r.msg) });
+        }, error: res => message.error(res.msg) });
+      } else if (e.target.closest('.row-lock')) {
+        util.post({ url: API + 'lock', data: { list: id }, done: load, error: res => message.error(res.msg) });
+      } else if (e.target.closest('.row-unlock')) {
+        util.post({ url: API + 'unlock', data: { list: id }, done: load, error: res => message.error(res.msg) });
+      }
+    });
+
+    // \u5BFC\u51FA\u5238\u7801
+    document.querySelector('.coupon-export').addEventListener('click', () => {
+      const payload = {};
+      const code = document.querySelector('.cp-f-code').value.trim();
+      const st = document.querySelector('.cp-f-status').value;
+      const mo = document.querySelector('.cp-f-money').value.trim();
+      const ow = document.querySelector('.cp-f-owner').value.trim();
+      const note = document.querySelector('.cp-f-note').value.trim();
+      const cm = document.querySelector('.cp-f-commodity').value.trim();
+      if (code) payload.coupon_code_secret = code;
+      if (st !== '') payload['equal-status'] = st;
+      if (mo) payload['equal-money'] = mo;
+      if (ow) payload['equal-owner'] = ow;
+      if (note) payload['equal-note'] = note;
+      if (cm) payload['equal-commodity_id'] = cm;
+      util.post({ url: API + 'exportImpact', data: payload, loader: false, done: res => {
+        const d = res.data || {};
+        const total = Number(d.count || 0);
+        if (total < 1) { message.error('\u5F53\u524D\u7B5B\u9009\u6CA1\u6709\u53EF\u5BFC\u51FA\u7684\u4F18\u60E0\u5377'); return; }
+        if (!confirm('\u5F53\u524D\u7B5B\u9009\u5171 ' + total + ' \u5F20\u4F18\u60E0\u5238\uFF08\u672A\u4F7F\u7528 ' + d.normal_count + '\u3001\u5DF2\u4F7F\u7528 ' + d.used_count + '\u3001\u9501\u5B9A ' + d.locked_count + '\uFF09\u3002\\n\u786E\u8BA4\u5BFC\u51FA\u5238\u7801\u4E3A txt \u6587\u4EF6\uFF1F')) return;
+        const dl = Object.assign({}, payload, { expected_count: total });
+        fetch(API + 'export', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dl) })
+          .then(r => {
+            const ct = r.headers.get('content-type') || '';
+            if (ct.includes('application/json')) return r.json().then(j => { throw new Error(j.msg || '\u5BFC\u51FA\u5931\u8D25'); });
+            return r.blob().then(blob => {
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url; a.download = 'coupons-' + total + '-' + new Date().toISOString().slice(0,10) + '.txt';
+              document.body.appendChild(a); a.click(); a.remove();
+              setTimeout(() => URL.revokeObjectURL(url), 1000);
+              message.success('\u5DF2\u5BFC\u51FA ' + total + ' \u5F20\u4F18\u60E0\u5238');
+            });
+          })
+          .catch(err => message.error(err.message));
+      }, error: res => message.error(res.msg) });
+    });
+
+    load();
+  });`;
+  return renderCrudPage({ cfg, manage, title: "\u4F18\u60E0\u5238", activePath: "/admin/coupon/index", body, readyJs: js });
+}
 
 // pages.js
 var CSS_AUTH = [
@@ -4300,13 +4798,13 @@ function renderAuthHeader(v) {
     <link href="${favicon}?v=${app.version}" rel="icon">
     <title>${htmlEscape(title)} - ${htmlEscape(config.shop_name)}</title>
     ${CSS_AUTH.map((f) => `<link href="${f}" rel="stylesheet">`).join("")}
-    <script src="/assets/common/js/ready.js"></script>
+    <script src="/assets/common/js/ready.js"><\/script>
     ${indexVar(0, config)}
 </head>
 <body style="background-size: cover;background-image: linear-gradient(180deg, rgb(255 255 255 / 0%), rgb(255 255 255 / 71%)), url('${htmlEscape(config.background_url || "")}')">`;
 }
 function renderAuthFooter() {
-  return `${JS_AUTH.map((f) => `<script src="${f}"></script>`).join("")}
+  return `${JS_AUTH.map((f) => `<script src="${f}"><\/script>`).join("")}
 </body>
 </html>`;
 }
@@ -4370,7 +4868,7 @@ function pageLogin(v) {
         ${regLink}
     </div>
 </main>
-<script src="/assets/user/controller/auth/login.js"></script>`;
+<script src="/assets/user/controller/auth/login.js"><\/script>`;
 }
 function pageRegister(v) {
   const { config } = v;
@@ -4462,7 +4960,7 @@ function pageRegister(v) {
 
     </div>
 </main>
-<script src="/assets/user/controller/auth/register.js"></script>`;
+<script src="/assets/user/controller/auth/register.js"><\/script>`;
 }
 function userCenterShell(v, body) {
   const { config, user } = v;
@@ -4567,7 +5065,7 @@ function pagePurchaseRecord(v) {
         tbody.innerHTML = html;
       });
     })();
-    </script>`;
+    <\/script>`;
   return userCenterShell(v, body);
 }
 function pageRecharge(v) {
@@ -4618,7 +5116,7 @@ function pageRecharge(v) {
             })
             .catch(function(){ alert('\u7F51\u7EDC\u9519\u8BEF'); btn.disabled = false; });
         });
-        </script>` : `<div class="text-muted">\u5145\u503C\u529F\u80FD\u672A\u5F00\u542F</div>`}
+        <\/script>` : `<div class="text-muted">\u5145\u503C\u529F\u80FD\u672A\u5F00\u542F</div>`}
       </div>
     </div>`;
   return userCenterShell(v, body);
@@ -4665,7 +5163,7 @@ function pageSecurity(v) {
             })
             .catch(function(){ btn.disabled = false; alert('\u7F51\u7EDC\u9519\u8BEF'); });
         });
-        </script>
+        <\/script>
       </div>
     </div>`;
   return userCenterShell(v, body);
@@ -4699,7 +5197,7 @@ function pageBill(v) {
         tbody.innerHTML = html;
       });
     })();
-    </script>`;
+    <\/script>`;
   return userCenterShell(v, body);
 }
 
@@ -5388,6 +5886,9 @@ async function route(env, request, url, ctx) {
     }
     if (s === "/admin/recharge/order") {
       return pageRes(renderAdminRechargePage(cfg, manage));
+    }
+    if (s === "/admin/coupon/index") {
+      return pageRes(renderAdminCouponPage(cfg, manage));
     }
     return pageRes(renderAdminShell({ cfg, manage, title: "\u5EFA\u8BBE\u4E2D", activePath: s }, "text/html"));
   }
