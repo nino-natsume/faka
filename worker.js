@@ -13,6 +13,12 @@ import {
 } from './lib.js';
 import * as api from './api.js';
 import {
+  authenticateManage, revokeManageSession, adminEndpoint,
+} from './admin.js';
+import {
+  renderAdminLoginPage, renderAdminShell, renderAdminDashboardPage,
+} from './admin-pages.js';
+import {
   renderAuthHeader, renderAuthFooter, pageLogin, pageRegister,
   userCenterShell, pageDashboard, pagePurchaseRecord, pageBill,
   pageRecharge, pageSecurity,
@@ -681,10 +687,50 @@ async function route(env, request, url, ctx) {
   const q = url.searchParams;
   const cfg = await loadConfig(env);
 
-  // ---- 后台(后续阶段) ----
+  // ---- 后台 ----
   if (s.startsWith('/admin/')) {
     ctx.route = s;
-    return pageRes('<!DOCTYPE html><html><head><meta charset="utf-8"><title>敬请期待</title></head><body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f5f6fa;color:#333"><div style="text-align:center"><h1 style="font-size:2rem;margin-bottom:.5rem">管理后台</h1><p>后台管理功能迁移中，敬请期待 (P2 阶段)</p></div></body></html>');
+
+    // 登出
+    if (s === '/admin/authentication/logout') {
+      await revokeManageSession(env, request);
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: '/admin/authentication/login',
+          'Set-Cookie': 'MANAGE_USER=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0',
+        },
+      });
+    }
+
+    // 登录页
+    if (s === '/admin/authentication/login') {
+      return pageRes(renderAdminLoginPage(cfg));
+    }
+
+    // 后台 API
+    if (s.startsWith('/admin/api/')) {
+      const rest = s.replace('/admin/api/', '');   // 如 authentication/login, dashboard/overview
+      const body = await request.text().catch(() => '');
+      let parsed = {};
+      try { parsed = body ? JSON.parse(body) : {}; } catch (e) {
+        if (body) { try { parsed = Object.fromEntries(new URLSearchParams(body)); } catch (e2) {} }
+      }
+      const res = await adminEndpoint(env, request, url, ...rest.split('/'), parsed);
+      return res;
+    }
+
+    // 后台页面
+    const manage = await authenticateManage(env, request);
+    if (!manage) {
+      const qLogin = `?goto=${encodeURIComponent(s)}`;
+      return new Response(null, { status: 302, headers: { Location: '/admin/authentication/login' + qLogin } });
+    }
+    if (s === '/admin/dashboard/index' || s === '/admin/dashboard') {
+      return pageRes(renderAdminDashboardPage(cfg, manage));
+    }
+    // TODO(P2 后续): /admin/user|commodity|order|card|config 等 CRUD 页面
+    return pageRes(renderAdminShell({ cfg, manage, title: '建设中', activePath: s }), 'text/html');
   }
 
   // ---- 验证码 ----

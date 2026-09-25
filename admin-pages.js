@@ -1,0 +1,675 @@
+// ============================================================
+// acg-faka Worker 移植 - admin-pages.js
+// 后台页面渲染（原版 assets + 等价 HTML，对齐原版模板结构）
+//   /admin/authentication/login  → renderAdminLoginPage
+//   /admin/**  → renderAdminShell + 具体页面
+//   /admin/dashboard/index       → renderAdminDashboardPage
+// ============================================================
+import { htmlEscape } from './lib.js';
+import { MANAGE_SESSION } from './admin.js';
+
+// ---------- admin_var() 等价: setVar 注入 ----------
+export function adminVar(cfg = {}) {
+  const langs = [{ code: 'zh-cn', name: '简体中文' }];
+  const vars = {
+    DEBUG: false,
+    LANG: 'zh-cn',
+    LANGS: langs,
+    CURRENCY: { code: 'CNY', symbol: '¥', rate: 1, decimals: 2 },
+    HACK_ROUTE_TABLE_COLUMNS: [],
+    HACK_SUBMIT_FORM: [],
+    HACK_SUBMIT_TAB: [],
+    HACK_ROUTE_TABLE_SEARCH: [],
+  };
+  let s = '<script>';
+  for (const [k, v] of Object.entries(vars)) {
+    s += `setVar(${JSON.stringify(k)}, ${JSON.stringify(v)});`;
+  }
+  s += '</script>';
+  return s;
+}
+
+const cssLinks = (paths) => paths.map(p => `<link rel="stylesheet" href="${p}"/>`).join('\n');
+const jsScripts = (paths) => paths.map(p => `<script src="${p}"></script>`).join('\n');
+
+// ---------- 登录页 (对齐 Authentication/Login.html) ----------
+export function renderAdminLoginPage(cfg = {}) {
+  const bg = cfg.background_url || '/assets/admin/img/bg.jpg';
+  const shopName = cfg.shop_name || 'acg-faka';
+  const captcha = String(cfg.admin_login_verification) !== '0'
+    ? `<div class="ay-field has-ico">
+          <input id="ay-captcha" name="captcha" class="ay-input" type="text" inputmode="numeric"
+                 maxlength="4" autocomplete="off" placeholder=" " required>
+          <span class="ay-label">验证码</span>
+          <span class="ay-ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/>
+            </svg>
+          </span>
+          <img id="ay-captcha-img" class="ay-captcha" src="/user/captcha/image?action=adminLogin"
+               data-acg-refresh="/user/captcha/image?action=adminLogin"
+               title="看不清？点我刷新" alt="验证码">
+        </div>`
+    : '';
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>登录 - ${htmlEscape(shopName)}</title>
+    <script>(function(){try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;var e=document.documentElement;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);}catch(_){document.documentElement.setAttribute('data-theme','light');}})();</script>
+    ${cssLinks([
+      '/assets/common/css/_.css',
+      '/assets/admin/css/auth.css',
+      '/assets/admin/css/_material-auth.css',
+      '/assets/admin/css/style.bundle.css',
+      '/assets/common/css/font.min.css',
+      '/assets/common/js/layui/css/layui.css',
+      '/assets/common/css/select2.min.css',
+      '/assets/common/css/component.css',
+      '/assets/common/css/toastr.min.css',
+      '/assets/common/js/table/bootstrap-table.css',
+      '/assets/common/js/layer/theme/default/layer.css',
+      '/assets/admin/css/auth.css',
+      '/assets/common/css/md-tokens.css',
+      '/assets/admin/css/material-auth.css'
+    ])}
+    <script src="/assets/common/js/ready.js"></script>
+    ${adminVar(cfg)}
+</head>
+<body class="ay-bg" style="background-image: linear-gradient(180deg, rgb(255 255 255 / 0%), rgb(255 255 255 / 71%)), url('${htmlEscape(bg)}')">
+<div class="ay-dim" aria-hidden="true"></div>
+<div class="ay-petals" aria-hidden="true">
+    <i style="left:6%; top:-8vh; animation-duration:11s"></i>
+    <i style="left:24%; top:-12vh; animation-duration:13s"></i>
+    <i style="left:52%; top:-16vh; animation-duration:12s"></i>
+    <i style="left:72%; top:-10vh; animation-duration:10s"></i>
+    <i style="left:86%; top:-18vh; animation-duration:14s"></i>
+</div>
+
+<main class="ay-wrap">
+    <section class="ay-card" role="dialog" aria-labelledby="ay-title" aria-describedby="ay-sub">
+        <button type="button" class="ay-theme" id="ay-theme" aria-label="切换明暗主题" title="切换明暗主题">
+            <svg class="ico-moon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/>
+            </svg>
+            <svg class="ico-sun" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="4"/>
+                <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>
+            </svg>
+        </button>
+        <header class="ay-head">
+            <div class="ay-logo" aria-hidden="true"></div>
+            <h1 id="ay-title" class="ay-title">欢迎回来，指挥官</h1>
+            <p id="ay-sub" class="ay-sub">正在验证您的管理员身份</p>
+        </header>
+
+        <div class="ay-body">
+            <form id="ay-form" method="post" novalidate>
+                <div class="ay-field has-ico">
+                    <input id="ay-user" name="username" class="ay-input" type="text" placeholder=" "
+                           autocomplete="username" autofocus required>
+                    <span class="ay-label">邮箱</span>
+                    <span class="ay-ico" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                            <circle cx="12" cy="7" r="4"/>
+                        </svg>
+                    </span>
+                </div>
+                <div class="ay-field has-ico">
+                    <input id="ay-pass" name="password" class="ay-input" type="password" placeholder=" "
+                           autocomplete="current-password" required>
+                    <span class="ay-label">密码</span>
+                    <span class="ay-ico" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="11" width="18" height="11" rx="2"/>
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                        </svg>
+                    </span>
+                    <button type="button" class="ay-eye" id="ay-eye" aria-label="显示密码" aria-controls="ay-pass">
+                        <svg class="ay-eye-open" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12Z"/>
+                            <circle cx="12" cy="12" r="3"/>
+                        </svg>
+                        <svg class="ay-eye-shut" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                            <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/>
+                            <path d="m1 1 22 22"/>
+                        </svg>
+                    </button>
+                    <span class="ay-caps" id="ay-caps" hidden>大写锁定已开启</span>
+                </div>
+                ${captcha}
+                <div class="ay-field has-ico ay-2fa is-hidden">
+                    <input id="ay-code" name="code" class="ay-input" type="text" inputmode="numeric"
+                           autocomplete="one-time-code" maxlength="6" placeholder=" ">
+                    <span class="ay-label">谷歌验证码</span>
+                    <span class="ay-ico" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+                        </svg>
+                    </span>
+                </div>
+
+                <div class="ay-row">
+                    <label class="ay-check"><input type="checkbox" id="ay-remember" name="remember" value="1">保持登录(365天)</label>
+                    <a class="ay-link" href="javascript:void(0)" data-acg-action="message.info" data-acg-args='["查看官方文档重置密码方法"]'>忘记密码？</a>
+                </div>
+
+                <button class="ay-btn" type="submit" id="ay-submit">确认登入</button>
+            </form>
+            <div class="ay-foot">© ${htmlEscape(shopName)}</div>
+        </div>
+    </section>
+</main>
+
+<script>ready("/assets/admin/controller/auth/login.js");</script>
+${jsScripts([
+  '/assets/common/js/_.js',
+  '/assets/common/js/util/dict.js',
+  '/assets/common/js/jquery.min.js',
+  '/assets/common/js/toastr.min.js',
+  '/assets/common/js/component/loading.js',
+  '/assets/common/js/util.js',
+  '/assets/common/js/layer/layer.js',
+  '/assets/common/js/jquery.pjax.min.js',
+  '/assets/common/js/jquery.qrcode.min.js',
+  '/assets/common/js/format.js',
+  '/assets/common/js/message.js',
+  '/assets/common/js/component.js',
+  '/assets/common/js/layui/layui.js',
+  '/assets/common/js/jquery.treegrid.min.js',
+  '/assets/common/js/bootstrap/bootstrap.bundle.min.js',
+  '/assets/common/js/table/bootstrap-table.min.js',
+  '/assets/common/js/table/bootstrap-table-treegrid.min.js',
+  '/assets/common/js/component/form.js',
+  '/assets/common/js/component/search.js',
+  '/assets/common/js/component/xm-select.js',
+  '/assets/common/js/component/tree.select.js',
+  '/assets/common/js/component/authtree.js',
+  '/assets/common/js/component/table.js',
+  '/assets/common/js/component/select2.min.js',
+  '/assets/common/js/cache.js',
+  '/assets/common/js/editor/editor.js',
+  '/assets/common/js/editor/code/code.js',
+  '/assets/common/js/component/decimal.js'
+])}
+</body>
+</html>`;
+}
+
+// ---------- 后台壳 (Header + Footer, 对齐原版结构) ----------
+function adminMenu(activePath) {
+  const items = [
+    { icon: '<path d="M19 5v2h-4V5h4M9 5v6H5V5h4m10 8v6h-4v-6h4M9 17v2H5v-2h4M21 3h-8v6h8V3zM11 3H3v10h8V3zm10 8h-8v10h8V11zm-10 4H3v6h8v-6z"/>', name: '控制台', url: '/admin/dashboard/index', section: 'Main' },
+    { icon: '<path d="M9 13.75c-2.34 0-7 1.17-7 3.5V19h14v-1.75c0-2.33-4.66-3.5-7-3.5zM4.34 17c.84-.58 2.87-1.25 4.66-1.25s3.82.67 4.66 1.25H4.34zM9 12c1.93 0 3.5-1.57 3.5-3.5S10.93 5 9 5S5.5 6.57 5.5 8.5S7.07 12 9 12zm0-5c.83 0 1.5.67 1.5 1.5S9.83 10 9 10s-1.5-.67-1.5-1.5S8.17 7 9 7zm7.04 6.81c1.16.84 1.96 1.96 1.96 3.44V19h4v-1.75c0-2.02-3.5-3.17-5.96-3.44zM15 12c1.93 0 3.5-1.57 3.5-3.5S16.93 5 15 5c-.54 0-1.04.13-1.5.35c.63.89 1 1.98 1 3.15s-.37 2.26-1 3.15c.46.22.96.35 1.5.35z"/>', name: '会员管理', url: '/admin/user/index', section: 'User' },
+    { icon: '<path d="M30 12a2 2 0 0 0-2-2V7c0-1.1-.9-2-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-3a2 2 0 0 0 2-2zM4 7h12v3.17A3 3 0 0 0 15 12c0 .77.29 1.47.76 2H16v3H4V7zm14 6a1 1 0 1 1 0-2a1 1 0 0 1 0 2z"/><path d="M6 9h6v2H6zm0 4h6v2H6z"/>'.replace('30 12a2','20 12a2'), name: '工单管理', url: '/admin/ticket/index', section: 'User' },
+    { icon: '<path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM7 9h10v2H7V9zm6 5H7v-2h6v2zm4-6H7V6h10v2z"/>', name: '消息管理', url: '/admin/message/index', section: 'User' },
+    { icon: '<path d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM4 8h16v8H4V8z"/><path d="M7 10h2v4H7zm4 0h2v4h-2zm4 0h2v4h-2z"/>'.replace('assets/',''), name: '充值订单', url: '/admin/recharge/order', section: 'User' },
+    { icon: '<path d="M12 2l-5.5 9h11L12 2zm0 3.84L13.93 9h-3.87L12 5.84zM17.5 13c-2.49 0-4.5 2.01-4.5 4.5s2.01 4.5 4.5 4.5s4.5-2.01 4.5-4.5s-2.01-4.5-4.5-4.5zm0 7a2.5 2.5 0 0 1 0-5a2.5 2.5 0 0 1 0 5zM3 21.5h8v-8H3v8zm2-6h4v4H5v-4z"/>', name: '分类管理', url: '/admin/category/index', section: 'Trade' },
+    { icon: '<path d="M20 2H4c-1 0-2 .9-2 2v3.01c0 .72.43 1.34 1 1.69V20c0 1.1 1.1 2 2 2h14c.9 0 2-.9 2-2V8.7c.57-.35 1-.97 1-1.69V4c0-1.1-1-2-2-2zm-1 18H5V9h14v11zm1-13H4V4h16v3z"/><path d="M9 12h6v2H9z"/>', name: '商品管理', url: '/admin/commodity/index', section: 'Trade' },
+    { icon: '<path d="M22 19h-6v-4h-2.68c-1.14 2.42-3.6 4-6.32 4c-3.86 0-7-3.14-7-7s3.14-7 7-7c2.72 0 5.17 1.58 6.32 4H24v6h-2v4zm-4-2h2v-4h2v-2H11.94l-.23-.67C11.01 8.34 9.11 7 7 7c-2.76 0-5 2.24-5 5s2.24 5 5 5c2.11 0 4.01-1.34 4.71-3.33l.23-.67H18v4zM7 15c-1.65 0-3-1.35-3-3s1.35-3 3-3s3 1.35 3 3s-1.35 3-3 3zm0-4c-.55 0-1 .45-1 1s.45 1 1 1s1-.45 1-1s-.45-1-1-1z"/>', name: '卡密管理', url: '/admin/card/index', section: 'Trade' },
+    { icon: '<path d="M15.55 13c.75 0 1.41-.41 1.75-1.03l3.58-6.49A.996.996 0 0 0 20.01 4H5.21l-.94-2H1v2h2l3.6 7.59l-1.35 2.44C4.52 15.37 5.48 17 7 17h12v-2H7l1.1-2h7.45zM6.16 6h12.15l-2.76 5H8.53L6.16 6zM7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2s-.9-2-2-2zm10 0c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2s2-.9 2-2s-.9-2-2-2z"/>', name: '商品订单', url: '/admin/order/index', section: 'Shared' },
+    { icon: '<path d="M21.41 11.58l-9-9C12.05 2.22 11.55 2 11 2H4c-1.1 0-2 .9-2 2v7c0 .55.22 1.05.59 1.42l9 9c.36.36.86.58 1.41.58s1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41s-.23-1.06-.59-1.42zM13 20.01L4 11V4h7v-.01l9 9l-7 7.02z"/><circle cx="6.5" cy="6.5" r="1.5"/>', name: '优惠券', url: '/admin/coupon/index', section: 'Shared' },
+    { icon: '<path d="M19.43 12.98c.04-.32.07-.64.07-.98c0-.34-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65A.488.488 0 0 0 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1a.566.566 0 0 0-.18-.03c-.17 0-.34.09-.43.25l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98c0 .33.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.06.02.12.03.18.03c.17 0 .34-.09.43-.25l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zm-1.98-1.71c.04.31.05.52.05.73c0 .21-.02.43-.05.73l-.14 1.13l.89.7l1.08.84l-.7 1.21l-1.27-.51l-1.04-.42l-.9.68c-.43.32-.84.56-1.25.73l-1.06.43l-.16 1.13l-.2 1.35h-1.4l-.19-1.35l-.16-1.13l-1.06-.43c-.43-.18-.83-.41-1.23-.71l-.91-.7l-1.06.43l-1.27.51l-.7-1.21l1.08-.84l.89-.7l-.14-1.13c-.03-.31-.05-.54-.05-.74s.02-.43.05-.73l.14-1.13l-.89-.7l-1.08-.84l.7-1.21l1.27.51l1.04.42l.9-.68c.43-.32.84-.56 1.25-.73l1.06-.43l.16-1.13l.2-1.35h1.39l.19 1.35l.16 1.13l1.06.43c.43.18.83.41 1.23.71l.91.7l1.06-.43l1.27-.51l.7 1.21l-1.07.85l-.89.7l.14 1.13zM12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4s4-1.79 4-4s-1.79-4-4-4zm0 6c-1.1 0-2-.9-2-2s.9-2 2-2s2 .9 2 2s-.9 2-2 2z"/>', name: '系统配置', url: '/admin/config/index', section: 'Config' },
+  ];
+  let html = '';
+  let lastSection = '';
+  for (const it of items) {
+    if (it.section !== lastSection) {
+      html += `<div class="menu-content pt-8 pb-2"><span class="menu-section text-muted text-uppercase fs-8 ls-1">${it.section}</span></div>`;
+      lastSection = it.section;
+    }
+    const active = activePath && (activePath === it.url || activePath.indexOf(it.url) === 0)
+      ? 'active' : '';
+    html += `<div class="menu-item">
+              <a class="menu-link ${active}" href="${it.url}">
+                <span class="menu-icon"><svg class="menu-svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">${it.icon}</svg></span>
+                <span class="menu-title">${it.name}</span>
+              </a>
+            </div>`;
+  }
+  return html;
+}
+
+const adminFooterScripts = () => jsScripts([
+  '/assets/common/js/_.js',
+  '/assets/admin/js/_admin.js',
+  '/assets/admin/js/_material.js',
+  '/assets/static/codemirror/lib/codemirror.js',
+  '/assets/static/codemirror/mode/markdown/markdown.js',
+  '/assets/common/js/util/dict.js',
+  '/assets/common/js/jquery.min.js',
+  '/assets/common/js/toastr.min.js',
+  '/assets/common/js/component/loading.js',
+  '/assets/common/js/util.js',
+  '/assets/common/js/layer/layer.js',
+  '/assets/common/js/jquery.pjax.min.js',
+  '/assets/common/js/jquery.qrcode.min.js',
+  '/assets/common/js/format.js',
+  '/assets/common/js/message.js',
+  '/assets/common/js/component.js',
+  '/assets/common/js/layui/layui.js',
+  '/assets/common/js/jquery.treegrid.min.js',
+  '/assets/common/js/bootstrap/bootstrap.bundle.min.js',
+  '/assets/common/js/table/bootstrap-table.min.js',
+  '/assets/common/js/table/bootstrap-table-treegrid.min.js',
+  '/assets/common/js/component/form.js',
+  '/assets/common/js/component/search.js',
+  '/assets/common/js/component/xm-select.js',
+  '/assets/common/js/component/tree.select.js',
+  '/assets/common/js/component/authtree.js',
+  '/assets/common/js/component/table.js',
+  '/assets/common/js/component/select2.min.js',
+  '/assets/common/js/cache.js',
+  '/assets/common/js/editor/editor.js',
+  '/assets/common/js/editor/code/code.js',
+  '/assets/common/js/component/decimal.js',
+  '/assets/admin/js/dict.js',
+  '/assets/admin/js/menu.js',
+  '/assets/admin/controller/global.js',
+  '/assets/admin/js/material.js',
+]);
+
+export function renderAdminShell(opts = {}) {
+  const { cfg = {}, manage = {}, title = '控制台', activePath = '/admin/dashboard/index', toolbar = null } = opts;
+  const shopName = cfg.shop_name || 'acg-faka';
+  const avatar = manage.avatar || '/favicon.ico';
+  const nickname = manage.nickname || manage.email || '管理员';
+  const email = manage.email || '';
+
+  const tb = toolbar && toolbar.length
+    ? `<nav class="md-tabs">${toolbar.map(t => `<a href="${t.url}" class="md-tab">${t.name}</a>`).join('')}</nav>`
+    : '';
+
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+    <script>(function(){var e=document.documentElement;try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);var m=localStorage.getItem('admin-layout-mode')==='desktop'?'desktop':((window.innerWidth||screen.width)<992?'mobile':'desktop');e.setAttribute('data-admin-layout',m);}catch(_){e.setAttribute('data-theme','light');e.setAttribute('data-admin-layout',(window.innerWidth||screen.width)<992?'mobile':'desktop');}})();</script>
+    <title>${htmlEscape(title)}-${htmlEscape(shopName)}</title>
+    <link rel="shortcut icon" href="/favicon.ico"/>
+    ${cssLinks([
+      '/assets/admin/css/_admin.css',
+      '/assets/common/css/_.css',
+      '/assets/static/codemirror/lib/codemirror.css',
+      '/assets/common/css/_material.css',
+      '/assets/common/fonts/material-icons.css',
+      '/assets/admin/css/_material.css',
+      '/assets/admin/css/_mobile.css',
+      '/assets/admin/css/style.bundle.css',
+      '/assets/common/css/font.min.css',
+      '/assets/common/js/layui/css/layui.css',
+      '/assets/common/css/select2.min.css',
+      '/assets/common/css/component.css',
+      '/assets/common/css/toastr.min.css',
+      '/assets/common/js/table/bootstrap-table.css',
+      '/assets/common/js/layer/theme/default/layer.css',
+      '/assets/common/css/md-tokens.css',
+      '/assets/common/css/md-components.css',
+      '/assets/admin/css/material.css',
+      '/assets/common/fonts/material-icons.css',
+      '/assets/common/css/mdicon.css',
+      '/assets/admin/css/mobile.css'
+    ])}
+    <script src="/assets/common/js/ready.js"></script>
+    ${adminVar(cfg)}
+</head>
+<body id="kt_body"
+      class="header-fixed header-tablet-and-mobile-fixed toolbar-enabled toolbar-fixed aside-enabled aside-fixed"
+      style="--kt-toolbar-height:55px;--kt-toolbar-height-tablet-and-mobile:55px;background: url('${htmlEscape(cfg.background_url || '')}') fixed no-repeat;background-size: cover;">
+<script>(function(){try{if((!window.matchMedia||matchMedia('(min-width: 992px)').matches)&&localStorage.getItem('admin-aside-minimize')==='on'){document.body.setAttribute('data-kt-aside-minimize','on');}}catch(_){}})();</script>
+<div class="d-flex flex-column flex-root">
+    <div class="page d-flex flex-row flex-column-fluid">
+        <!--begin::Aside-->
+        <div id="kt_aside" class="aside aside-light aside-hoverable" data-kt-drawer="true" data-kt-drawer-name="aside"
+             data-kt-drawer-activate="{default: true, lg: false}" data-kt-drawer-overlay="true"
+             data-kt-drawer-width="{default:'200px', '300px': '250px'}" data-kt-drawer-direction="start"
+             data-kt-drawer-toggle="#kt_aside_mobile_toggle">
+            <div class="aside-menu flex-column-fluid">
+                <div class="hover-scroll-overlay-y my-5 my-lg-5" id="kt_aside_menu_wrapper"
+                     data-kt-scroll="true" data-kt-scroll-activate="{default: false, lg: true}" data-kt-scroll-height="auto"
+                     data-kt-scroll-dependencies="#kt_header" data-kt-scroll-wrappers="#kt_aside_menu" data-kt-scroll-offset="0">
+                    <div class="menu menu-column menu-title-gray-800 menu-state-title-primary menu-state-icon-primary menu-state-bullet-primary menu-arrow-gray-500"
+                         id="kt_aside_menu" data-kt-menu="true">
+                        ${adminMenu(activePath)}
+                        <div class="menu-item">
+                            <div class="menu-content">
+                                <div class="separator mx-1 my-4"></div>
+                            </div>
+                        </div>
+                        <div class="menu-item">
+                            <a class="menu-link" href="/admin/authentication/logout">
+                                <span class="menu-icon"><svg class="menu-svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6l6 6l1.4-1.4zm5.2 0l4.6-4.6l-4.6-4.6L16 6l6 6l-6 6l-1.4-1.4z"/></svg></span>
+                                <span class="menu-title">退出登录</span>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!--end::Aside-->
+        <!--begin::Wrapper-->
+        <div class="wrapper d-flex flex-column flex-row-fluid" id="kt_wrapper">
+            <!--begin::Header-->
+            <div id="kt_header" style="" class="header align-items-stretch">
+                <div class="container-fluid d-flex align-items-stretch justify-content-between">
+                    <div class="aside-logo flex-column-auto d-none d-lg-flex" id="kt_aside_logo">
+                        <a href="/admin/dashboard/index" class="d-flex align-items-center">
+                            <img style="border-radius: 50%;height: 22px;" src="/favicon.ico">
+                            <span class="logo fw-bolder ms-2 fs-4" style="color: #919191;">${htmlEscape(shopName)}</span>
+                        </a>
+                        <div id="kt_aside_toggle" class="btn btn-icon w-auto px-0 btn-active-color-primary aside-toggle"
+                             data-kt-toggle="true" data-kt-toggle-state="active" data-kt-toggle-target="body"
+                             data-kt-toggle-name="aside-minimize">
+                            <span class="svg-icon svg-icon-1 aside-toggle-icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.59 18L19 16.59L14.42 12L19 7.41L17.59 6l-6 6z"/><path d="M11 18l1.41-1.41L7.83 12l4.58-4.59L11 6l-6 6z"/></svg></span>
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-center d-lg-none ms-n3 me-1" title="Show aside menu">
+                        <div class="btn btn-icon btn-active-light-primary w-30px h-30px w-md-40px h-md-40px" id="kt_aside_mobile_toggle">
+                            <span class="svg-icon svg-icon-2x">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
+                                    <path d="M21 7H3C2.4 7 2 6.6 2 6V4C2 3.4 2.4 3 3 3H21C21.6 3 22 3.4 22 4V6C22 6.6 21.6 7 21 7Z" fill="black"/>
+                                    <path opacity="0.3" d="M21 14H3C2.4 14 2 13.6 2 13V11C2 10.4 2.4 10 3 10H21C21.6 10 22 10.4 22 11V13C22 13.6 21.6 14 21 14ZM22 20V18C22 17.4 21.6 17 21 17H3C2.4 17 2 17.4 2 18V20C2 20.6 2.4 21 3 21H21C21.6 21 22 20.6 22 20Z" fill="black"/>
+                                </svg>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-stretch justify-content-between flex-lg-grow-1">
+                        <div class="d-flex align-items-stretch" id="kt_header_nav"></div>
+                        <div class="d-flex align-items-stretch flex-shrink-0">
+                            <div class="d-flex align-items-stretch flex-shrink-0">
+                                <div class="d-flex align-items-center ms-1 ms-lg-3">
+                                    <div class="md-theme-switch">
+                                        <button type="button" id="md-theme-toggle" class="btn btn-icon w-30px h-30px w-md-40px h-md-40px" title="主题" aria-label="切换主题">
+                                            <i class="md-ico md-ico-light fa-duotone fa-regular fa-sun-bright fs-2"></i>
+                                            <i class="md-ico md-ico-dark fa-duotone fa-regular fa-moon-stars fs-2"></i>
+                                            <i class="md-ico md-ico-auto fa-duotone fa-regular fa-circle-half-stroke fs-2"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="d-flex align-items-center ms-1 ms-lg-3">
+                                    <a href="/admin/manage/set">
+                                        <div class="cursor-pointer symbol symbol-30px symbol-md-40px">
+                                            <img src="${htmlEscape(avatar)}" alt="user"/>
+                                        </div>
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!--end::Header-->
+            <div id="pjax-container">
+                <!--begin::Content-->
+                <div class="content d-flex flex-column flex-column-fluid" id="kt_content">
+                    <!--begin::Toolbar-->
+                    <div class="toolbar md-page-header" id="kt_toolbar">
+                        <div id="kt_toolbar_container" class="container-fluid">
+                            <h1 class="md-page-title">${htmlEscape(title)}</h1>
+                            ${tb}
+                        </div>
+                    </div>
+                    <!--end::Toolbar-->
+                    <div class="post d-flex flex-column-fluid">
+                        <div id="kt_content_container" class="container-fluid">
+                            ${opts.body || ''}
+                        </div>
+                    </div>
+                </div>
+                <!--end::Content-->
+            </div>
+        </div>
+        <!--end::Wrapper-->
+    </div>
+</div>
+<div id="kt_scrolltop" class="scrolltop" data-kt-scrolltop="true"><i class="fa-duotone fa-regular fa-arrow-up text-white"></i></div>
+${adminFooterScripts()}
+</body>
+</html>`;
+}
+
+// ---------- Dashboard 页 (对齐原版 Dashboard/Index.html) ----------
+export function renderAdminDashboardPage(cfg, manage) {
+  const body = `
+<script src="/assets/static/echarts.min.js"></script>
+<div class="dash">
+  <div class="dash__grid">
+    <aside class="dash__side">
+      <section class="dash-card dash-news" aria-labelledby="dash-news-title">
+        <header class="dash-card__head">
+          <h2 class="dash-card__title dash-news__title" id="dash-news-title"><span class="material-icons-outlined" aria-hidden="true">campaign</span>官方公告</h2>
+          <button type="button" class="dash-news__toggle" aria-expanded="true" aria-controls="dash-news-list" aria-label="收起官方公告">
+            <span class="material-icons-outlined" aria-hidden="true">expand_less</span>
+          </button>
+        </header>
+        <div class="dash-news__list" id="dash-news-list" data-dash-news>
+          <span class="dash-news__item"><span class="dash-skel dash-skel--line"></span></span>
+        </div>
+      </section>
+
+      <section class="dash-card dash-account" aria-label="登录信息">
+        <div class="dash-account__who">
+          <img src="${htmlEscape(manage.avatar || '/favicon.ico')}" alt="" class="dash-account__avatar">
+          <div class="dash-account__id">
+            <strong class="dash-account__name">${htmlEscape(manage.nickname || manage.email || '管理员')}</strong>
+            <span class="dash-account__email">${htmlEscape(manage.email || '')}</span>
+          </div>
+        </div>
+        <dl class="dash-account__list">
+          <div class="dash-account__row">
+            <dt>本次登录 IP</dt>
+            <dd class="dash-num">${htmlEscape(manage.login_ip || '-')}</dd>
+          </div>
+          <div class="dash-account__row">
+            <dt>上次登录</dt>
+            <dd class="dash-num">${htmlEscape(manage.last_login_ip || '暂无记录')}${manage.last_login_time ? '<small>' + htmlEscape(manage.last_login_time) + '</small>' : ''}</dd>
+          </div>
+        </dl>
+      </section>
+    </aside>
+    <div class="dash__main">
+      <section class="dash-card dash-earn" aria-label="利润">
+        <div class="dash-feedback" data-dash-feedback="overview" role="status" aria-live="polite" hidden></div>
+        <div class="dash-earn__grid" data-dash-earn-grid aria-busy="true">
+          <div class="dash-earn__item dash-earn__item--today" data-dash-earn="today">
+            <div class="dash-earn__head"><span class="dash-earn__label">今日利润</span></div>
+            <strong class="dash-earn__value dash-num" data-dash-value><span class="dash-skel dash-skel--value"></span></strong>
+            <span class="dash-earn__delta" data-dash-delta><span class="dash-skel"></span></span>
+            <span class="dash-earn__meta" data-dash-meta></span>
+          </div>
+          <div class="dash-earn__item" data-dash-earn="yesterday">
+            <div class="dash-earn__head"><span class="dash-earn__label">昨日利润</span></div>
+            <strong class="dash-earn__value dash-num" data-dash-value><span class="dash-skel dash-skel--value"></span></strong>
+            <span class="dash-earn__delta" data-dash-delta><span class="dash-skel"></span></span>
+            <span class="dash-earn__meta" data-dash-meta></span>
+          </div>
+          <div class="dash-earn__item" data-dash-earn="month">
+            <div class="dash-earn__head">
+              <span class="dash-earn__label">本月利润</span>
+              <span class="dash-earn__aside" data-dash-last-month hidden></span>
+            </div>
+            <strong class="dash-earn__value dash-num" data-dash-value><span class="dash-skel dash-skel--value"></span></strong>
+            <span class="dash-earn__delta" data-dash-delta><span class="dash-skel"></span></span>
+            <span class="dash-earn__meta" data-dash-meta></span>
+          </div>
+        </div>
+      </section>
+
+      <section class="dash-card dash-todo" aria-labelledby="dash-todo-title">
+        <header class="dash-card__head">
+          <h2 class="dash-card__title" id="dash-todo-title">待处理</h2>
+        </header>
+        <ul class="dash-todo__list" data-dash-todo aria-busy="true">
+          <li class="dash-todo__item"><span class="dash-todo__row"><span class="dash-skel dash-skel--line"></span></span></li>
+        </ul>
+      </section>
+
+      <section class="dash-card dash-trend" aria-labelledby="dash-trend-title">
+        <header class="dash-card__head">
+          <div class="dash-card__heading">
+            <h2 class="dash-card__title" id="dash-trend-title">趋势</h2>
+            <span class="dash-card__caption dash-num" data-trend-caption></span>
+          </div>
+          <div class="dash-seg" role="group" aria-label="时间范围">
+            <button type="button" class="dash-seg__btn is-active" data-trend-days="7" aria-pressed="true">7 天</button>
+            <button type="button" class="dash-seg__btn" data-trend-days="30" aria-pressed="false">30 天</button>
+          </div>
+        </header>
+        <div class="dash-feedback" data-dash-feedback="trend" role="status" aria-live="polite" hidden></div>
+        <div class="dash-trend__tabs" role="tablist" aria-label="指标">
+          <button type="button" role="tab" class="dash-trend__tab is-active" data-trend-metric="profit" aria-selected="true">
+            <span class="dash-trend__tab-label">利润</span>
+            <span class="dash-trend__tab-value dash-num" data-trend-value="profit"><span class="dash-skel"></span></span>
+          </button>
+          <button type="button" role="tab" class="dash-trend__tab" data-trend-metric="turnover" aria-selected="false" tabindex="-1">
+            <span class="dash-trend__tab-label">成交额</span>
+            <span class="dash-trend__tab-value dash-num" data-trend-value="turnover"><span class="dash-skel"></span></span>
+          </button>
+          <button type="button" role="tab" class="dash-trend__tab" data-trend-metric="orders" aria-selected="false" tabindex="-1">
+            <span class="dash-trend__tab-label">订单</span>
+            <span class="dash-trend__tab-value dash-num" data-trend-value="orders"><span class="dash-skel"></span></span>
+          </button>
+          <button type="button" role="tab" class="dash-trend__tab" data-trend-metric="recharge" aria-selected="false" tabindex="-1">
+            <span class="dash-trend__tab-label">充值</span>
+            <span class="dash-trend__tab-value dash-num" data-trend-value="recharge"><span class="dash-skel"></span></span>
+          </button>
+        </div>
+        <div class="dash-trend__stage">
+          <div class="dash-trend__chart" data-trend-chart data-chart aria-hidden="true"></div>
+          <p class="dash-trend__empty" data-trend-empty hidden>暂无数据</p>
+        </div>
+      </section>
+
+      <section class="dash-card dash-data" aria-labelledby="dash-data-title">
+        <header class="dash-card__head">
+          <div class="dash-card__heading">
+            <h2 class="dash-card__title" id="dash-data-title">经营数据</h2>
+            <span class="dash-card__caption dash-num" data-dash-range></span>
+          </div>
+          <div class="dash-seg" role="tablist" aria-label="统计周期" data-dash-periods>
+            <button type="button" role="tab" class="dash-seg__btn is-active" data-period="0" aria-selected="true">今日</button>
+            <button type="button" role="tab" class="dash-seg__btn" data-period="1" aria-selected="false" tabindex="-1">昨日</button>
+            <button type="button" role="tab" class="dash-seg__btn" data-period="2" aria-selected="false" tabindex="-1">本周</button>
+            <button type="button" role="tab" class="dash-seg__btn" data-period="3" aria-selected="false" tabindex="-1">本月</button>
+            <button type="button" role="tab" class="dash-seg__btn" data-period="4" aria-selected="false" tabindex="-1">全部</button>
+          </div>
+        </header>
+        <div class="dash-feedback" data-dash-feedback="data" role="status" aria-live="polite" hidden></div>
+        <div class="dash-data__body" data-dash-detail aria-busy="true">
+          <div class="dash-kpis">
+            <div class="dash-kpi">
+              <span class="dash-kpi__label">成交额</span>
+              <strong class="dash-kpi__value dash-num" data-kpi="turnover"><span class="dash-skel dash-skel--kpi"></span></strong>
+              <span class="dash-kpi__sub" data-kpi-sub="turnover"></span>
+            </div>
+            <div class="dash-kpi">
+              <span class="dash-kpi__label">利润</span>
+              <strong class="dash-kpi__value dash-num" data-kpi="profit"><span class="dash-skel dash-skel--kpi"></span></strong>
+              <span class="dash-kpi__sub" data-kpi-sub="profit"></span>
+            </div>
+            <div class="dash-kpi">
+              <span class="dash-kpi__label">成交订单</span>
+              <strong class="dash-kpi__value dash-num" data-kpi="orders"><span class="dash-skel dash-skel--kpi"></span></strong>
+              <span class="dash-kpi__sub" data-kpi-sub="orders"></span>
+            </div>
+            <div class="dash-kpi">
+              <span class="dash-kpi__label">客单价</span>
+              <strong class="dash-kpi__value dash-num" data-kpi="avg"><span class="dash-skel dash-skel--kpi"></span></strong>
+              <span class="dash-kpi__sub" data-kpi-sub="avg"></span>
+            </div>
+          </div>
+
+          <div class="dash-panels">
+            <section class="dash-panel" aria-labelledby="dash-flow-title">
+              <h3 class="dash-panel__title" id="dash-flow-title">利润构成</h3>
+              <table class="dash-bars dash-bars--flow">
+                <tbody>
+                  <tr class="dash-bars__row" data-flow="whole" data-flow-field="turnover">
+                    <th scope="row" class="dash-bars__name">成交额</th>
+                    <td class="dash-bars__amount dash-num" data-flow-amount>–</td>
+                    <td class="dash-bars__bar" aria-hidden="true"><span class="dash-bars__track"><span class="dash-bars__fill" data-flow-fill></span></span></td>
+                    <td class="dash-bars__pct dash-num" data-flow-pct></td>
+                  </tr>
+                  <tr class="dash-bars__row" data-flow="deduct" data-flow-field="pay_cost">
+                    <th scope="row" class="dash-bars__name">支付手续费</th>
+                    <td class="dash-bars__amount dash-num" data-flow-amount>–</td>
+                    <td class="dash-bars__bar" aria-hidden="true"><span class="dash-bars__track"><span class="dash-bars__fill" data-flow-fill></span></span></td>
+                    <td class="dash-bars__pct dash-num" data-flow-pct></td>
+                  </tr>
+                  <tr class="dash-bars__row" data-flow="deduct" data-flow-field="rent">
+                    <th scope="row" class="dash-bars__name">成本</th>
+                    <td class="dash-bars__amount dash-num" data-flow-amount>–</td>
+                    <td class="dash-bars__bar" aria-hidden="true"><span class="dash-bars__track"><span class="dash-bars__fill" data-flow-fill></span></span></td>
+                    <td class="dash-bars__pct dash-num" data-flow-pct></td>
+                  </tr>
+                  <tr class="dash-bars__row" data-flow="deduct" data-flow-field="rebate_merchant">
+                    <th scope="row" class="dash-bars__name">商户分成</th>
+                    <td class="dash-bars__amount dash-num" data-flow-amount>–</td>
+                    <td class="dash-bars__bar" aria-hidden="true"><span class="dash-bars__track"><span class="dash-bars__fill" data-flow-fill></span></span></td>
+                    <td class="dash-bars__pct dash-num" data-flow-pct></td>
+                  </tr>
+                  <tr class="dash-bars__row" data-flow="deduct" data-flow-field="rebate_substation">
+                    <th scope="row" class="dash-bars__name">分站分成</th>
+                    <td class="dash-bars__amount dash-num" data-flow-amount>–</td>
+                    <td class="dash-bars__bar" aria-hidden="true"><span class="dash-bars__track"><span class="dash-bars__fill" data-flow-fill></span></span></td>
+                    <td class="dash-bars__pct dash-num" data-flow-pct></td>
+                  </tr>
+                  <tr class="dash-bars__row" data-flow="deduct" data-flow-field="divide_amount">
+                    <th scope="row" class="dash-bars__name">推广佣金</th>
+                    <td class="dash-bars__amount dash-num" data-flow-amount>–</td>
+                    <td class="dash-bars__bar" aria-hidden="true"><span class="dash-bars__track"><span class="dash-bars__fill" data-flow-fill></span></span></td>
+                    <td class="dash-bars__pct dash-num" data-flow-pct></td>
+                  </tr>
+                </tbody>
+                <tfoot>
+                  <tr class="dash-bars__row" data-flow="profit" data-flow-field="profit">
+                    <th scope="row" class="dash-bars__name"><span data-dash-result-label>利润</span></th>
+                    <td class="dash-bars__amount dash-num" data-flow-amount>–</td>
+                    <td class="dash-bars__bar" aria-hidden="true"><span class="dash-bars__track"><span class="dash-bars__fill" data-flow-fill></span></span></td>
+                    <td class="dash-bars__pct dash-num" data-flow-pct></td>
+                  </tr>
+                </tfoot>
+              </table>
+              <p class="dash-panel__note" data-dash-commission hidden></p>
+            </section>
+
+            <div class="dash-panel-stack">
+              <section class="dash-panel" aria-labelledby="dash-pay-title" data-dash-channels>
+                <h3 class="dash-panel__title" id="dash-pay-title">支付通道</h3>
+                <table class="dash-bars dash-bars--channels" data-dash-channel-table></table>
+                <p class="dash-panel__empty" data-dash-channel-empty hidden>暂无收款</p>
+              </section>
+
+              <section class="dash-panel" aria-labelledby="dash-minis-title">
+                <h3 class="dash-panel__title" id="dash-minis-title">会员与提现</h3>
+                <dl class="dash-minis">
+                  <div class="dash-mini"><dt>新增会员</dt><dd class="dash-num" data-dash-field="user_register_num" data-dash-kind="count">–</dd></div>
+                  <div class="dash-mini"><dt>新开分站</dt><dd class="dash-num" data-dash-field="business" data-dash-kind="count">–</dd></div>
+                  <div class="dash-mini"><dt>会员充值</dt><dd class="dash-num" data-dash-field="recharge_amount">–</dd></div>
+                  <div class="dash-mini"><dt>提现打款</dt><dd class="dash-num" data-dash-field="cash_paid_out">–</dd></div>
+                  <div class="dash-mini"><dt>兑现到余额</dt><dd class="dash-num" data-dash-field="cash_to_balance">–</dd></div>
+                  <div class="dash-mini"><dt>提现手续费</dt><dd class="dash-num" data-dash-field="cash_fee_income">–</dd></div>
+                </dl>
+              </section>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+<script>ready("/assets/admin/controller/dashboard/index.js");</script>`;
+  return renderAdminShell({ cfg, manage, title: '控制台', activePath: '/admin/dashboard/index', body });
+}

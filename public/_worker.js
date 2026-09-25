@@ -1,5 +1,3 @@
-// DCSHOP faka - Pages 单文件入口 (由 worker.js+admin.js+lib.js 自动打包生成, 勿手改)
-
 // lib.js
 var now = () => Math.floor(Date.now() / 1e3);
 var randStr = (len = 32) => {
@@ -329,10 +327,10 @@ function indexVar(catId, cfg) {
     CURRENCY: { code: cfg.currency_code || "CNY", symbol: cfg.currency_symbol || "\xA5", rate: Number(cfg.currency_rate || 1), decimals: Number(cfg.currency_decimals || 2) },
     CAT_ID: Number(catId) || 0
   };
-  return `<script>window._data_var=${JSON.stringify(data)};</script>${langDictScript()}`;
+  return `<script>window._data_var=${JSON.stringify(data)};<\/script>${langDictScript()}`;
 }
 function itemVar(item) {
-  return `<script>window._data_var._var_item=${JSON.stringify(item)};</script>`;
+  return `<script>window._data_var._var_item=${JSON.stringify(item)};<\/script>`;
 }
 function generateTradeNo() {
   let s = String(1 + Math.floor(Math.random() * 9));
@@ -672,8 +670,8 @@ async function valuation(env, cfg, commodity, num, race, sku, coupon, group) {
     if (Number(voucher.commodity_id) !== 0 && Number(voucher.commodity_id) !== Number(commodity.id)) throw new Error("\u8BE5\u4F18\u60E0\u5238\u4E0D\u5C5E\u4E8E\u8BE5\u5546\u54C1");
     if (Number(voucher.status) !== 0) throw new Error("\u8BE5\u4F18\u60E0\u5238\u5DF2\u5931\u6548");
     if (voucher.expire_time && Number(voucher.expire_time) < now()) throw new Error("\u8BE5\u4F18\u60E0\u5238\u5DF2\u8FC7\u671F");
-    const money = Number(voucher.money) || 0;
-    const deduction = Number(voucher.mode) === 0 ? money : price.mul(money).getAmount();
+    const money2 = Number(voucher.money) || 0;
+    const deduction = Number(voucher.mode) === 0 ? money2 : price.mul(money2).getAmount();
     price = deduction >= Number(price.getAmount()) ? new Decimal(0) : price.sub(deduction);
   }
   return price.mul(num).getAmount();
@@ -1111,6 +1109,1185 @@ async function rechargeCreate(env, request, url, body) {
   return apiSuccess("success", { url: gatewayUrl });
 }
 var apiSuccess = (msg, data = null) => new Response(JSON.stringify({ code: 200, msg, data }), { status: 200, headers: { "Content-Type": "application/json; charset=utf-8" } });
+
+// admin.js
+var MANAGE_SESSION = "MANAGE_USER";
+var enc2 = new TextEncoder();
+var dec2 = new TextDecoder();
+var b64url2 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+async function sha256hex(input) {
+  const buf = typeof input === "string" ? enc2.encode(input) : input;
+  const d = await crypto.subtle.digest("SHA-256", buf);
+  return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+async function hmacSign(key, data) {
+  const k = await crypto.subtle.importKey("raw", enc2.encode(key), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", k, enc2.encode(data));
+  return new Uint8Array(sig);
+}
+function b64urlDecodeBytes2(str) {
+  const s = str.replace(/-/g, "+").replace(/_/g, "/");
+  const pad = s.length % 4 === 0 ? "" : "=".repeat(4 - s.length % 4);
+  const bin = atob(s + pad);
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+}
+async function manageJwtSign(manage, payload, ttl) {
+  const header = { alg: "HS256", typ: "JWT", mid: Number(manage.id) };
+  const nowT = Math.floor(Date.now() / 1e3);
+  const body = { mid: Number(manage.id), ...payload, iat: nowT, exp: nowT + ttl };
+  const h = b64url2(enc2.encode(JSON.stringify(header)));
+  const p = b64url2(enc2.encode(JSON.stringify(body)));
+  const sig = await hmacSign(String(manage.password), `${h}.${p}`);
+  return `${h}.${p}.${b64url2(sig)}`;
+}
+async function manageJwtVerify(token, secret) {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const expected = await hmacSign(secret, `${parts[0]}.${parts[1]}`);
+    const got = b64urlDecodeBytes2(parts[2]);
+    if (expected.length !== got.length) return null;
+    let diff = 0;
+    for (let i = 0; i < expected.length; i++) diff |= expected[i] ^ got[i];
+    if (diff !== 0) return null;
+    const payload = JSON.parse(dec2.decode(Uint8Array.from(atob(parts[1].replace(/-/g, "+").replace(/_/g, "/") + (parts[1].length % 4 === 0 ? "" : "=".repeat(4 - parts[1].length % 4))), (c) => c.charCodeAt(0))));
+    if (payload.exp && payload.exp < Math.floor(Date.now() / 1e3)) return null;
+    return payload;
+  } catch (e) {
+    return null;
+  }
+}
+function randomIdentifier() {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return b64url2(bytes);
+}
+function clientInfo(request) {
+  const info = requestInfo(request);
+  const ua = String(request.headers.get("user-agent") || "");
+  const uaDb = [...new TextEncoder().encode(ua.slice(0, 512))].map((b) => b).join("");
+  const e = enc2.encode(ua);
+  let type = /iPad|Tablet/i.test(ua) ? "tablet" : /Android|iPhone|Mobile/i.test(ua) ? "mobile" : "desktop";
+  let os = "\u7535\u8111";
+  if (/iPhone/i.test(ua)) os = "iPhone";
+  else if (/iPad/i.test(ua)) os = "iPad";
+  else if (/Android/i.test(ua)) os = "Android";
+  else if (/Windows/i.test(ua)) os = "Windows";
+  else if (/Macintosh/i.test(ua)) os = "macOS";
+  else if (/Linux/i.test(ua)) os = "Linux";
+  let bw = "\u6D4F\u89C8\u5668";
+  if (/Edg\//i.test(ua)) bw = "Edge";
+  else if (/OPR\//i.test(ua)) bw = "Opera";
+  else if (/Chrome\//i.test(ua)) bw = "Chrome";
+  else if (/Firefox\//i.test(ua)) bw = "Firefox";
+  else if (/Safari\//i.test(ua)) bw = "Safari";
+  return { ip: info.ip, ua, deviceType: type, deviceName: (os + " \xB7 " + bw).slice(0, 96), uaBytes: e.length };
+}
+async function issueManageSession(env, request, manage, remember) {
+  const expire = remember ? 86400 * 365 : 86400;
+  const expiresAt = Math.floor(Date.now() / 1e3) + expire;
+  const identifier = randomIdentifier();
+  const ci = clientInfo(request);
+  const t = now();
+  const sessionId = await dbInsert(env, "acg_manage_session", {
+    manage_id: Number(manage.id),
+    session_hash: await sha256hex(identifier),
+    device_type: ci.deviceType,
+    device_name: ci.deviceName,
+    user_agent: ci.ua.slice(0, 512),
+    login_ip: ci.ip,
+    last_ip: ci.ip,
+    created_time: t,
+    last_seen_time: t,
+    expires_time: expiresAt
+  });
+  const token = await manageJwtSign(manage, { sid: identifier }, expire);
+  return { cookie: btoa(token), sessionId, expiresAt };
+}
+async function authenticateManage(env, request, touch = true) {
+  const cookies = parseCookies(request.headers.get("Cookie") || "");
+  const encoded = cookies[MANAGE_SESSION];
+  if (!encoded) return null;
+  let token;
+  try {
+    token = atob(encoded);
+  } catch (e) {
+    return null;
+  }
+  if (!token) return null;
+  let mid = 0;
+  try {
+    const headB64 = token.split(".")[0];
+    const head = JSON.parse(dec2.decode(Uint8Array.from(atob(headB64.replace(/-/g, "+").replace(/_/g, "/") + (headB64.length % 4 === 0 ? "" : "=".repeat(4 - headB64.length % 4))), (c) => c.charCodeAt(0))));
+    mid = Number(head.mid) || 0;
+  } catch (e) {
+    return null;
+  }
+  if (mid < 1) return null;
+  const manage = await dbFirst(env, "SELECT * FROM acg_manage WHERE id=?", mid);
+  if (!manage || Number(manage.status) !== 1) return null;
+  const claims = await manageJwtVerify(token, String(manage.password));
+  if (!claims || !claims.sid || Number(claims.mid) !== mid) return null;
+  const sid = String(claims.sid);
+  if (!/^[A-Za-z0-9_-]{43}$/.test(sid)) return null;
+  const sessionHash = await sha256hex(sid);
+  const s = await dbFirst(
+    env,
+    `SELECT * FROM acg_manage_session WHERE manage_id=? AND session_hash=? AND revoked_time IS NULL AND expires_time>?`,
+    mid,
+    sessionHash,
+    Math.floor(Date.now() / 1e3)
+  );
+  if (!s) return null;
+  if (touch) {
+    const lastSeen = Number(s.last_seen_time) || 0;
+    if (lastSeen <= Math.floor(Date.now() / 1e3) - 300) {
+      await dbRun(
+        env,
+        "UPDATE acg_manage_session SET last_seen_time=?, last_ip=? WHERE id=? AND revoked_time IS NULL",
+        Math.floor(Date.now() / 1e3),
+        clientInfo(request).ip,
+        s.id
+      );
+    }
+  }
+  return manage;
+}
+async function revokeManageSession(env, request) {
+  const cookies = parseCookies(request.headers.get("Cookie") || "");
+  const encoded = cookies[MANAGE_SESSION];
+  if (!encoded) return;
+  let token;
+  try {
+    token = atob(encoded);
+  } catch (e) {
+    return;
+  }
+  if (!token) return;
+  let mid = 0;
+  try {
+    const headB64 = token.split(".")[0];
+    const head = JSON.parse(dec2.decode(Uint8Array.from(atob(headB64.replace(/-/g, "+").replace(/_/g, "/") + (headB64.length % 4 === 0 ? "" : "=".repeat(4 - headB64.length % 4))), (c) => c.charCodeAt(0))));
+    mid = Number(head.mid) || 0;
+  } catch (e) {
+    return;
+  }
+  const manage = await dbFirst(env, "SELECT id, password FROM acg_manage WHERE id=?", mid);
+  if (!manage) return;
+  const claims = await manageJwtVerify(token, String(manage.password));
+  if (!claims || !claims.sid) return;
+  const sessionHash = await sha256hex(String(claims.sid));
+  await dbRun(
+    env,
+    "UPDATE acg_manage_session SET revoked_time=? WHERE manage_id=? AND session_hash=? AND revoked_time IS NULL",
+    now(),
+    mid,
+    sessionHash
+  );
+}
+var adminJson = (obj, status = 200) => new Response(JSON.stringify(obj), {
+  status,
+  headers: { "Content-Type": "application/json; charset=utf-8", "X-Content-Type-Options": "nosniff" }
+});
+function apiOk(msg = "success", data = []) {
+  return adminJson({ code: 200, msg, data });
+}
+function apiErr(msg, code = 0) {
+  return adminJson({ code, msg, data: [] });
+}
+async function adminLogin(env, request, url, body = {}) {
+  const username = String(body.username || "");
+  const password = String(body.password || "");
+  const ip = requestInfo(request).ip;
+  const throttleKey = `adminlogin:${ip}`;
+  if (throttle(throttleKey, 10, 600)) {
+    return apiErr("\u767B\u5F55\u5C1D\u8BD5\u8FC7\u4E8E\u9891\u7E41\uFF0C\u8BF7\u7A0D\u540E\u518D\u8BD5");
+  }
+  const cfg = await loadConfig(env);
+  if (String(cfg.admin_login_verification) !== "0") {
+    const okC = await captchaCheck(env, request, "adminLogin", String(body.captcha || ""));
+    if (!okC) return apiErr("\u9A8C\u8BC1\u7801\u9519\u8BEF");
+  }
+  const manage = await dbFirst(env, "SELECT * FROM acg_manage WHERE email=?", username);
+  if (!manage) return apiErr("\u8BE5\u90AE\u7BB1\u4E0D\u5B58\u5728");
+  const okP = await verifyPassword(String(manage.password), password, String(manage.salt));
+  if (!okP) return apiErr("\u5BC6\u7801\u9519\u8BEF");
+  if (Number(manage.status) !== 1) return apiErr("\u8D26\u53F7\u5DF2\u88AB\u6682\u505C\u4F7F\u7528");
+  await dbRun(
+    env,
+    "UPDATE acg_manage SET last_login_time=login_time, last_login_ip=login_ip, login_time=?, login_ip=? WHERE id=?",
+    now(),
+    ip,
+    manage.id
+  );
+  const issued = await issueManageSession(env, request, manage, Boolean(body.remember));
+  try {
+    await dbInsert(env, "acg_manage_log", {
+      email: manage.email,
+      nickname: manage.nickname || "",
+      content: "\u767B\u5F55\u4E86\u540E\u53F0",
+      create_time: now(),
+      create_ip: ip,
+      ua: String(request.headers.get("user-agent") || "").slice(0, 512),
+      risk: 0
+    });
+  } catch (e) {
+  }
+  const res = apiOk("success", { expires_at: issued.expiresAt, session_id: issued.sessionId });
+  const host = new URL(request.url).host;
+  const secure = host !== "localhost" && host !== "127.0.0.1";
+  res.headers.append(
+    "Set-Cookie",
+    `${MANAGE_SESSION}=${encodeURIComponent(issued.cookie)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${issued.expiresAt - Math.floor(Date.now() / 1e3)}`
+  );
+  return res;
+}
+async function captchaCheck(env, request, action, input) {
+  try {
+    return await captchaVerify(env, request, action, input);
+  } catch (e) {
+    return false;
+  }
+}
+var money = (v) => Number(v || 0).toFixed(2);
+var NET_SQL = "amount - COALESCE(pay_cost,0) - rent - COALESCE(rebate,0) - COALESCE(divide_amount,0)";
+function dayRange(offsetDays, endOfDay) {
+  const d = /* @__PURE__ */ new Date();
+  d.setDate(d.getDate() + offsetDays);
+  const y = d.getFullYear(), m = String(d.getMonth() + 1).padStart(2, "0"), dd = String(d.getDate()).padStart(2, "0");
+  const start = Math.floor((/* @__PURE__ */ new Date(`${y}-${m}-${dd}T00:00:00`)).getTime() / 1e3);
+  const end = endOfDay ? start + 86400 - 1 : Math.floor(Date.now() / 1e3);
+  return [start, end];
+}
+function monthRange(offsetMonths) {
+  const d = /* @__PURE__ */ new Date();
+  const y = d.getFullYear(), m = d.getMonth() + 1;
+  const first = new Date(y, m - 1 + offsetMonths, 1);
+  const start = Math.floor(new Date(first.getFullYear(), first.getMonth(), 1).getTime() / 1e3);
+  const lastDay = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+  const end = start + lastDay * 86400 - 1;
+  return [start, end];
+}
+async function orderStats(env, time) {
+  const w = time ? " WHERE status=1 AND create_time BETWEEN ? AND ?" : " WHERE status=1";
+  const b = time ? [...time] : [];
+  const sql = `SELECT
+      COUNT(*) AS order_num,
+      COALESCE(SUM(amount),0) AS turnover,
+      COALESCE(SUM(COALESCE(pay_cost,0)),0) AS pay_cost,
+      COALESCE(SUM(rent),0) AS rent,
+      COALESCE(SUM(COALESCE(rebate,0)),0) AS rebate,
+      COALESCE(SUM(CASE WHEN user_id > 0 THEN COALESCE(rebate,0) ELSE 0 END),0) AS rebate_merchant,
+      COALESCE(SUM(CASE WHEN user_id = 0 THEN COALESCE(rebate,0) ELSE 0 END),0) AS rebate_substation,
+      COALESCE(SUM(COALESCE(divide_amount,0)),0) AS divide_amount,
+      COALESCE(SUM(${NET_SQL}),0) AS profit,
+      COALESCE(SUM(CASE WHEN pay_id <> 1 THEN amount ELSE 0 END),0) AS online_amount,
+      COALESCE(SUM(CASE WHEN pay_id = 1 THEN amount ELSE 0 END),0) AS balance_amount,
+      COUNT(DISTINCT CASE WHEN owner > 0 THEN owner END) AS member_buyers,
+      COUNT(DISTINCT CASE WHEN owner = 0 THEN contact END) AS guest_buyers
+    FROM acg_order${w}`;
+  return dbFirst(env, sql, ...b);
+}
+async function channelStats(env, time) {
+  const collect = async (table) => {
+    const w = time ? ` WHERE status=1 AND create_time BETWEEN ? AND ?` : " WHERE status=1";
+    const b = time ? [...time] : [];
+    const rows = await dbRows(
+      env,
+      `SELECT pay_id, COUNT(*) AS num, COALESCE(SUM(amount),0) AS amount, COALESCE(SUM(COALESCE(gateway_amount, amount)),0) AS gateway FROM ${table}${w} GROUP BY pay_id`,
+      ...b
+    );
+    return rows;
+  };
+  const orders = await collect("acg_order");
+  const recharges = await collect("acg_user_recharge");
+  const map = {};
+  for (const r of orders) map[r.pay_id] = { pay_id: r.pay_id, order_num: r.num, order_amount: r.amount, recharge_num: 0, recharge_amount: "0.00", gateway: r.gateway, name: null, icon: null, num: r.num, amount: r.amount };
+  for (const r of recharges) {
+    if (!map[r.pay_id]) map[r.pay_id] = { pay_id: r.pay_id, order_num: 0, order_amount: "0.00", recharge_num: 0, recharge_amount: "0.00", gateway: r.gateway, name: null, icon: null, num: r.num, amount: r.amount };
+    map[r.pay_id].recharge_num = r.num;
+    map[r.pay_id].recharge_amount = r.amount;
+    map[r.pay_id].num += r.num;
+    map[r.pay_id].amount = (Number(map[r.pay_id].amount) + Number(r.amount)).toFixed(2);
+  }
+  const ids = Object.keys(map);
+  if (ids.length) {
+    const pays = await dbRows(env, `SELECT id, name, icon FROM acg_pay WHERE id IN (${ids.map(() => "?").join(",")})`, ...ids);
+    for (const p of pays) {
+      if (map[p.id]) {
+        map[p.id].name = p.name;
+        map[p.id].icon = p.icon;
+      }
+    }
+  }
+  return Object.values(map).sort((a, b) => Number(b.amount) - Number(a.amount));
+}
+async function dashboardOverview(env, request, url) {
+  const today = dayRange(0, true);
+  const nowD = Math.floor(Date.now() / 1e3);
+  const yesterday = dayRange(-1, true);
+  const yesterdayUntilNow = [yesterday[0], nowD - 86400];
+  const dayBefore = dayRange(-2, true);
+  const month = monthRange(0);
+  const lastMonthFirst = monthRange(-1)[0];
+  const lm = monthRange(-1);
+  const lastMonthSame = lm;
+  const periods = { today, yesterday, yesterday_until_now: yesterdayUntilNow, day_before: dayBefore, month, last_month_same: lastMonthSame, last_month: lm };
+  const selects = [];
+  const b = [];
+  for (const key of Object.keys(periods)) {
+    const [s, e] = periods[key];
+    selects.push(`COALESCE(SUM(CASE WHEN create_time BETWEEN ? AND ? THEN ${NET_SQL} ELSE 0 END),0) AS ${key}_profit`);
+    selects.push(`COALESCE(SUM(CASE WHEN create_time BETWEEN ? AND ? THEN amount ELSE 0 END),0) AS ${key}_turnover`);
+    selects.push(`COUNT(CASE WHEN create_time BETWEEN ? AND ? THEN 1 END) AS ${key}_orders`);
+    b.push(s, e, s, e, s, e);
+  }
+  const row = await dbFirst(
+    env,
+    `SELECT ${selects.join(", ")} FROM acg_order WHERE status=1 AND create_time BETWEEN ? AND ?`,
+    ...b,
+    lm[0],
+    today[1]
+  );
+  const stats = {};
+  for (const key of Object.keys(periods)) {
+    stats[key] = {
+      profit: money(row ? row[`${key}_profit`] : 0),
+      turnover: money(row ? row[`${key}_turnover`] : 0),
+      orders: row ? Number(row[`${key}_orders`]) : 0,
+      start: periods[key][0],
+      end: periods[key][1]
+    };
+  }
+  const todo = { cash_num: 0, cash_amount: "0.00", delivery_num: 0, ticket_num: 0 };
+  try {
+    const pendingCash = await dbFirst(env, `SELECT COUNT(*) AS num, COALESCE(SUM(amount),0) AS amount FROM acg_cash WHERE status=0`);
+    if (pendingCash) {
+      todo.cash_num = Number(pendingCash.num);
+      todo.cash_amount = money(pendingCash.amount);
+    }
+  } catch (e) {
+  }
+  try {
+    const d = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_order o WHERE o.status=1 AND o.delivery_status=0 AND o.user_id=0 AND EXISTS (SELECT 1 FROM acg_commodity c WHERE c.id=o.commodity_id AND c.delivery_way=1)`);
+    if (d) todo.delivery_num = Number(d.n);
+  } catch (e) {
+  }
+  try {
+    const t = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_ticket WHERE status=0`);
+    if (t) todo.ticket_num = Number(t.n);
+  } catch (e) {
+  }
+  const manage = await authenticateManage(env, request, false);
+  return apiOk("success", {
+    stats,
+    todo,
+    is_owner: manage ? Number(manage.type) === 0 : false
+  });
+}
+function fmtDay(ts) {
+  const d = new Date(ts * 1e3);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+async function daily(env, days) {
+  const nowD = Math.floor(Date.now() / 1e3);
+  const start = nowD - (days - 1) * 86400;
+  const rows = {};
+  for (let i = days - 1; i >= 0; i--) {
+    rows[fmtDay(nowD - i * 86400)] = { profit: "0.00", turnover: "0.00", orders: 0, recharge: "0.00", cash: "0.00" };
+  }
+  try {
+    const o = await dbRows(
+      env,
+      `SELECT (create_time / 86400) AS dayk, COUNT(*) AS orders, COALESCE(SUM(amount),0) AS turnover, COALESCE(SUM(${NET_SQL}),0) AS profit
+       FROM acg_order WHERE status=1 AND create_time BETWEEN ? AND ?
+       GROUP BY dayk`,
+      start,
+      nowD
+    );
+    for (const r of o) {
+      const day = fmtDay(Number(r.dayk) * 86400);
+      if (rows[day]) {
+        rows[day].orders = Number(r.orders);
+        rows[day].turnover = money(r.turnover);
+        rows[day].profit = money(r.profit);
+      }
+    }
+  } catch (e) {
+  }
+  try {
+    const c = await dbRows(
+      env,
+      `SELECT (create_time / 86400) AS dayk, COALESCE(SUM(amount),0) AS amount FROM acg_cash WHERE status=1 AND create_time BETWEEN ? AND ? GROUP BY dayk`,
+      start,
+      nowD
+    );
+    for (const r of c) {
+      const day = fmtDay(Number(r.dayk) * 86400);
+      if (rows[day]) rows[day].cash = money(r.amount);
+    }
+  } catch (e) {
+  }
+  try {
+    const r = await dbRows(
+      env,
+      `SELECT (create_time / 86400) AS dayk, COALESCE(SUM(amount),0) AS amount FROM acg_user_recharge WHERE status=1 AND create_time BETWEEN ? AND ? GROUP BY dayk`,
+      start,
+      nowD
+    );
+    for (const x of r) {
+      const day = fmtDay(Number(x.dayk) * 86400);
+      if (rows[day]) rows[day].recharge = money(x.amount);
+    }
+  } catch (e) {
+  }
+  return rows;
+}
+async function dashboardTrend(env, request, url, days) {
+  days = Number(days) === 30 ? 30 : 7;
+  const rows = await daily(env, days);
+  let profit = 0, turnover = 0, orders = 0, recharge = 0;
+  const list = [];
+  for (const [day, r] of Object.entries(rows)) {
+    profit += Number(r.profit);
+    turnover += Number(r.turnover);
+    orders += Number(r.orders);
+    recharge += Number(r.recharge);
+    list.push({ date: day, profit: r.profit, turnover: r.turnover, orders: r.orders, recharge: r.recharge });
+  }
+  return apiOk("success", {
+    days: list,
+    total: { profit: money(profit), turnover: money(turnover), orders, recharge: money(recharge) }
+  });
+}
+async function dashboardData(env, request, url, type) {
+  let time = null;
+  type = Number(type) || 0;
+  const nowD = Math.floor(Date.now() / 1e3);
+  if (type === 0) time = [dayRange(0, false)[0], nowD];
+  else if (type === 1) time = dayRange(-1, true);
+  else if (type === 2) {
+    const d = /* @__PURE__ */ new Date();
+    const day = (d.getDay() + 6) % 7;
+    const s = new Date(d.getFullYear(), d.getMonth(), d.getDate() - day);
+    time = [Math.floor(s.getTime() / 1e3), nowD];
+  } else if (type === 3) time = [monthRange(0)[0], nowD];
+  else if (type === 4) time = null;
+  const order = await orderStats(env, time);
+  const unpaidQ = time ? { sql: " WHERE status=0 AND create_time BETWEEN ? AND ?", b: time } : { sql: " WHERE status=0", b: [] };
+  const cashQ = time ? { sql: " WHERE create_time BETWEEN ? AND ?", b: time } : { sql: "", b: [] };
+  const rechargeQ = time ? { sql: " WHERE status=1 AND create_time BETWEEN ? AND ?", b: time } : { sql: " WHERE status=1", b: [] };
+  const userQ = time ? { sql: " WHERE create_time BETWEEN ? AND ?", b: time } : { sql: "", b: [] };
+  const businessQ = time ? { sql: " WHERE create_time BETWEEN ? AND ?", b: time } : { sql: "", b: [] };
+  const [cash, recharge, userNum, businessNum, unpaidNum] = await Promise.all([
+    dbFirst(env, `SELECT
+        COUNT(CASE WHEN status = 0 THEN 1 END) AS pending_num,
+        COALESCE(SUM(CASE WHEN status = 1 THEN amount ELSE 0 END),0) AS done_amount,
+        COALESCE(SUM(CASE WHEN status = 1 AND card <> 2 THEN amount ELSE 0 END),0) AS paid_out,
+        COALESCE(SUM(CASE WHEN status = 1 AND card = 2 THEN amount ELSE 0 END),0) AS to_balance,
+        COALESCE(SUM(CASE WHEN status = 1 THEN cost ELSE 0 END),0) AS fee_income
+      FROM acg_cash${cashQ.sql}`, ...cashQ.b),
+    dbFirst(env, `SELECT COUNT(*) AS num, COALESCE(SUM(amount),0) AS amount FROM acg_user_recharge${rechargeQ.sql}`, ...rechargeQ.b),
+    dbFirst(env, `SELECT COUNT(*) AS n FROM acg_user${userQ.sql}`, ...userQ.b),
+    dbFirst(env, `SELECT COUNT(*) AS n FROM acg_business${businessQ.sql}`, ...businessQ.b),
+    dbFirst(env, `SELECT COUNT(*) AS n FROM acg_order${unpaidQ.sql}`, ...unpaidQ.b)
+  ]);
+  const orderNum = Number(order ? order.order_num : 0);
+  const turnover = money(order ? order.turnover : 0);
+  const avg = orderNum > 0 ? (Number(turnover) / orderNum).toFixed(2) : "0.00";
+  return apiOk("success", {
+    turnover,
+    order_num: orderNum,
+    online_amout: money(order ? order.online_amount : 0),
+    divide_amount: money(order ? order.divide_amount : 0),
+    rebate: money(order ? order.rebate : 0),
+    cost: money(order ? order.rebate_merchant : 0),
+    profit: money(order ? order.profit : 0),
+    business: Number(businessNum ? businessNum.n : 0),
+    cash_status_0: Number(cash ? cash.pending_num : 0),
+    cash_money_status_1: money(cash ? cash.done_amount : 0),
+    recharge_amount: money(recharge ? recharge.amount : 0),
+    user_register_num: Number(userNum ? userNum.n : 0),
+    pay_cost: money(order ? order.pay_cost : 0),
+    rent: money(order ? order.rent : 0),
+    rebate_merchant: money(order ? order.rebate_merchant : 0),
+    rebate_substation: money(order ? order.rebate_substation : 0),
+    balance_amount: money(order ? order.balance_amount : 0),
+    buyer_num: Number(order ? Number(order.member_buyers) + Number(order.guest_buyers) : 0),
+    avg_order: avg,
+    unpaid_order_num: Number(unpaidNum ? unpaidNum.n : 0),
+    cash_paid_out: money(cash ? cash.paid_out : 0),
+    cash_to_balance: money(cash ? cash.to_balance : 0),
+    cash_fee_income: money(cash ? cash.fee_income : 0),
+    recharge_num: Number(recharge ? recharge.num : 0),
+    channels: await channelStats(env, time),
+    gateway_cny: false,
+    range: time ? { start: time[0], end: time[1] } : null
+  });
+}
+async function adminEndpoint(env, request, url, ctl, act, body) {
+  if (ctl === "authentication" && act === "login") return adminLogin(env, request, url, body);
+  const manage = await authenticateManage(env, request);
+  if (!manage) return apiErr("\u767B\u5F55\u4F1A\u8BDD\u8FC7\u671F\uFF0C\u8BF7\u91CD\u65B0\u767B\u5F55..");
+  if (ctl === "dashboard") {
+    if (act === "overview") return dashboardOverview(env, request, url);
+    if (act === "trend") return dashboardTrend(env, request, url, Number(url.searchParams.get("days")) || 0);
+    if (act === "data") return dashboardData(env, request, url, body && body.type || url.searchParams.get("type") || 0);
+  }
+  if (ctl === "app" && act === "ad") {
+    return apiOk("ok", { title: "", content: "", url: "" });
+  }
+  return apiErr("\u63A5\u53E3\u4E0D\u5B58\u5728", 404);
+}
+
+// admin-pages.js
+function adminVar(cfg = {}) {
+  const langs = [{ code: "zh-cn", name: "\u7B80\u4F53\u4E2D\u6587" }];
+  const vars = {
+    DEBUG: false,
+    LANG: "zh-cn",
+    LANGS: langs,
+    CURRENCY: { code: "CNY", symbol: "\xA5", rate: 1, decimals: 2 },
+    HACK_ROUTE_TABLE_COLUMNS: [],
+    HACK_SUBMIT_FORM: [],
+    HACK_SUBMIT_TAB: [],
+    HACK_ROUTE_TABLE_SEARCH: []
+  };
+  let s = "<script>";
+  for (const [k, v] of Object.entries(vars)) {
+    s += `setVar(${JSON.stringify(k)}, ${JSON.stringify(v)});`;
+  }
+  s += "<\/script>";
+  return s;
+}
+var cssLinks = (paths) => paths.map((p) => `<link rel="stylesheet" href="${p}"/>`).join("\n");
+var jsScripts = (paths) => paths.map((p) => `<script src="${p}"><\/script>`).join("\n");
+function renderAdminLoginPage(cfg = {}) {
+  const bg = cfg.background_url || "/assets/admin/img/bg.jpg";
+  const shopName = cfg.shop_name || "acg-faka";
+  const captcha = String(cfg.admin_login_verification) !== "0" ? `<div class="ay-field has-ico">
+          <input id="ay-captcha" name="captcha" class="ay-input" type="text" inputmode="numeric"
+                 maxlength="4" autocomplete="off" placeholder=" " required>
+          <span class="ay-label">\u9A8C\u8BC1\u7801</span>
+          <span class="ay-ico" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/>
+            </svg>
+          </span>
+          <img id="ay-captcha-img" class="ay-captcha" src="/user/captcha/image?action=adminLogin"
+               data-acg-refresh="/user/captcha/image?action=adminLogin"
+               title="\u770B\u4E0D\u6E05\uFF1F\u70B9\u6211\u5237\u65B0" alt="\u9A8C\u8BC1\u7801">
+        </div>` : "";
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1"/>
+    <title>\u767B\u5F55 - ${htmlEscape(shopName)}</title>
+    <script>(function(){try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;var e=document.documentElement;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);}catch(_){document.documentElement.setAttribute('data-theme','light');}})();<\/script>
+    ${cssLinks([
+    "/assets/common/css/_.css",
+    "/assets/admin/css/auth.css",
+    "/assets/admin/css/_material-auth.css",
+    "/assets/admin/css/style.bundle.css",
+    "/assets/common/css/font.min.css",
+    "/assets/common/js/layui/css/layui.css",
+    "/assets/common/css/select2.min.css",
+    "/assets/common/css/component.css",
+    "/assets/common/css/toastr.min.css",
+    "/assets/common/js/table/bootstrap-table.css",
+    "/assets/common/js/layer/theme/default/layer.css",
+    "/assets/admin/css/auth.css",
+    "/assets/common/css/md-tokens.css",
+    "/assets/admin/css/material-auth.css"
+  ])}
+    <script src="/assets/common/js/ready.js"><\/script>
+    ${adminVar(cfg)}
+</head>
+<body class="ay-bg" style="background-image: linear-gradient(180deg, rgb(255 255 255 / 0%), rgb(255 255 255 / 71%)), url('${htmlEscape(bg)}')">
+<div class="ay-dim" aria-hidden="true"></div>
+<div class="ay-petals" aria-hidden="true">
+    <i style="left:6%; top:-8vh; animation-duration:11s"></i>
+    <i style="left:24%; top:-12vh; animation-duration:13s"></i>
+    <i style="left:52%; top:-16vh; animation-duration:12s"></i>
+    <i style="left:72%; top:-10vh; animation-duration:10s"></i>
+    <i style="left:86%; top:-18vh; animation-duration:14s"></i>
+</div>
+
+<main class="ay-wrap">
+    <section class="ay-card" role="dialog" aria-labelledby="ay-title" aria-describedby="ay-sub">
+        <button type="button" class="ay-theme" id="ay-theme" aria-label="\u5207\u6362\u660E\u6697\u4E3B\u9898" title="\u5207\u6362\u660E\u6697\u4E3B\u9898">
+            <svg class="ico-moon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/>
+            </svg>
+            <svg class="ico-sun" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                 stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="4"/>
+                <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>
+            </svg>
+        </button>
+        <header class="ay-head">
+            <div class="ay-logo" aria-hidden="true"></div>
+            <h1 id="ay-title" class="ay-title">\u6B22\u8FCE\u56DE\u6765\uFF0C\u6307\u6325\u5B98</h1>
+            <p id="ay-sub" class="ay-sub">\u6B63\u5728\u9A8C\u8BC1\u60A8\u7684\u7BA1\u7406\u5458\u8EAB\u4EFD</p>
+        </header>
+
+        <div class="ay-body">
+            <form id="ay-form" method="post" novalidate>
+                <div class="ay-field has-ico">
+                    <input id="ay-user" name="username" class="ay-input" type="text" placeholder=" "
+                           autocomplete="username" autofocus required>
+                    <span class="ay-label">\u90AE\u7BB1</span>
+                    <span class="ay-ico" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                            <circle cx="12" cy="7" r="4"/>
+                        </svg>
+                    </span>
+                </div>
+                <div class="ay-field has-ico">
+                    <input id="ay-pass" name="password" class="ay-input" type="password" placeholder=" "
+                           autocomplete="current-password" required>
+                    <span class="ay-label">\u5BC6\u7801</span>
+                    <span class="ay-ico" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="3" y="11" width="18" height="11" rx="2"/>
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                        </svg>
+                    </span>
+                    <button type="button" class="ay-eye" id="ay-eye" aria-label="\u663E\u793A\u5BC6\u7801" aria-controls="ay-pass">
+                        <svg class="ay-eye-open" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12Z"/>
+                            <circle cx="12" cy="12" r="3"/>
+                        </svg>
+                        <svg class="ay-eye-shut" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                            <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+                            <path d="M14.12 14.12a3 3 0 1 1-4.24-4.24"/>
+                            <path d="m1 1 22 22"/>
+                        </svg>
+                    </button>
+                    <span class="ay-caps" id="ay-caps" hidden>\u5927\u5199\u9501\u5B9A\u5DF2\u5F00\u542F</span>
+                </div>
+                ${captcha}
+                <div class="ay-field has-ico ay-2fa is-hidden">
+                    <input id="ay-code" name="code" class="ay-input" type="text" inputmode="numeric"
+                           autocomplete="one-time-code" maxlength="6" placeholder=" ">
+                    <span class="ay-label">\u8C37\u6B4C\u9A8C\u8BC1\u7801</span>
+                    <span class="ay-ico" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor"
+                             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0 3 3L22 7l-3-3m-3.5 3.5L19 4"/>
+                        </svg>
+                    </span>
+                </div>
+
+                <div class="ay-row">
+                    <label class="ay-check"><input type="checkbox" id="ay-remember" name="remember" value="1">\u4FDD\u6301\u767B\u5F55(365\u5929)</label>
+                    <a class="ay-link" href="javascript:void(0)" data-acg-action="message.info" data-acg-args='["\u67E5\u770B\u5B98\u65B9\u6587\u6863\u91CD\u7F6E\u5BC6\u7801\u65B9\u6CD5"]'>\u5FD8\u8BB0\u5BC6\u7801\uFF1F</a>
+                </div>
+
+                <button class="ay-btn" type="submit" id="ay-submit">\u786E\u8BA4\u767B\u5165</button>
+            </form>
+            <div class="ay-foot">\xA9 ${htmlEscape(shopName)}</div>
+        </div>
+    </section>
+</main>
+
+<script>ready("/assets/admin/controller/auth/login.js");<\/script>
+${jsScripts([
+    "/assets/common/js/_.js",
+    "/assets/common/js/util/dict.js",
+    "/assets/common/js/jquery.min.js",
+    "/assets/common/js/toastr.min.js",
+    "/assets/common/js/component/loading.js",
+    "/assets/common/js/util.js",
+    "/assets/common/js/layer/layer.js",
+    "/assets/common/js/jquery.pjax.min.js",
+    "/assets/common/js/jquery.qrcode.min.js",
+    "/assets/common/js/format.js",
+    "/assets/common/js/message.js",
+    "/assets/common/js/component.js",
+    "/assets/common/js/layui/layui.js",
+    "/assets/common/js/jquery.treegrid.min.js",
+    "/assets/common/js/bootstrap/bootstrap.bundle.min.js",
+    "/assets/common/js/table/bootstrap-table.min.js",
+    "/assets/common/js/table/bootstrap-table-treegrid.min.js",
+    "/assets/common/js/component/form.js",
+    "/assets/common/js/component/search.js",
+    "/assets/common/js/component/xm-select.js",
+    "/assets/common/js/component/tree.select.js",
+    "/assets/common/js/component/authtree.js",
+    "/assets/common/js/component/table.js",
+    "/assets/common/js/component/select2.min.js",
+    "/assets/common/js/cache.js",
+    "/assets/common/js/editor/editor.js",
+    "/assets/common/js/editor/code/code.js",
+    "/assets/common/js/component/decimal.js"
+  ])}
+</body>
+</html>`;
+}
+function adminMenu(activePath) {
+  const items = [
+    { icon: '<path d="M19 5v2h-4V5h4M9 5v6H5V5h4m10 8v6h-4v-6h4M9 17v2H5v-2h4M21 3h-8v6h8V3zM11 3H3v10h8V3zm10 8h-8v10h8V11zm-10 4H3v6h8v-6z"/>', name: "\u63A7\u5236\u53F0", url: "/admin/dashboard/index", section: "Main" },
+    { icon: '<path d="M9 13.75c-2.34 0-7 1.17-7 3.5V19h14v-1.75c0-2.33-4.66-3.5-7-3.5zM4.34 17c.84-.58 2.87-1.25 4.66-1.25s3.82.67 4.66 1.25H4.34zM9 12c1.93 0 3.5-1.57 3.5-3.5S10.93 5 9 5S5.5 6.57 5.5 8.5S7.07 12 9 12zm0-5c.83 0 1.5.67 1.5 1.5S9.83 10 9 10s-1.5-.67-1.5-1.5S8.17 7 9 7zm7.04 6.81c1.16.84 1.96 1.96 1.96 3.44V19h4v-1.75c0-2.02-3.5-3.17-5.96-3.44zM15 12c1.93 0 3.5-1.57 3.5-3.5S16.93 5 15 5c-.54 0-1.04.13-1.5.35c.63.89 1 1.98 1 3.15s-.37 2.26-1 3.15c.46.22.96.35 1.5.35z"/>', name: "\u4F1A\u5458\u7BA1\u7406", url: "/admin/user/index", section: "User" },
+    { icon: '<path d="M30 12a2 2 0 0 0-2-2V7c0-1.1-.9-2-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-3a2 2 0 0 0 2-2zM4 7h12v3.17A3 3 0 0 0 15 12c0 .77.29 1.47.76 2H16v3H4V7zm14 6a1 1 0 1 1 0-2a1 1 0 0 1 0 2z"/><path d="M6 9h6v2H6zm0 4h6v2H6z"/>'.replace("30 12a2", "20 12a2"), name: "\u5DE5\u5355\u7BA1\u7406", url: "/admin/ticket/index", section: "User" },
+    { icon: '<path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM7 9h10v2H7V9zm6 5H7v-2h6v2zm4-6H7V6h10v2z"/>', name: "\u6D88\u606F\u7BA1\u7406", url: "/admin/message/index", section: "User" },
+    { icon: '<path d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM4 8h16v8H4V8z"/><path d="M7 10h2v4H7zm4 0h2v4h-2zm4 0h2v4h-2z"/>'.replace("assets/", ""), name: "\u5145\u503C\u8BA2\u5355", url: "/admin/recharge/order", section: "User" },
+    { icon: '<path d="M12 2l-5.5 9h11L12 2zm0 3.84L13.93 9h-3.87L12 5.84zM17.5 13c-2.49 0-4.5 2.01-4.5 4.5s2.01 4.5 4.5 4.5s4.5-2.01 4.5-4.5s-2.01-4.5-4.5-4.5zm0 7a2.5 2.5 0 0 1 0-5a2.5 2.5 0 0 1 0 5zM3 21.5h8v-8H3v8zm2-6h4v4H5v-4z"/>', name: "\u5206\u7C7B\u7BA1\u7406", url: "/admin/category/index", section: "Trade" },
+    { icon: '<path d="M20 2H4c-1 0-2 .9-2 2v3.01c0 .72.43 1.34 1 1.69V20c0 1.1 1.1 2 2 2h14c.9 0 2-.9 2-2V8.7c.57-.35 1-.97 1-1.69V4c0-1.1-1-2-2-2zm-1 18H5V9h14v11zm1-13H4V4h16v3z"/><path d="M9 12h6v2H9z"/>', name: "\u5546\u54C1\u7BA1\u7406", url: "/admin/commodity/index", section: "Trade" },
+    { icon: '<path d="M22 19h-6v-4h-2.68c-1.14 2.42-3.6 4-6.32 4c-3.86 0-7-3.14-7-7s3.14-7 7-7c2.72 0 5.17 1.58 6.32 4H24v6h-2v4zm-4-2h2v-4h2v-2H11.94l-.23-.67C11.01 8.34 9.11 7 7 7c-2.76 0-5 2.24-5 5s2.24 5 5 5c2.11 0 4.01-1.34 4.71-3.33l.23-.67H18v4zM7 15c-1.65 0-3-1.35-3-3s1.35-3 3-3s3 1.35 3 3s-1.35 3-3 3zm0-4c-.55 0-1 .45-1 1s.45 1 1 1s1-.45 1-1s-.45-1-1-1z"/>', name: "\u5361\u5BC6\u7BA1\u7406", url: "/admin/card/index", section: "Trade" },
+    { icon: '<path d="M15.55 13c.75 0 1.41-.41 1.75-1.03l3.58-6.49A.996.996 0 0 0 20.01 4H5.21l-.94-2H1v2h2l3.6 7.59l-1.35 2.44C4.52 15.37 5.48 17 7 17h12v-2H7l1.1-2h7.45zM6.16 6h12.15l-2.76 5H8.53L6.16 6zM7 18c-1.1 0-1.99.9-1.99 2S5.9 22 7 22s2-.9 2-2s-.9-2-2-2zm10 0c-1.1 0-1.99.9-1.99 2s.89 2 1.99 2s2-.9 2-2s-.9-2-2-2z"/>', name: "\u5546\u54C1\u8BA2\u5355", url: "/admin/order/index", section: "Shared" },
+    { icon: '<path d="M21.41 11.58l-9-9C12.05 2.22 11.55 2 11 2H4c-1.1 0-2 .9-2 2v7c0 .55.22 1.05.59 1.42l9 9c.36.36.86.58 1.41.58s1.05-.22 1.41-.59l7-7c.37-.36.59-.86.59-1.41s-.23-1.06-.59-1.42zM13 20.01L4 11V4h7v-.01l9 9l-7 7.02z"/><circle cx="6.5" cy="6.5" r="1.5"/>', name: "\u4F18\u60E0\u5238", url: "/admin/coupon/index", section: "Shared" },
+    { icon: '<path d="M19.43 12.98c.04-.32.07-.64.07-.98c0-.34-.03-.66-.07-.98l2.11-1.65c.19-.15.24-.42.12-.64l-2-3.46a.5.5 0 0 0-.61-.22l-2.49 1c-.52-.4-1.08-.73-1.69-.98l-.38-2.65A.488.488 0 0 0 14 2h-4c-.25 0-.46.18-.49.42l-.38 2.65c-.61.25-1.17.59-1.69.98l-2.49-1a.566.566 0 0 0-.18-.03c-.17 0-.34.09-.43.25l-2 3.46c-.13.22-.07.49.12.64l2.11 1.65c-.04.32-.07.65-.07.98c0 .33.03.66.07.98l-2.11 1.65c-.19.15-.24.42-.12.64l2 3.46a.5.5 0 0 0 .61.22l2.49-1c.52.4 1.08.73 1.69.98l.38 2.65c.03.24.24.42.49.42h4c.25 0 .46-.18.49-.42l.38-2.65c.61-.25 1.17-.59 1.69-.98l2.49 1c.06.02.12.03.18.03c.17 0 .34-.09.43-.25l2-3.46c.12-.22.07-.49-.12-.64l-2.11-1.65zm-1.98-1.71c.04.31.05.52.05.73c0 .21-.02.43-.05.73l-.14 1.13l.89.7l1.08.84l-.7 1.21l-1.27-.51l-1.04-.42l-.9.68c-.43.32-.84.56-1.25.73l-1.06.43l-.16 1.13l-.2 1.35h-1.4l-.19-1.35l-.16-1.13l-1.06-.43c-.43-.18-.83-.41-1.23-.71l-.91-.7l-1.06.43l-1.27.51l-.7-1.21l1.08-.84l.89-.7l-.14-1.13c-.03-.31-.05-.54-.05-.74s.02-.43.05-.73l.14-1.13l-.89-.7l-1.08-.84l.7-1.21l1.27.51l1.04.42l.9-.68c.43-.32.84-.56 1.25-.73l1.06-.43l.16-1.13l.2-1.35h1.39l.19 1.35l.16 1.13l1.06.43c.43.18.83.41 1.23.71l.91.7l1.06-.43l1.27-.51l.7 1.21l-1.07.85l-.89.7l.14 1.13zM12 8c-2.21 0-4 1.79-4 4s1.79 4 4 4s4-1.79 4-4s-1.79-4-4-4zm0 6c-1.1 0-2-.9-2-2s.9-2 2-2s2 .9 2 2s-.9 2-2 2z"/>', name: "\u7CFB\u7EDF\u914D\u7F6E", url: "/admin/config/index", section: "Config" }
+  ];
+  let html = "";
+  let lastSection = "";
+  for (const it of items) {
+    if (it.section !== lastSection) {
+      html += `<div class="menu-content pt-8 pb-2"><span class="menu-section text-muted text-uppercase fs-8 ls-1">${it.section}</span></div>`;
+      lastSection = it.section;
+    }
+    const active = activePath && (activePath === it.url || activePath.indexOf(it.url) === 0) ? "active" : "";
+    html += `<div class="menu-item">
+              <a class="menu-link ${active}" href="${it.url}">
+                <span class="menu-icon"><svg class="menu-svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">${it.icon}</svg></span>
+                <span class="menu-title">${it.name}</span>
+              </a>
+            </div>`;
+  }
+  return html;
+}
+var adminFooterScripts = () => jsScripts([
+  "/assets/common/js/_.js",
+  "/assets/admin/js/_admin.js",
+  "/assets/admin/js/_material.js",
+  "/assets/static/codemirror/lib/codemirror.js",
+  "/assets/static/codemirror/mode/markdown/markdown.js",
+  "/assets/common/js/util/dict.js",
+  "/assets/common/js/jquery.min.js",
+  "/assets/common/js/toastr.min.js",
+  "/assets/common/js/component/loading.js",
+  "/assets/common/js/util.js",
+  "/assets/common/js/layer/layer.js",
+  "/assets/common/js/jquery.pjax.min.js",
+  "/assets/common/js/jquery.qrcode.min.js",
+  "/assets/common/js/format.js",
+  "/assets/common/js/message.js",
+  "/assets/common/js/component.js",
+  "/assets/common/js/layui/layui.js",
+  "/assets/common/js/jquery.treegrid.min.js",
+  "/assets/common/js/bootstrap/bootstrap.bundle.min.js",
+  "/assets/common/js/table/bootstrap-table.min.js",
+  "/assets/common/js/table/bootstrap-table-treegrid.min.js",
+  "/assets/common/js/component/form.js",
+  "/assets/common/js/component/search.js",
+  "/assets/common/js/component/xm-select.js",
+  "/assets/common/js/component/tree.select.js",
+  "/assets/common/js/component/authtree.js",
+  "/assets/common/js/component/table.js",
+  "/assets/common/js/component/select2.min.js",
+  "/assets/common/js/cache.js",
+  "/assets/common/js/editor/editor.js",
+  "/assets/common/js/editor/code/code.js",
+  "/assets/common/js/component/decimal.js",
+  "/assets/admin/js/dict.js",
+  "/assets/admin/js/menu.js",
+  "/assets/admin/controller/global.js",
+  "/assets/admin/js/material.js"
+]);
+function renderAdminShell(opts = {}) {
+  const { cfg = {}, manage = {}, title = "\u63A7\u5236\u53F0", activePath = "/admin/dashboard/index", toolbar = null } = opts;
+  const shopName = cfg.shop_name || "acg-faka";
+  const avatar = manage.avatar || "/favicon.ico";
+  const nickname = manage.nickname || manage.email || "\u7BA1\u7406\u5458";
+  const email = manage.email || "";
+  const tb = toolbar && toolbar.length ? `<nav class="md-tabs">${toolbar.map((t) => `<a href="${t.url}" class="md-tab">${t.name}</a>`).join("")}</nav>` : "";
+  return `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
+    <script>(function(){var e=document.documentElement;try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);var m=localStorage.getItem('admin-layout-mode')==='desktop'?'desktop':((window.innerWidth||screen.width)<992?'mobile':'desktop');e.setAttribute('data-admin-layout',m);}catch(_){e.setAttribute('data-theme','light');e.setAttribute('data-admin-layout',(window.innerWidth||screen.width)<992?'mobile':'desktop');}})();<\/script>
+    <title>${htmlEscape(title)}-${htmlEscape(shopName)}</title>
+    <link rel="shortcut icon" href="/favicon.ico"/>
+    ${cssLinks([
+    "/assets/admin/css/_admin.css",
+    "/assets/common/css/_.css",
+    "/assets/static/codemirror/lib/codemirror.css",
+    "/assets/common/css/_material.css",
+    "/assets/common/fonts/material-icons.css",
+    "/assets/admin/css/_material.css",
+    "/assets/admin/css/_mobile.css",
+    "/assets/admin/css/style.bundle.css",
+    "/assets/common/css/font.min.css",
+    "/assets/common/js/layui/css/layui.css",
+    "/assets/common/css/select2.min.css",
+    "/assets/common/css/component.css",
+    "/assets/common/css/toastr.min.css",
+    "/assets/common/js/table/bootstrap-table.css",
+    "/assets/common/js/layer/theme/default/layer.css",
+    "/assets/common/css/md-tokens.css",
+    "/assets/common/css/md-components.css",
+    "/assets/admin/css/material.css",
+    "/assets/common/fonts/material-icons.css",
+    "/assets/common/css/mdicon.css",
+    "/assets/admin/css/mobile.css"
+  ])}
+    <script src="/assets/common/js/ready.js"><\/script>
+    ${adminVar(cfg)}
+</head>
+<body id="kt_body"
+      class="header-fixed header-tablet-and-mobile-fixed toolbar-enabled toolbar-fixed aside-enabled aside-fixed"
+      style="--kt-toolbar-height:55px;--kt-toolbar-height-tablet-and-mobile:55px;background: url('${htmlEscape(cfg.background_url || "")}') fixed no-repeat;background-size: cover;">
+<script>(function(){try{if((!window.matchMedia||matchMedia('(min-width: 992px)').matches)&&localStorage.getItem('admin-aside-minimize')==='on'){document.body.setAttribute('data-kt-aside-minimize','on');}}catch(_){}})();<\/script>
+<div class="d-flex flex-column flex-root">
+    <div class="page d-flex flex-row flex-column-fluid">
+        <!--begin::Aside-->
+        <div id="kt_aside" class="aside aside-light aside-hoverable" data-kt-drawer="true" data-kt-drawer-name="aside"
+             data-kt-drawer-activate="{default: true, lg: false}" data-kt-drawer-overlay="true"
+             data-kt-drawer-width="{default:'200px', '300px': '250px'}" data-kt-drawer-direction="start"
+             data-kt-drawer-toggle="#kt_aside_mobile_toggle">
+            <div class="aside-menu flex-column-fluid">
+                <div class="hover-scroll-overlay-y my-5 my-lg-5" id="kt_aside_menu_wrapper"
+                     data-kt-scroll="true" data-kt-scroll-activate="{default: false, lg: true}" data-kt-scroll-height="auto"
+                     data-kt-scroll-dependencies="#kt_header" data-kt-scroll-wrappers="#kt_aside_menu" data-kt-scroll-offset="0">
+                    <div class="menu menu-column menu-title-gray-800 menu-state-title-primary menu-state-icon-primary menu-state-bullet-primary menu-arrow-gray-500"
+                         id="kt_aside_menu" data-kt-menu="true">
+                        ${adminMenu(activePath)}
+                        <div class="menu-item">
+                            <div class="menu-content">
+                                <div class="separator mx-1 my-4"></div>
+                            </div>
+                        </div>
+                        <div class="menu-item">
+                            <a class="menu-link" href="/admin/authentication/logout">
+                                <span class="menu-icon"><svg class="menu-svg" viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true"><path d="M9.4 16.6L4.8 12l4.6-4.6L8 6l-6 6l6 6l1.4-1.4zm5.2 0l4.6-4.6l-4.6-4.6L16 6l6 6l-6 6l-1.4-1.4z"/></svg></span>
+                                <span class="menu-title">\u9000\u51FA\u767B\u5F55</span>
+                            </a>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!--end::Aside-->
+        <!--begin::Wrapper-->
+        <div class="wrapper d-flex flex-column flex-row-fluid" id="kt_wrapper">
+            <!--begin::Header-->
+            <div id="kt_header" style="" class="header align-items-stretch">
+                <div class="container-fluid d-flex align-items-stretch justify-content-between">
+                    <div class="aside-logo flex-column-auto d-none d-lg-flex" id="kt_aside_logo">
+                        <a href="/admin/dashboard/index" class="d-flex align-items-center">
+                            <img style="border-radius: 50%;height: 22px;" src="/favicon.ico">
+                            <span class="logo fw-bolder ms-2 fs-4" style="color: #919191;">${htmlEscape(shopName)}</span>
+                        </a>
+                        <div id="kt_aside_toggle" class="btn btn-icon w-auto px-0 btn-active-color-primary aside-toggle"
+                             data-kt-toggle="true" data-kt-toggle-state="active" data-kt-toggle-target="body"
+                             data-kt-toggle-name="aside-minimize">
+                            <span class="svg-icon svg-icon-1 aside-toggle-icon"><svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M17.59 18L19 16.59L14.42 12L19 7.41L17.59 6l-6 6z"/><path d="M11 18l1.41-1.41L7.83 12l4.58-4.59L11 6l-6 6z"/></svg></span>
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-center d-lg-none ms-n3 me-1" title="Show aside menu">
+                        <div class="btn btn-icon btn-active-light-primary w-30px h-30px w-md-40px h-md-40px" id="kt_aside_mobile_toggle">
+                            <span class="svg-icon svg-icon-2x">
+                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none">
+                                    <path d="M21 7H3C2.4 7 2 6.6 2 6V4C2 3.4 2.4 3 3 3H21C21.6 3 22 3.4 22 4V6C22 6.6 21.6 7 21 7Z" fill="black"/>
+                                    <path opacity="0.3" d="M21 14H3C2.4 14 2 13.6 2 13V11C2 10.4 2.4 10 3 10H21C21.6 10 22 10.4 22 11V13C22 13.6 21.6 14 21 14ZM22 20V18C22 17.4 21.6 17 21 17H3C2.4 17 2 17.4 2 18V20C2 20.6 2.4 21 3 21H21C21.6 21 22 20.6 22 20Z" fill="black"/>
+                                </svg>
+                            </span>
+                        </div>
+                    </div>
+                    <div class="d-flex align-items-stretch justify-content-between flex-lg-grow-1">
+                        <div class="d-flex align-items-stretch" id="kt_header_nav"></div>
+                        <div class="d-flex align-items-stretch flex-shrink-0">
+                            <div class="d-flex align-items-stretch flex-shrink-0">
+                                <div class="d-flex align-items-center ms-1 ms-lg-3">
+                                    <div class="md-theme-switch">
+                                        <button type="button" id="md-theme-toggle" class="btn btn-icon w-30px h-30px w-md-40px h-md-40px" title="\u4E3B\u9898" aria-label="\u5207\u6362\u4E3B\u9898">
+                                            <i class="md-ico md-ico-light fa-duotone fa-regular fa-sun-bright fs-2"></i>
+                                            <i class="md-ico md-ico-dark fa-duotone fa-regular fa-moon-stars fs-2"></i>
+                                            <i class="md-ico md-ico-auto fa-duotone fa-regular fa-circle-half-stroke fs-2"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="d-flex align-items-center ms-1 ms-lg-3">
+                                    <a href="/admin/manage/set">
+                                        <div class="cursor-pointer symbol symbol-30px symbol-md-40px">
+                                            <img src="${htmlEscape(avatar)}" alt="user"/>
+                                        </div>
+                                    </a>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!--end::Header-->
+            <div id="pjax-container">
+                <!--begin::Content-->
+                <div class="content d-flex flex-column flex-column-fluid" id="kt_content">
+                    <!--begin::Toolbar-->
+                    <div class="toolbar md-page-header" id="kt_toolbar">
+                        <div id="kt_toolbar_container" class="container-fluid">
+                            <h1 class="md-page-title">${htmlEscape(title)}</h1>
+                            ${tb}
+                        </div>
+                    </div>
+                    <!--end::Toolbar-->
+                    <div class="post d-flex flex-column-fluid">
+                        <div id="kt_content_container" class="container-fluid">
+                            ${opts.body || ""}
+                        </div>
+                    </div>
+                </div>
+                <!--end::Content-->
+            </div>
+        </div>
+        <!--end::Wrapper-->
+    </div>
+</div>
+<div id="kt_scrolltop" class="scrolltop" data-kt-scrolltop="true"><i class="fa-duotone fa-regular fa-arrow-up text-white"></i></div>
+${adminFooterScripts()}
+</body>
+</html>`;
+}
+function renderAdminDashboardPage(cfg, manage) {
+  const body = `
+<script src="/assets/static/echarts.min.js"><\/script>
+<div class="dash">
+  <div class="dash__grid">
+    <aside class="dash__side">
+      <section class="dash-card dash-news" aria-labelledby="dash-news-title">
+        <header class="dash-card__head">
+          <h2 class="dash-card__title dash-news__title" id="dash-news-title"><span class="material-icons-outlined" aria-hidden="true">campaign</span>\u5B98\u65B9\u516C\u544A</h2>
+          <button type="button" class="dash-news__toggle" aria-expanded="true" aria-controls="dash-news-list" aria-label="\u6536\u8D77\u5B98\u65B9\u516C\u544A">
+            <span class="material-icons-outlined" aria-hidden="true">expand_less</span>
+          </button>
+        </header>
+        <div class="dash-news__list" id="dash-news-list" data-dash-news>
+          <span class="dash-news__item"><span class="dash-skel dash-skel--line"></span></span>
+        </div>
+      </section>
+
+      <section class="dash-card dash-account" aria-label="\u767B\u5F55\u4FE1\u606F">
+        <div class="dash-account__who">
+          <img src="${htmlEscape(manage.avatar || "/favicon.ico")}" alt="" class="dash-account__avatar">
+          <div class="dash-account__id">
+            <strong class="dash-account__name">${htmlEscape(manage.nickname || manage.email || "\u7BA1\u7406\u5458")}</strong>
+            <span class="dash-account__email">${htmlEscape(manage.email || "")}</span>
+          </div>
+        </div>
+        <dl class="dash-account__list">
+          <div class="dash-account__row">
+            <dt>\u672C\u6B21\u767B\u5F55 IP</dt>
+            <dd class="dash-num">${htmlEscape(manage.login_ip || "-")}</dd>
+          </div>
+          <div class="dash-account__row">
+            <dt>\u4E0A\u6B21\u767B\u5F55</dt>
+            <dd class="dash-num">${htmlEscape(manage.last_login_ip || "\u6682\u65E0\u8BB0\u5F55")}${manage.last_login_time ? "<small>" + htmlEscape(manage.last_login_time) + "</small>" : ""}</dd>
+          </div>
+        </dl>
+      </section>
+    </aside>
+    <div class="dash__main">
+      <section class="dash-card dash-earn" aria-label="\u5229\u6DA6">
+        <div class="dash-feedback" data-dash-feedback="overview" role="status" aria-live="polite" hidden></div>
+        <div class="dash-earn__grid" data-dash-earn-grid aria-busy="true">
+          <div class="dash-earn__item dash-earn__item--today" data-dash-earn="today">
+            <div class="dash-earn__head"><span class="dash-earn__label">\u4ECA\u65E5\u5229\u6DA6</span></div>
+            <strong class="dash-earn__value dash-num" data-dash-value><span class="dash-skel dash-skel--value"></span></strong>
+            <span class="dash-earn__delta" data-dash-delta><span class="dash-skel"></span></span>
+            <span class="dash-earn__meta" data-dash-meta></span>
+          </div>
+          <div class="dash-earn__item" data-dash-earn="yesterday">
+            <div class="dash-earn__head"><span class="dash-earn__label">\u6628\u65E5\u5229\u6DA6</span></div>
+            <strong class="dash-earn__value dash-num" data-dash-value><span class="dash-skel dash-skel--value"></span></strong>
+            <span class="dash-earn__delta" data-dash-delta><span class="dash-skel"></span></span>
+            <span class="dash-earn__meta" data-dash-meta></span>
+          </div>
+          <div class="dash-earn__item" data-dash-earn="month">
+            <div class="dash-earn__head">
+              <span class="dash-earn__label">\u672C\u6708\u5229\u6DA6</span>
+              <span class="dash-earn__aside" data-dash-last-month hidden></span>
+            </div>
+            <strong class="dash-earn__value dash-num" data-dash-value><span class="dash-skel dash-skel--value"></span></strong>
+            <span class="dash-earn__delta" data-dash-delta><span class="dash-skel"></span></span>
+            <span class="dash-earn__meta" data-dash-meta></span>
+          </div>
+        </div>
+      </section>
+
+      <section class="dash-card dash-todo" aria-labelledby="dash-todo-title">
+        <header class="dash-card__head">
+          <h2 class="dash-card__title" id="dash-todo-title">\u5F85\u5904\u7406</h2>
+        </header>
+        <ul class="dash-todo__list" data-dash-todo aria-busy="true">
+          <li class="dash-todo__item"><span class="dash-todo__row"><span class="dash-skel dash-skel--line"></span></span></li>
+        </ul>
+      </section>
+
+      <section class="dash-card dash-trend" aria-labelledby="dash-trend-title">
+        <header class="dash-card__head">
+          <div class="dash-card__heading">
+            <h2 class="dash-card__title" id="dash-trend-title">\u8D8B\u52BF</h2>
+            <span class="dash-card__caption dash-num" data-trend-caption></span>
+          </div>
+          <div class="dash-seg" role="group" aria-label="\u65F6\u95F4\u8303\u56F4">
+            <button type="button" class="dash-seg__btn is-active" data-trend-days="7" aria-pressed="true">7 \u5929</button>
+            <button type="button" class="dash-seg__btn" data-trend-days="30" aria-pressed="false">30 \u5929</button>
+          </div>
+        </header>
+        <div class="dash-feedback" data-dash-feedback="trend" role="status" aria-live="polite" hidden></div>
+        <div class="dash-trend__tabs" role="tablist" aria-label="\u6307\u6807">
+          <button type="button" role="tab" class="dash-trend__tab is-active" data-trend-metric="profit" aria-selected="true">
+            <span class="dash-trend__tab-label">\u5229\u6DA6</span>
+            <span class="dash-trend__tab-value dash-num" data-trend-value="profit"><span class="dash-skel"></span></span>
+          </button>
+          <button type="button" role="tab" class="dash-trend__tab" data-trend-metric="turnover" aria-selected="false" tabindex="-1">
+            <span class="dash-trend__tab-label">\u6210\u4EA4\u989D</span>
+            <span class="dash-trend__tab-value dash-num" data-trend-value="turnover"><span class="dash-skel"></span></span>
+          </button>
+          <button type="button" role="tab" class="dash-trend__tab" data-trend-metric="orders" aria-selected="false" tabindex="-1">
+            <span class="dash-trend__tab-label">\u8BA2\u5355</span>
+            <span class="dash-trend__tab-value dash-num" data-trend-value="orders"><span class="dash-skel"></span></span>
+          </button>
+          <button type="button" role="tab" class="dash-trend__tab" data-trend-metric="recharge" aria-selected="false" tabindex="-1">
+            <span class="dash-trend__tab-label">\u5145\u503C</span>
+            <span class="dash-trend__tab-value dash-num" data-trend-value="recharge"><span class="dash-skel"></span></span>
+          </button>
+        </div>
+        <div class="dash-trend__stage">
+          <div class="dash-trend__chart" data-trend-chart data-chart aria-hidden="true"></div>
+          <p class="dash-trend__empty" data-trend-empty hidden>\u6682\u65E0\u6570\u636E</p>
+        </div>
+      </section>
+
+      <section class="dash-card dash-data" aria-labelledby="dash-data-title">
+        <header class="dash-card__head">
+          <div class="dash-card__heading">
+            <h2 class="dash-card__title" id="dash-data-title">\u7ECF\u8425\u6570\u636E</h2>
+            <span class="dash-card__caption dash-num" data-dash-range></span>
+          </div>
+          <div class="dash-seg" role="tablist" aria-label="\u7EDF\u8BA1\u5468\u671F" data-dash-periods>
+            <button type="button" role="tab" class="dash-seg__btn is-active" data-period="0" aria-selected="true">\u4ECA\u65E5</button>
+            <button type="button" role="tab" class="dash-seg__btn" data-period="1" aria-selected="false" tabindex="-1">\u6628\u65E5</button>
+            <button type="button" role="tab" class="dash-seg__btn" data-period="2" aria-selected="false" tabindex="-1">\u672C\u5468</button>
+            <button type="button" role="tab" class="dash-seg__btn" data-period="3" aria-selected="false" tabindex="-1">\u672C\u6708</button>
+            <button type="button" role="tab" class="dash-seg__btn" data-period="4" aria-selected="false" tabindex="-1">\u5168\u90E8</button>
+          </div>
+        </header>
+        <div class="dash-feedback" data-dash-feedback="data" role="status" aria-live="polite" hidden></div>
+        <div class="dash-data__body" data-dash-detail aria-busy="true">
+          <div class="dash-kpis">
+            <div class="dash-kpi">
+              <span class="dash-kpi__label">\u6210\u4EA4\u989D</span>
+              <strong class="dash-kpi__value dash-num" data-kpi="turnover"><span class="dash-skel dash-skel--kpi"></span></strong>
+              <span class="dash-kpi__sub" data-kpi-sub="turnover"></span>
+            </div>
+            <div class="dash-kpi">
+              <span class="dash-kpi__label">\u5229\u6DA6</span>
+              <strong class="dash-kpi__value dash-num" data-kpi="profit"><span class="dash-skel dash-skel--kpi"></span></strong>
+              <span class="dash-kpi__sub" data-kpi-sub="profit"></span>
+            </div>
+            <div class="dash-kpi">
+              <span class="dash-kpi__label">\u6210\u4EA4\u8BA2\u5355</span>
+              <strong class="dash-kpi__value dash-num" data-kpi="orders"><span class="dash-skel dash-skel--kpi"></span></strong>
+              <span class="dash-kpi__sub" data-kpi-sub="orders"></span>
+            </div>
+            <div class="dash-kpi">
+              <span class="dash-kpi__label">\u5BA2\u5355\u4EF7</span>
+              <strong class="dash-kpi__value dash-num" data-kpi="avg"><span class="dash-skel dash-skel--kpi"></span></strong>
+              <span class="dash-kpi__sub" data-kpi-sub="avg"></span>
+            </div>
+          </div>
+
+          <div class="dash-panels">
+            <section class="dash-panel" aria-labelledby="dash-flow-title">
+              <h3 class="dash-panel__title" id="dash-flow-title">\u5229\u6DA6\u6784\u6210</h3>
+              <table class="dash-bars dash-bars--flow">
+                <tbody>
+                  <tr class="dash-bars__row" data-flow="whole" data-flow-field="turnover">
+                    <th scope="row" class="dash-bars__name">\u6210\u4EA4\u989D</th>
+                    <td class="dash-bars__amount dash-num" data-flow-amount>\u2013</td>
+                    <td class="dash-bars__bar" aria-hidden="true"><span class="dash-bars__track"><span class="dash-bars__fill" data-flow-fill></span></span></td>
+                    <td class="dash-bars__pct dash-num" data-flow-pct></td>
+                  </tr>
+                  <tr class="dash-bars__row" data-flow="deduct" data-flow-field="pay_cost">
+                    <th scope="row" class="dash-bars__name">\u652F\u4ED8\u624B\u7EED\u8D39</th>
+                    <td class="dash-bars__amount dash-num" data-flow-amount>\u2013</td>
+                    <td class="dash-bars__bar" aria-hidden="true"><span class="dash-bars__track"><span class="dash-bars__fill" data-flow-fill></span></span></td>
+                    <td class="dash-bars__pct dash-num" data-flow-pct></td>
+                  </tr>
+                  <tr class="dash-bars__row" data-flow="deduct" data-flow-field="rent">
+                    <th scope="row" class="dash-bars__name">\u6210\u672C</th>
+                    <td class="dash-bars__amount dash-num" data-flow-amount>\u2013</td>
+                    <td class="dash-bars__bar" aria-hidden="true"><span class="dash-bars__track"><span class="dash-bars__fill" data-flow-fill></span></span></td>
+                    <td class="dash-bars__pct dash-num" data-flow-pct></td>
+                  </tr>
+                  <tr class="dash-bars__row" data-flow="deduct" data-flow-field="rebate_merchant">
+                    <th scope="row" class="dash-bars__name">\u5546\u6237\u5206\u6210</th>
+                    <td class="dash-bars__amount dash-num" data-flow-amount>\u2013</td>
+                    <td class="dash-bars__bar" aria-hidden="true"><span class="dash-bars__track"><span class="dash-bars__fill" data-flow-fill></span></span></td>
+                    <td class="dash-bars__pct dash-num" data-flow-pct></td>
+                  </tr>
+                  <tr class="dash-bars__row" data-flow="deduct" data-flow-field="rebate_substation">
+                    <th scope="row" class="dash-bars__name">\u5206\u7AD9\u5206\u6210</th>
+                    <td class="dash-bars__amount dash-num" data-flow-amount>\u2013</td>
+                    <td class="dash-bars__bar" aria-hidden="true"><span class="dash-bars__track"><span class="dash-bars__fill" data-flow-fill></span></span></td>
+                    <td class="dash-bars__pct dash-num" data-flow-pct></td>
+                  </tr>
+                  <tr class="dash-bars__row" data-flow="deduct" data-flow-field="divide_amount">
+                    <th scope="row" class="dash-bars__name">\u63A8\u5E7F\u4F63\u91D1</th>
+                    <td class="dash-bars__amount dash-num" data-flow-amount>\u2013</td>
+                    <td class="dash-bars__bar" aria-hidden="true"><span class="dash-bars__track"><span class="dash-bars__fill" data-flow-fill></span></span></td>
+                    <td class="dash-bars__pct dash-num" data-flow-pct></td>
+                  </tr>
+                </tbody>
+                <tfoot>
+                  <tr class="dash-bars__row" data-flow="profit" data-flow-field="profit">
+                    <th scope="row" class="dash-bars__name"><span data-dash-result-label>\u5229\u6DA6</span></th>
+                    <td class="dash-bars__amount dash-num" data-flow-amount>\u2013</td>
+                    <td class="dash-bars__bar" aria-hidden="true"><span class="dash-bars__track"><span class="dash-bars__fill" data-flow-fill></span></span></td>
+                    <td class="dash-bars__pct dash-num" data-flow-pct></td>
+                  </tr>
+                </tfoot>
+              </table>
+              <p class="dash-panel__note" data-dash-commission hidden></p>
+            </section>
+
+            <div class="dash-panel-stack">
+              <section class="dash-panel" aria-labelledby="dash-pay-title" data-dash-channels>
+                <h3 class="dash-panel__title" id="dash-pay-title">\u652F\u4ED8\u901A\u9053</h3>
+                <table class="dash-bars dash-bars--channels" data-dash-channel-table></table>
+                <p class="dash-panel__empty" data-dash-channel-empty hidden>\u6682\u65E0\u6536\u6B3E</p>
+              </section>
+
+              <section class="dash-panel" aria-labelledby="dash-minis-title">
+                <h3 class="dash-panel__title" id="dash-minis-title">\u4F1A\u5458\u4E0E\u63D0\u73B0</h3>
+                <dl class="dash-minis">
+                  <div class="dash-mini"><dt>\u65B0\u589E\u4F1A\u5458</dt><dd class="dash-num" data-dash-field="user_register_num" data-dash-kind="count">\u2013</dd></div>
+                  <div class="dash-mini"><dt>\u65B0\u5F00\u5206\u7AD9</dt><dd class="dash-num" data-dash-field="business" data-dash-kind="count">\u2013</dd></div>
+                  <div class="dash-mini"><dt>\u4F1A\u5458\u5145\u503C</dt><dd class="dash-num" data-dash-field="recharge_amount">\u2013</dd></div>
+                  <div class="dash-mini"><dt>\u63D0\u73B0\u6253\u6B3E</dt><dd class="dash-num" data-dash-field="cash_paid_out">\u2013</dd></div>
+                  <div class="dash-mini"><dt>\u5151\u73B0\u5230\u4F59\u989D</dt><dd class="dash-num" data-dash-field="cash_to_balance">\u2013</dd></div>
+                  <div class="dash-mini"><dt>\u63D0\u73B0\u624B\u7EED\u8D39</dt><dd class="dash-num" data-dash-field="cash_fee_income">\u2013</dd></div>
+                </dl>
+              </section>
+            </div>
+          </div>
+        </div>
+      </section>
+    </div>
+  </div>
+</div>
+<script>ready("/assets/admin/controller/dashboard/index.js");<\/script>`;
+  return renderAdminShell({ cfg, manage, title: "\u63A7\u5236\u53F0", activePath: "/admin/dashboard/index", body });
+}
 
 // pages.js
 var CSS_AUTH = [
@@ -1684,7 +2861,7 @@ function renderHeader(v, extraScripts = "") {
     <link href="${favicon}?v=${app.version}" rel="icon">
     <title>${htmlEscape(title)} - ${htmlEscape(config.shop_name)}</title>
     ${CSS_FILES.map((f) => `<link href="${f}" rel="stylesheet">`).join("")}
-    <script src="/assets/common/js/ready.js"></script>
+    <script src="/assets/common/js/ready.js"><\/script>
     ${extraScripts}
 </head>
 <body style="background-size: cover;background-image: linear-gradient(180deg, rgb(255 255 255 / 0%), rgb(255 255 255 / 71%)), url('${htmlEscape(config.background_url || "")}')">
@@ -1731,7 +2908,7 @@ function renderHeader(v, extraScripts = "") {
 function renderFooter(v) {
   return `</div>
 ${v.setting && v.setting.icp ? `<footer>${htmlEscape(v.setting.icp)}</footer>` : ""}
-${JS_FILES.map((f) => `<script src="${f}"></script>`).join("")}
+${JS_FILES.map((f) => `<script src="${f}"><\/script>`).join("")}
 </body>
 </html>`;
 }
@@ -1973,7 +3150,7 @@ function pageIndex(v) {
     </div>
   </div>
 </main>
-<script src="/assets/user/controller/index/index.js"></script>`;
+<script src="/assets/user/controller/index/index.js"><\/script>`;
 }
 function pageItem(v) {
   const { item, config } = v;
@@ -2102,7 +3279,7 @@ function pageItem(v) {
 
 
 </main>
-<script src="/assets/user/controller/index/item.js"></script>`;
+<script src="/assets/user/controller/index/item.js"><\/script>`;
 }
 function pageQuery(v) {
   return `<main class="container py-4">
@@ -2127,7 +3304,7 @@ function pageQuery(v) {
         </div>
     </div>
 </main>
-<script src="/assets/user/controller/index/query.js"></script>`;
+<script src="/assets/user/controller/index/query.js"><\/script>`;
 }
 function pageClosed(v) {
   return `<main class="container py-5">
@@ -2198,7 +3375,45 @@ async function route(env, request, url, ctx) {
   const cfg = await loadConfig(env);
   if (s.startsWith("/admin/")) {
     ctx.route = s;
-    return pageRes('<!DOCTYPE html><html><head><meta charset="utf-8"><title>\u656C\u8BF7\u671F\u5F85</title></head><body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;background:#f5f6fa;color:#333"><div style="text-align:center"><h1 style="font-size:2rem;margin-bottom:.5rem">\u7BA1\u7406\u540E\u53F0</h1><p>\u540E\u53F0\u7BA1\u7406\u529F\u80FD\u8FC1\u79FB\u4E2D\uFF0C\u656C\u8BF7\u671F\u5F85 (P2 \u9636\u6BB5)</p></div></body></html>');
+    if (s === "/admin/authentication/logout") {
+      await revokeManageSession(env, request);
+      return new Response(null, {
+        status: 302,
+        headers: {
+          Location: "/admin/authentication/login",
+          "Set-Cookie": "MANAGE_USER=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0"
+        }
+      });
+    }
+    if (s === "/admin/authentication/login") {
+      return pageRes(renderAdminLoginPage(cfg));
+    }
+    if (s.startsWith("/admin/api/")) {
+      const rest = s.replace("/admin/api/", "");
+      const body = await request.text().catch(() => "");
+      let parsed = {};
+      try {
+        parsed = body ? JSON.parse(body) : {};
+      } catch (e) {
+        if (body) {
+          try {
+            parsed = Object.fromEntries(new URLSearchParams(body));
+          } catch (e2) {
+          }
+        }
+      }
+      const res = await adminEndpoint(env, request, url, ...rest.split("/"), parsed);
+      return res;
+    }
+    const manage = await authenticateManage(env, request);
+    if (!manage) {
+      const qLogin = `?goto=${encodeURIComponent(s)}`;
+      return new Response(null, { status: 302, headers: { Location: "/admin/authentication/login" + qLogin } });
+    }
+    if (s === "/admin/dashboard/index" || s === "/admin/dashboard") {
+      return pageRes(renderAdminDashboardPage(cfg, manage));
+    }
+    return pageRes(renderAdminShell({ cfg, manage, title: "\u5EFA\u8BBE\u4E2D", activePath: s }), "text/html");
   }
   if (pathname.startsWith("/user/captcha/image")) {
     const action = q.get("action") || "login";
