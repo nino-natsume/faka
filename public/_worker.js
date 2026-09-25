@@ -1,3 +1,5 @@
+// DCSHOP faka - Pages 单文件入口 (由 worker.js+admin.js+lib.js 自动打包生成, 勿手改)
+
 // lib.js
 function esc(s) {
   if (s === null || s === void 0) return "";
@@ -157,19 +159,19 @@ function footerHtml(env, opts) {
   const icp = opt(opts, "icp", "");
   return `</div>
 ${icp ? `<footer class="text-center text-muted py-3" style="font-size:13px;">${esc(icp)}</footer>` : ""}
-<script src="/assets/common/js/jquery.min.js"><\/script>
-<script src="/assets/common/js/bootstrap/bootstrap.bundle.min.js"><\/script>
-<script src="/assets/common/js/util/dict.js"><\/script>
-<script src="/assets/common/js/toastr.min.js"><\/script>
-<script src="/assets/common/js/layer/layer.js"><\/script>
-<script src="/assets/common/js/util.js"><\/script>
-<script src="/assets/common/js/format.js"><\/script>
-<script src="/assets/common/js/message.js"><\/script>
-<script src="/assets/common/js/component.js"><\/script>
-<script src="/assets/common/js/cache.js"><\/script>
-<script src="/assets/user/js/trade.js"><\/script>
-<script src="/assets/user/js/treasure.js"><\/script>
-<script src="/assets/user/js/_index.js"><\/script>
+<script src="/assets/common/js/jquery.min.js"></script>
+<script src="/assets/common/js/bootstrap/bootstrap.bundle.min.js"></script>
+<script src="/assets/common/js/util/dict.js"></script>
+<script src="/assets/common/js/toastr.min.js"></script>
+<script src="/assets/common/js/layer/layer.js"></script>
+<script src="/assets/common/js/util.js"></script>
+<script src="/assets/common/js/format.js"></script>
+<script src="/assets/common/js/message.js"></script>
+<script src="/assets/common/js/component.js"></script>
+<script src="/assets/common/js/cache.js"></script>
+<script src="/assets/user/js/trade.js"></script>
+<script src="/assets/user/js/treasure.js"></script>
+<script src="/assets/user/js/_index.js"></script>
 <script>
 $(function(){
   $('#acgSearchInput').on('keypress', function(e){
@@ -180,7 +182,7 @@ $(function(){
     }
   });
 });
-<\/script>
+</script>
 `;
 }
 function pageFoot() {
@@ -318,7 +320,7 @@ function adminPage(request, env, title, content) {
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-<script>(function(){var e=document.documentElement;try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);var m=localStorage.getItem('admin-layout-mode')==='desktop'?'desktop':((window.innerWidth||screen.width)<992?'mobile':'desktop');e.setAttribute('data-admin-layout',m);}catch(_){e.setAttribute('data-theme','light');e.setAttribute('data-admin-layout',(window.innerWidth||screen.width)<992?'mobile':'desktop');}})();<\/script>
+<script>(function(){var e=document.documentElement;try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);var m=localStorage.getItem('admin-layout-mode')==='desktop'?'desktop':((window.innerWidth||screen.width)<992?'mobile':'desktop');e.setAttribute('data-admin-layout',m);}catch(_){e.setAttribute('data-theme','light');e.setAttribute('data-admin-layout',(window.innerWidth||screen.width)<992?'mobile':'desktop');}})();</script>
 <title>${esc(title)}-${esc(shopName)}</title>
 <link rel="shortcut icon" href="/favicon.ico"/>
 <link href="/assets/common/css/_.css" rel="stylesheet">
@@ -411,16 +413,16 @@ function adminPage(request, env, title, content) {
     </div>
   </div>
 </div>
-<script src="/assets/common/js/jquery.min.js"><\/script>
-<script src="/assets/common/js/bootstrap/bootstrap.bundle.min.js"><\/script>
-<script src="/assets/common/js/toastr.min.js"><\/script>
-<script src="/assets/common/js/util.js"><\/script>
-<script src="/assets/common/js/format.js"><\/script>
-<script src="/assets/common/js/message.js"><\/script>
-<script src="/assets/common/js/component.js"><\/script>
-<script src="/assets/common/js/layui/layui.js"><\/script>
-<script src="/assets/common/js/layer/layer.js"><\/script>
-<script>$(function(){ var pa=location.pathname; $('.aside-menu a.menu-link').each(function(){ if($(this).attr('href')===pa) $(this).addClass('active'); }); });<\/script>
+<script src="/assets/common/js/jquery.min.js"></script>
+<script src="/assets/common/js/bootstrap/bootstrap.bundle.min.js"></script>
+<script src="/assets/common/js/toastr.min.js"></script>
+<script src="/assets/common/js/util.js"></script>
+<script src="/assets/common/js/format.js"></script>
+<script src="/assets/common/js/message.js"></script>
+<script src="/assets/common/js/component.js"></script>
+<script src="/assets/common/js/layui/layui.js"></script>
+<script src="/assets/common/js/layer/layer.js"></script>
+<script>$(function(){ var pa=location.pathname; $('.aside-menu a.menu-link').each(function(){ if($(this).attr('href')===pa) $(this).addClass('active'); }); });</script>
 </body></html>`,
     { headers: HTML_HEADERS }
   );
@@ -438,7 +440,7 @@ function loginHtml(shopName) {
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1"/>
 <title>\u767B\u5F55 - ${esc(shopName)}</title>
-<script>(function(){try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;var e=document.documentElement;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);}catch(_){document.documentElement.setAttribute('data-theme','light');}})();<\/script>
+<script>(function(){try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;var e=document.documentElement;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);}catch(_){document.documentElement.setAttribute('data-theme','light');}})();</script>
 <link href="/assets/common/css/_.css" rel="stylesheet">
 <link href="/assets/common/css/bootstrap.min.css" rel="stylesheet">
 <link href="/assets/common/css/font.min.css" rel="stylesheet">
@@ -499,9 +501,9 @@ function loginHtml(shopName) {
         </div>
     </section>
 </main>
-<script src="/assets/common/js/jquery.min.js"><\/script>
-<script src="/assets/common/js/toastr.min.js"><\/script>
-<script src="/assets/common/js/layer/layer.js"><\/script>
+<script src="/assets/common/js/jquery.min.js"></script>
+<script src="/assets/common/js/toastr.min.js"></script>
+<script src="/assets/common/js/layer/layer.js"></script>
 <script>
 $('#ay-form').on('submit', function(e){
   e.preventDefault();
@@ -525,7 +527,7 @@ $(function(){
     $(this).toggleClass('is-visible', v);
   });
 });
-<\/script>
+</script>
 </body></html>`;
 }
 async function dashboard(request, env) {
@@ -596,7 +598,7 @@ async function goodsList(request, env, q) {
   <tbody>${rows || '<tr><td colspan="8" class="text-center text-muted py-6">\u6682\u65E0\u5546\u54C1</td></tr>'}</tbody></table>
   </div>
   </div>
-  <script>function delGoods(id){ if(!confirm('\u786E\u8BA4\u5220\u9664\u8BE5\u5546\u54C1\uFF1F')) return; $.post('/admin/goods/delete',{id:id},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }<\/script>`;
+  <script>function delGoods(id){ if(!confirm('\u786E\u8BA4\u5220\u9664\u8BE5\u5546\u54C1\uFF1F')) return; $.post('/admin/goods/delete',{id:id},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }</script>`;
   return adminPage(request, env, "\u5546\u54C1\u7BA1\u7406", content);
 }
 var TNAME = { once: "\u4E00\u5361\u4E00\u5BC6", general: "\u901A\u7528\u5361\u5BC6", service: "\u865A\u62DF\u670D\u52A1", duli: "\u72EC\u7ACB\u5BF9\u63A5", physical: "\u5B9E\u7269" };
@@ -650,7 +652,7 @@ async function goodsEdit(request, env, q) {
       if (r.code === 0) { location.href = '/admin/goods'; } else { $('#fmsg').text(r.msg); }
     }, 'json');
   });
-  <\/script>`;
+  </script>`;
   return adminPage(request, env, id ? "\u7F16\u8F91\u5546\u54C1 #" + id : "\u65B0\u589E\u5546\u54C1", content);
 }
 async function saveGoods(form, env) {
@@ -738,7 +740,7 @@ async function kamiManage(request, env, q) {
   function impKami(){ $.post('/admin/kami/import',{goods_id:${gid},text:$('#importKami').val()},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
   function delK(id){ if(!confirm('\u786E\u8BA4\u5220\u9664\u8BE5\u5361\u5BC6\uFF1F')) return; $.post('/admin/kami/delete',{id:id,goods_id:${gid},type:'once'},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
   function delG(id){ if(!confirm('\u786E\u8BA4\u5220\u9664\u8BE5\u5361\u5BC6\uFF1F')) return; $.post('/admin/kami/delete',{id:id,goods_id:${gid},type:'general'},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
-  <\/script>`;
+  </script>`;
   return adminPage(request, env, "\u5361\u5BC6\u7BA1\u7406", content);
 }
 async function addKami(form, env) {
@@ -825,7 +827,7 @@ async function ordersList(request, env, q) {
   <script>
   function refund(id){ if(!confirm('\u786E\u8BA4\u9000\u6B3E\uFF1F')) return; $.post('/admin/order/refund',{id:id},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
   function delO(id){ if(!confirm('\u786E\u8BA4\u5220\u9664\u8BA2\u5355\uFF1F')) return; $.post('/admin/order/delete',{id:id},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
-  <\/script>`;
+  </script>`;
   return adminPage(request, env, "\u8BA2\u5355\u7BA1\u7406", content);
 }
 async function refundOrder(form, env) {
@@ -867,7 +869,7 @@ async function sortsList(request, env, q) {
   <script>
   function addS(){ $.post('/admin/sort/save',{name:$('#sName').val(),alias:$('#sAlias').val(),taxis:$('#sTaxis').val(),icon:$('#sIcon').val()},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
   function delS(id){ if(!confirm('\u786E\u8BA4\u5220\u9664\u8BE5\u5206\u7C7B\uFF1F')) return; $.post('/admin/sort/delete',{sid:id},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
-  <\/script>`;
+  </script>`;
   return adminPage(request, env, "\u5206\u7C7B\u7BA1\u7406", content);
 }
 async function saveSort(form, env) {
@@ -915,7 +917,7 @@ async function settingsPage(request, env) {
       else { $('#fmsg').text(r.msg); }
     }, 'json');
   });
-  <\/script>`;
+  </script>`;
   return adminPage(request, env, "\u7AD9\u70B9\u8BBE\u7F6E", content);
 }
 async function saveSettings(form, env) {
@@ -1285,7 +1287,7 @@ async function pageGoods(request, env, q) {
       }, 'json').fail(function(){ paying=false; layer.msg('\u7F51\u7EDC\u9519\u8BEF'); });
     });
   })();
-  <\/script>`;
+  </script>`;
   return new Response(layout(env, { ...opts, title: g.title }, navItems, body), { headers: HTML_HEADERS2 });
 }
 function paymentMethodsHtml(opts) {
@@ -1302,7 +1304,7 @@ function paymentMethodsHtml(opts) {
   ${items}
   </div>
   <style>.pay-list .pay{cursor:pointer;}</style>
-  <script>$(function(){ $('.pay-list .pay').on('click', function(){ $('.pay-list .pay').removeClass('is-primary'); $(this).addClass('is-primary'); }); });<\/script>`;
+  <script>$(function(){ $('.pay-list .pay').on('click', function(){ $('.pay-list .pay').removeClass('is-primary'); $(this).addClass('is-primary'); }); });</script>`;
 }
 function epayConfig(opts) {
   try {
@@ -1422,7 +1424,7 @@ async function pagePay(request, env, q) {
   }
   $('#btnMockPay').on('click', function(){ doPay('test'); });
   $('#btnBalancePay').on('click', function(){ doPay('balance'); });
-  <\/script>`;
+  </script>`;
   return new Response(layout(env, { ...opts, title: "\u8BA2\u5355\u652F\u4ED8" }, navItems, body), { headers: HTML_HEADERS2 });
 }
 async function apiPaySubmit(request, env) {
@@ -1600,7 +1602,7 @@ async function pageOrderQuery(request, env, q) {
   }
   $('#queryOrder').on('click', doQuery);
   $('#queryInput').on('keydown', function(e){ if (e.key === 'Enter') doQuery(); });
-  <\/script>`;
+  </script>`;
   return new Response(layout(env, { ...opts, title: "\u8BA2\u5355\u67E5\u8BE2" }, navItems, body), { headers: HTML_HEADERS2 });
 }
 async function apiOrderQuery(request, env, q) {
@@ -1678,7 +1680,7 @@ async function pageHelp(request, env, q) {
   $(function(){
     $('.faq-q').on('click', function(){ var a=$(this).next(); a.slideToggle(150); $(this).find('.faq-arrow').text(a.is(':visible')?'-':'+'); });
   });
-  <\/script>`;
+  </script>`;
   return new Response(layout(env, { ...opts, title: "\u4E70\u5BB6\u5E2E\u52A9" }, navItems, body), { headers: HTML_HEADERS2 });
 }
 async function pageUser(request, env, q) {
@@ -1719,7 +1721,7 @@ async function pageUser(request, env, q) {
         if (res.code === 0) { location.reload(); } else { layer.msg(res.msg || '\u767B\u5F55\u5931\u8D25'); }
       }, 'json');
     });
-    <\/script>`;
+    </script>`;
   }
   const body = `<main class="container py-4" style="max-width:960px;">${inner}</main>`;
   return new Response(layout(env, { ...opts, title: "\u4F1A\u5458\u4E2D\u5FC3" }, navItems, body), { headers: HTML_HEADERS2 });
@@ -1809,7 +1811,7 @@ function buildKamiHtml(kamiLines) {
     (k, i) => '<div class="kami-item"><span class="kami-index">' + (i + 1) + "</span><code>" + esc(k.content) + '</code><button class="kami-item-copy" data-c="' + esc(k.content) + '">\u590D\u5236</button></div>'
   ).join("");
   const allText = JSON.stringify(kamiLines.map((k) => k.content).join("\n"));
-  return '<div class="kami-list" id="kamiList"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><b>\u5361\u5BC6\u4FE1\u606F\uFF08\u5171 ' + kamiLines.length + ' \u6761\uFF09</b><button class="btn btn-primary btn-sm br-12" id="btnCopyAll">\u4E00\u952E\u590D\u5236</button></div>' + items + "</div><script>$('#btnCopyAll').on('click', function(){  var t = " + allText + ";  if (navigator.clipboard) navigator.clipboard.writeText(t).then(function(){ layer.msg('\u5DF2\u590D\u5236\u5168\u90E8'); });  else { var ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); layer.msg('\u5DF2\u590D\u5236\u5168\u90E8'); }});$(document).on('click', '.kami-item-copy', function(){  var t = $(this).data('c');  if (navigator.clipboard) navigator.clipboard.writeText(t).then(function(){ layer.msg('\u5DF2\u590D\u5236'); });  else { var ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); layer.msg('\u5DF2\u590D\u5236'); }});<\/script><style>.kami-list{margin-top:18px;background:#fff;border:1px solid #eee;border-radius:10px;padding:18px;}.kami-item{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px dashed #eee;}.kami-item:last-child{border-bottom:none;}.kami-index{width:24px;height:24px;border-radius:50%;background:#139655;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;}.kami-item code{flex:1;word-break:break-all;color:#333;}.kami-item-copy{color:#139655;cursor:pointer;background:none;border:none;font-size:13px;}</style>";
+  return '<div class="kami-list" id="kamiList"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><b>\u5361\u5BC6\u4FE1\u606F\uFF08\u5171 ' + kamiLines.length + ' \u6761\uFF09</b><button class="btn btn-primary btn-sm br-12" id="btnCopyAll">\u4E00\u952E\u590D\u5236</button></div>' + items + "</div><script>$('#btnCopyAll').on('click', function(){  var t = " + allText + ";  if (navigator.clipboard) navigator.clipboard.writeText(t).then(function(){ layer.msg('\u5DF2\u590D\u5236\u5168\u90E8'); });  else { var ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); layer.msg('\u5DF2\u590D\u5236\u5168\u90E8'); }});$(document).on('click', '.kami-item-copy', function(){  var t = $(this).data('c');  if (navigator.clipboard) navigator.clipboard.writeText(t).then(function(){ layer.msg('\u5DF2\u590D\u5236'); });  else { var ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); layer.msg('\u5DF2\u590D\u5236'); }});</script><style>.kami-list{margin-top:18px;background:#fff;border:1px solid #eee;border-radius:10px;padding:18px;}.kami-item{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px dashed #eee;}.kami-item:last-child{border-bottom:none;}.kami-index{width:24px;height:24px;border-radius:50%;background:#139655;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;}.kami-item code{flex:1;word-break:break-all;color:#333;}.kami-item-copy{color:#139655;cursor:pointer;background:none;border:none;font-size:13px;}</style>";
 }
 function json2(o) {
   return new Response(JSON.stringify(o), { headers: JSON_HEADERS2 });
