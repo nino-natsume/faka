@@ -14,8 +14,8 @@ D1 创建（幂等）→ 初始化 → 灌种子数据 → 部署。
 
 | Secret | 必填 | 说明 |
 |---|---|---|
-| `CLOUDFLARE_API_TOKEN` | 是 | Cloudflare API Token（Workers: Edit、D1: Edit） |
-| `CLOUDFLARE_ACCOUNT_ID` | 是 | Cloudflare 账号 ID |
+| `CLOUDFLARE_API_TOKEN` | 是 | Cloudflare API Token（My Profile → API Tokens 创建）。所需权限：Account › Workers Scripts › Edit、Account › D1 › Edit、Account › Account Settings › Read（如需绑定自定义域名，另加 Zone › Zone › Read 与 Zone › Workers Routes › Edit） |
+| `CLOUDFLARE_ACCOUNT_ID` | 是 | Cloudflare Account ID（Cloudflare dashboard 右侧边栏） |
 | `FK_SECRET` | 否 | 签名密钥（建议 32+ 位随机串） |
 | `FK_ADMIN_USERNAME` | 否 | 后台用户名（默认 `admin`） |
 | `FK_ADMIN_PASSWORD` | 否 | 后台密码（默认 `admin123`，**必改**） |
@@ -37,7 +37,7 @@ wrangler deploy
 
 Worker 使用 `SECRET`、`ADMIN_USERNAME`、`ADMIN_PASSWORD` 三个变量（代码内置默认值）。
 有两种配置方式，任选其一：GitHub Secrets（`FK_*` 前缀，部署时自动注入）或
-Cloudflare Dashboard 的 `Variables and Secrets`（同名变量）。`wrangler.toml` 不做硬编码。
+Cloudflare dashboard 的 `Variables and Secrets`（同名变量）。`wrangler.toml` 不做硬编码。
 上线前务必修改默认后台密码。
 
 ## 使用说明
