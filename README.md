@@ -4,6 +4,30 @@
 前台样式与原版完全一致（复用原项目全部静态资源），后端由 **Workers + D1** 实现
 商品浏览、下单、支付、自动发货、订单查询与管理后台，前台/后台/订单闭环开箱即用。
 
+## 纯浏览器部署（Cloudflare Pages，零命令行 · 推荐）
+
+> 仓库中的 `public/_worker.js` 已把全部后端逻辑打包为单文件，配合 `public/`
+> 静态资源即可直接传上 Cloudflare Pages。全程浏览器操作，无需安装任何东西。
+
+1. 打开 [Cloudflare dashboard](https://dash.cloudflare.com) 并登录。
+2. **创建数据库**：左侧 `D1` → `Create database` → 名称填 `faka` → 创建。
+3. **初始化数据库**：进入刚创建的 `faka` → `Console`（或 `Import`），
+   依次粘贴执行 [schema.sql](schema.sql) 与 [seed.sql](seed.sql) 的内容（均可重复执行）。
+4. **上传站点**：`Workers & Pages` → `Create` → `Pages` → `Upload assets` →
+   把本仓库的 `public/` 文件夹拖入上传区 → `Deploy`（完成后得到 `https://xxx.pages.dev` 域名）。
+5. **绑定数据库**：在刚创建的 Pages 项目 → `Settings` → `Functions` → `Bindings` →
+   `Add binding` → 类型 `D1 Database` → 选择 `faka` → 变量名填 `DB` → `Save`。
+6. **配置变量**：`Settings` → `Environment variables` → `Add`，
+   添加三项（类型选 Secret）：
+   - `SECRET`：一段 32+ 位随机串
+   - `ADMIN_USERNAME`：后台用户名（默认 `admin`）
+   - `ADMIN_PASSWORD`：后台密码（默认 `admin123`，**必改**）
+7. **完成**：访问 `https://xxx.pages.dev` 查看商城；`/admin` 进入后台。
+   再次部署只需重复第 4 步（更新代码后重新上传）。
+
+> ⚠️ 若后续修改了 `worker.js` / `admin.js` / `lib.js`，需重新生成 `public/_worker.js`：
+> `npx esbuild worker.js --bundle --format=esm --platform=neutral --outfile=public/_worker.js`
+
 ## 快速部署（GitHub Actions）
 
 在仓库 `Settings → Secrets and variables → Actions` 配置：
