@@ -1,5 +1,3 @@
-// DCSHOP faka - Pages 单文件入口 (由 worker.js+admin.js+lib.js 自动打包生成, 勿手改)
-
 // lib.js
 function esc(s) {
   if (s === null || s === void 0) return "";
@@ -95,113 +93,102 @@ async function buildAttrSpec(db, skuStr) {
   return s;
 }
 function pageHead(opts) {
-  const title = opts.title || "DCSHOP\u591A\u8D22\u5546\u57CE";
-  const kw = opts.keywords || "\u81EA\u52A8\u53D1\u5361,\u865A\u62DF\u5546\u54C1,\u5361\u5BC6";
+  const siteName = opts.blogname || opts.shop_name || "ACG\u53D1\u5361";
+  const title = opts.title ? opts.title + " - " + siteName : siteName;
+  const kw = opts.keywords || "\u81EA\u52A8\u53D1\u5361,\u865A\u62DF\u5546\u54C1,\u5361\u5BC6,ACG";
   const desc = opts.description || "";
+  const bg = opt(opts, "background_url", "") || opt(opts, "bg_img", "");
+  const bgStyle = bg ? `background-size:cover;background-image:linear-gradient(180deg,rgb(255 255 255/0%),rgb(255 255 255/71%)),url('${esc(bg)}');` : "background:#f4f6fa;";
   return `<!DOCTYPE html>
-<html lang="zh-cn" data-theme="light">
+<html lang="zh-cn">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>${esc(title)}</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <meta name="keywords" content="${esc(kw)}">
 <meta name="description" content="${esc(desc)}">
 <link rel="icon" href="/favicon.ico">
-<script src="/vendor/jquery.min.js"></script>
-<link rel="stylesheet" href="/vendor/font-awesome/css/font-awesome.min.css">
-<link rel="stylesheet" href="/vendor/remixicon/remixicon.css">
-<link rel="stylesheet" href="/vendor/layui/css/layui.css">
-<script src="/vendor/layui/layui.js"></script>
-<link rel="stylesheet" href="/css/header.css">
-<script src="/js/header.js"></script>
-<link rel="stylesheet" href="/css/em.css">
-<link rel="stylesheet" href="/css/style.css">
-<link rel="stylesheet" href="/css/goods-layout.css">
-<link rel="stylesheet" href="/css/theme.css">
-<style>
-html,body{height:100%;}
-body{display:flex;flex-direction:column;min-height:100vh;margin:0;}
-#app-main{flex:1;}
-</style>
+<title>${esc(title)}</title>
+<link href="/assets/common/css/bootstrap.min.css" rel="stylesheet">
+<link href="/assets/common/css/_.css" rel="stylesheet">
+<link href="/assets/common/css/font.min.css" rel="stylesheet">
+<link href="/assets/common/js/layui/css/layui.css" rel="stylesheet">
+<link href="/assets/common/css/component.css" rel="stylesheet">
+<link href="/assets/common/css/toastr.min.css" rel="stylesheet">
+<link href="/assets/common/js/layer/theme/default/layer.css" rel="stylesheet">
+<link href="/assets/user/css/index.css" rel="stylesheet">
 ${opts.extraHead || ""}
 </head>
-<body>
-<div id="mask"></div>
+<body style="${bgStyle}">
 `;
 }
 function headerHtml(env, opts, navItems) {
-  const siteName = opts.blogname || "DCSHOP\u591A\u8D22\u5546\u57CE";
-  const subtitle = opt(opts, "site_subtitle", "");
-  const logo = opt(opts, "logo", "");
-  const loginSwitch = opt(opts, "login_switch", "y");
-  const navLis = (navItems || []).map((n) => `<li class="${n.active ? "current" : ""}"><a href="${esc(n.url)}"${n.newtab ? ' target="_blank"' : ""}>${esc(n.name)}</a></li>`).join("");
-  return `<header class="header">
-<div class="h-fix">
+  const siteName = opts.blogname || opts.shop_name || "ACG\u53D1\u5361";
+  const navLis = (navItems || []).map((n) => `<li class="nav-item"><a class="nav-link ${n.active ? "active" : ""}" href="${esc(n.url)}"${n.newtab ? ' target="_blank"' : ""}>${esc(n.name)}</a></li>`).join("");
+  return `<nav class="navbar navbar-expand-lg navbar-acg">
 <div class="container">
-<h1 class="logo-brand">
-<a href="/">
-${logo ? `<img class="brand-logo" src="${esc(logo)}" alt="${esc(siteName)}">` : `<img class="brand-logo" src="/img/logo.apng" alt="${esc(siteName)}" style="display:none;">`}
-<div class="brand-text">
-<span class="brand-title">${esc(siteName)}</span>
-${subtitle ? `<span class="brand-subtitle">${esc(subtitle)}</span>` : ""}
-</div>
+<a class="navbar-brand fw-bold d-flex align-items-center" href="/">
+<img src="/favicon.ico" alt="ACG Logo" class="brand-logo me-2">
+<span style="color:#1396558a;">${esc(siteName)}</span>
 </a>
-</h1>
-<div class="nav-container">
-<nav class="nav-bar" id="nav-box">
-<ul class="nav">
+<button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+<span class="navbar-toggler-icon"></span>
+</button>
+<div class="collapse navbar-collapse" id="navbarNav">
+<ul class="navbar-nav me-auto mb-lg-0">
 ${navLis}
 </ul>
+<div class="d-none d-lg-flex search-input" role="search">
+<div class="input-group">
+<span class="input-group-text"><i class="fa-duotone fa-regular fa-magnifying-glass nav-icon"></i></span>
+<input class="form-control item-search-input" type="search" id="acgSearchInput" placeholder="\u641C\u7D22\u5546\u54C1\u5173\u952E\u8BCD.." aria-label="Search">
+</div>
+</div>
+</div>
+<div class="ms-2 user-login-box">
+<a class="btn btn-outline-secondary btn-sm br-12" href="/?action=order_query"><i class="fa-duotone fa-regular fa-magnifying-glass nav-icon"></i>\u67E5\u8BE2\u8BA2\u5355</a>
+<a class="btn btn-primary btn-sm br-12" href="/?action=help"><i class="fa-duotone fa-regular fa-circle-question nav-icon"></i>\u4E70\u5BB6\u5E2E\u52A9</a>
+</div>
+</div>
 </nav>
-</div>
-<div class="header-right">
-<div class="header-right-btn">
-<div class="search">
-<button class="s-btn off" type="button"><i class="fa fa-search"></i></button>
-<form id="headerSearchExpand" class="header-search-expand" action="/" method="get" style="display:none;">
-<input type="hidden" name="action" value="search">
-<input name="q" type="text" class="header-search-input" placeholder="\u641C\u7D22\u5546\u54C1..." autocomplete="off">
-<button type="submit" class="header-search-submit"><i class="fa fa-search"></i></button>
-<span class="header-search-close"><i class="fa fa-times"></i></span>
-</form>
-</div>
-${loginSwitch === "y" ? `<div class="header-user"><a href="/?action=user"><i class="fa fa-user-o"></i></a></div>` : ""}
-<div class="header-search-order-btn"><a href="/?action=order_query">\u67E5\u8BE2\u8BA2\u5355</a></div>
-<div class="header-help-mobile"><a class="header-help-btn" href="/?action=help">\u4E70\u5BB6\u5E2E\u52A9</a></div>
-<div id="m-btn" class="m-btn"><i class="fa fa-bars"></i></div>
-</div>
-</div>
-</div>
-</div>
-</header>
+<div id="pjax-container">
 `;
 }
 function footerHtml(env, opts) {
-  const footerInfo = opt(opts, "footer_info", "Powered by DuoCai | DCSHOP\u63D0\u4F9B\u6280\u672F\u652F\u6301");
   const icp = opt(opts, "icp", "");
-  return `<footer class="main-footer">
-<div class="container">
-<div class="footer-content">
-<div class="footer-info">
-<div class="copyright">
-<span>${footerInfo}</span>${icp ? `&nbsp;<a class="icp-link" href="https://beian.miit.gov.cn/" target="_blank" rel="nofollow">${esc(icp)}</a>` : ""}
-</div>
-</div>
-</div>
-</div>
-</footer>
+  return `</div>
+${icp ? `<footer class="text-center text-muted py-3" style="font-size:13px;">${esc(icp)}</footer>` : ""}
+<script src="/assets/common/js/jquery.min.js"><\/script>
+<script src="/assets/common/js/bootstrap/bootstrap.bundle.min.js"><\/script>
+<script src="/assets/common/js/util/dict.js"><\/script>
+<script src="/assets/common/js/toastr.min.js"><\/script>
+<script src="/assets/common/js/layer/layer.js"><\/script>
+<script src="/assets/common/js/util.js"><\/script>
+<script src="/assets/common/js/format.js"><\/script>
+<script src="/assets/common/js/message.js"><\/script>
+<script src="/assets/common/js/component.js"><\/script>
+<script src="/assets/common/js/cache.js"><\/script>
+<script src="/assets/user/js/trade.js"><\/script>
+<script src="/assets/user/js/treasure.js"><\/script>
+<script src="/assets/user/js/_index.js"><\/script>
 <script>
-if (window.tipsMsg === undefined) { window.tipsMsg = function(msg, type) { alert(msg); }; }
-</script>
+$(function(){
+  $('#acgSearchInput').on('keypress', function(e){
+    if (e.which === 13) {
+      var kw = $(this).val().trim();
+      if (!kw) { layer.msg('\u8BF7\u8F93\u5165\u8981\u641C\u7D22\u7684\u5546\u54C1\u540D\u79F0\u5173\u952E\u8BCD'); return; }
+      location.href = '/?action=search&q=' + encodeURIComponent(kw);
+    }
+  });
+});
+<\/script>
 `;
 }
 function pageFoot() {
-  return `</div>
-</body>
+  return `</body>
 </html>`;
 }
 function layout(env, opts, navItems, body) {
-  return pageHead(opts) + headerHtml(env, opts, navItems) + '<div id="app-main">' + body + "</div>" + footerHtml(env, opts) + '<script src="/js/header.js"></script>' + pageFoot();
+  return pageHead(opts) + headerHtml(env, opts, navItems) + body + footerHtml(env, opts) + pageFoot();
 }
 async function buildNav(db, activePath) {
   const items = [{ name: "\u9996\u9875", url: "/", active: activePath === "/" }];
@@ -220,12 +207,13 @@ async function buildNav(db, activePath) {
 }
 function paginationHtml(baseUrl, page, pages, total) {
   if (pages <= 1) return "";
-  const link = (p) => `<a href="${baseUrl}&page=${p}" class="${p === page ? "current" : ""}">${p}</a>`;
-  let html = '<div class="goods-pagination">';
-  if (page > 1) html += `<a href="${baseUrl}&page=${page - 1}">\u4E0A\u4E00\u9875</a>`;
+  const sep = baseUrl.includes("?") ? "&" : "?";
+  const link = (p) => `<li class="page-item ${p === page ? "active" : ""}"><a class="page-link" href="${baseUrl}${sep}page=${p}">${p}</a></li>`;
+  let html = '<nav class="mt-3"><ul class="pagination justify-content-center mb-0">';
+  if (page > 1) html += `<li class="page-item"><a class="page-link" href="${baseUrl}${sep}page=${page - 1}">\u4E0A\u4E00\u9875</a></li>`;
   for (let i = 1; i <= pages; i++) html += link(i);
-  if (page < pages) html += `<a href="${baseUrl}&page=${page + 1}">\u4E0B\u4E00\u9875</a>`;
-  html += `</div>`;
+  if (page < pages) html += `<li class="page-item"><a class="page-link" href="${baseUrl}${sep}page=${page + 1}">\u4E0B\u4E00\u9875</a></li>`;
+  html += `</ul></nav>`;
   return html;
 }
 
@@ -322,8 +310,8 @@ function adminPage(request, env, title, content) {
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${esc(title)} - \u540E\u53F0\u7BA1\u7406</title>
 <link rel="stylesheet" href="/vendor/remixicon/remixicon.css">
-<script src="/vendor/jquery.min.js"></script>
-<script src="/vendor/layui/layui.js"></script>
+<script src="/vendor/jquery.min.js"><\/script>
+<script src="/vendor/layui/layui.js"><\/script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 body{background:#f2f4f7;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif;color:#333;}
@@ -373,7 +361,7 @@ label{display:block;font-size:13px;color:#64748b;margin:8px 0 4px;}
 </div>
 <script>
 $(function(){ var p=location.pathname; $('.side a').each(function(){ if($(this).attr('href')===p) $(this).addClass('on'); }); });
-</script>
+<\/script>
 </body></html>`,
     { headers: HTML_HEADERS }
   );
@@ -395,7 +383,7 @@ $('#btnLogin').on('click', function(){
   }, 'json');
 });
 $(document).on('keydown', function(e){ if (e.key === 'Enter') $('#btnLogin').click(); });
-</script>`;
+<\/script>`;
 }
 async function dashboard(request, env) {
   const s = {
@@ -447,7 +435,7 @@ async function goodsList(request, env, q) {
   <table><thead><tr><th>ID</th><th>\u6807\u9898</th><th>\u5206\u7C7B</th><th>\u7C7B\u578B</th><th>\u5E93\u5B58</th><th>\u9500\u91CF</th><th>\u72B6\u6001</th><th>\u64CD\u4F5C</th></tr></thead>
   <tbody>${rows || '<tr><td colspan="8" style="text-align:center;color:#999;">\u6682\u65E0\u5546\u54C1</td></tr>'}</tbody></table>
   </div>
-  <script>function delGoods(id){ if(!confirm('\u786E\u8BA4\u5220\u9664\u8BE5\u5546\u54C1\uFF1F')) return; $.post('/admin/goods/delete',{id:id},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }</script>`;
+  <script>function delGoods(id){ if(!confirm('\u786E\u8BA4\u5220\u9664\u8BE5\u5546\u54C1\uFF1F')) return; $.post('/admin/goods/delete',{id:id},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }<\/script>`;
   return adminPage(request, env, "\u5546\u54C1\u7BA1\u7406", content);
 }
 var TNAME = { once: "\u4E00\u5361\u4E00\u5BC6", general: "\u901A\u7528\u5361\u5BC6", service: "\u865A\u62DF\u670D\u52A1", duli: "\u72EC\u7ACB\u5BF9\u63A5", physical: "\u5B9E\u7269" };
@@ -499,7 +487,7 @@ async function goodsEdit(request, env, q) {
       if (r.code === 0) { location.href = '/admin/goods'; } else { $('#fmsg').text(r.msg); }
     }, 'json');
   });
-  </script>`;
+  <\/script>`;
   return adminPage(request, env, id ? "\u7F16\u8F91\u5546\u54C1 #" + id : "\u65B0\u589E\u5546\u54C1", content);
 }
 async function saveGoods(form, env) {
@@ -583,7 +571,7 @@ async function kamiManage(request, env, q) {
   function impKami(){ $.post('/admin/kami/import',{goods_id:${gid},text:$('#importKami').val()},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
   function delK(id){ if(!confirm('\u786E\u8BA4\u5220\u9664\u8BE5\u5361\u5BC6\uFF1F')) return; $.post('/admin/kami/delete',{id:id,goods_id:${gid},type:'once'},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
   function delG(id){ if(!confirm('\u786E\u8BA4\u5220\u9664\u8BE5\u5361\u5BC6\uFF1F')) return; $.post('/admin/kami/delete',{id:id,goods_id:${gid},type:'general'},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
-  </script>`;
+  <\/script>`;
   return adminPage(request, env, "\u5361\u5BC6\u7BA1\u7406", content);
 }
 async function addKami(form, env) {
@@ -666,7 +654,7 @@ async function ordersList(request, env, q) {
   <script>
   function refund(id){ if(!confirm('\u786E\u8BA4\u9000\u6B3E\uFF1F')) return; $.post('/admin/order/refund',{id:id},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
   function delO(id){ if(!confirm('\u786E\u8BA4\u5220\u9664\u8BA2\u5355\uFF1F')) return; $.post('/admin/order/delete',{id:id},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
-  </script>`;
+  <\/script>`;
   return adminPage(request, env, "\u8BA2\u5355\u7BA1\u7406", content);
 }
 async function refundOrder(form, env) {
@@ -704,7 +692,7 @@ async function sortsList(request, env, q) {
   <script>
   function addS(){ $.post('/admin/sort/save',{name:$('#sName').val(),alias:$('#sAlias').val(),taxis:$('#sTaxis').val(),icon:$('#sIcon').val()},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
   function delS(id){ if(!confirm('\u786E\u8BA4\u5220\u9664\u8BE5\u5206\u7C7B\uFF1F')) return; $.post('/admin/sort/delete',{sid:id},function(r){ if(r.code===0) location.reload(); else alert(r.msg); },'json'); }
-  </script>`;
+  <\/script>`;
   return adminPage(request, env, "\u5206\u7C7B\u7BA1\u7406", content);
 }
 async function saveSort(form, env) {
@@ -750,7 +738,7 @@ async function settingsPage(request, env) {
       else { $('#fmsg').text(r.msg); }
     }, 'json');
   });
-  </script>`;
+  <\/script>`;
   return adminPage(request, env, "\u7AD9\u70B9\u8BBE\u7F6E", content);
 }
 async function saveSettings(form, env) {
@@ -788,7 +776,7 @@ async function router(request, env) {
   const url = new URL(request.url);
   const path = url.pathname;
   const q = parseQuery(url.search);
-  if (/^\/(css|js|img|vendor|favicon\.ico)/.test(path)) {
+  if (/^\/(css|js|img|vendor|assets|favicon\.ico|robots\.txt)/.test(path)) {
     const a = await serveAsset(request, env);
     if (a) return a;
     return new Response("Not Found", { status: 404 });
@@ -851,111 +839,77 @@ async function pageHome(request, env, q, isSearch) {
   };
   const orderSql = orderMap[order] || orderMap.default;
   const { results: goods } = await env.DB.prepare(
-    "SELECT g.*, s.sortname FROM dc_goods g LEFT JOIN dc_sort s ON s.sid = g.sort_id " + where + " " + orderSql + " LIMIT ? OFFSET ?"
+    "SELECT g.*, s.sortname, (SELECT MIN(guest_price) FROM dc_skus WHERE goods_id = g.id) AS _price FROM dc_goods g LEFT JOIN dc_sort s ON s.sid = g.sort_id " + where + " " + orderSql + " LIMIT ? OFFSET ?"
   ).bind(...binds, pageSize, (page - 1) * pageSize).all();
   const { results: cnt } = await env.DB.prepare("SELECT COUNT(*) AS c FROM dc_goods g " + where).bind(...binds).all();
   const total = cnt[0] ? cnt[0].c : 0;
   const pages = Math.max(1, Math.ceil(total / pageSize));
   const sorts = await getSorts(env.DB);
   const categories = sorts.slice(0, 12);
-  let bannerShow = true;
-  if (env.ASSETS) {
-    const b = await env.ASSETS.fetch(new URL("/img/Banner.png", request.url));
-    if (b.status === 404) bannerShow = false;
-  }
-  const orderChips = [
-    { key: "default", label: "\u7EFC\u5408", icon: "ri-apps-2-line" },
-    { key: "sales", label: "\u9500\u91CF", icon: "ri-fire-line" },
-    { key: "price_asc", label: "\u4EF7\u683C", icon: "ri-arrow-up-down-line" },
-    { key: "stock", label: "\u5E93\u5B58", icon: "ri-stack-line" }
-  ];
-  const baseUrl = "/?action=" + (isSearch ? "search" : "index") + (sortId ? "&sort_id=" + sortId : "") + (kw ? "&q=" + encodeURIComponent(kw) : "");
   let gridHtml = "";
   for (const g of goods) {
     gridHtml += goodsCardHtml(g, env);
   }
   if (!goods.length) {
-    gridHtml = `<div class="empty-container"><i class="ri-inbox-2-line"></i><p>\u6682\u65E0\u5546\u54C1${kw ? "\uFF08\u641C\u7D22\u65E0\u7ED3\u679C\uFF09" : ""}</p></div>`;
+    gridHtml = `<div class="item-message">${kw ? "\u6CA1\u6709\u641C\u7D22\u5230\u76F8\u5173\u5546\u54C1" : "\u6682\u65E0\u5546\u54C1"}</div>`;
   }
-  const rollBulletin = opt(opts, "roll_bulletin", "");
   const homeBulletin = opt(opts, "home_bulletin", "");
-  const heroRow = `
-  <div class="fk-hero-row ${bannerShow ? "" : "no-banner"}">
-    ${bannerShow ? `<div class="fk-banner-wrap"><div class="fk-banner" id="fk-banner">
-      <div class="fk-banner-track is-fade" id="fk-banner-track">
-        <div class="fk-banner-slide"><a href="/"><img src="/img/Banner.png" alt="banner"></a></div>
-      </div>
-      <div class="fk-banner-dots" id="fk-banner-dots"><button class="fk-banner-dot active"></button></div>
-      <button class="fk-banner-arrow fk-banner-prev" type="button"><i class="ri-arrow-left-s-line"></i></button>
-      <button class="fk-banner-arrow fk-banner-next" type="button"><i class="ri-arrow-right-s-line"></i></button>
-    </div></div>` : ""}
-    ${homeBulletin ? `<div class="fk-notice-col"><div class="notice-card">
-      <div class="notice-card-header"><i class="layui-icon layui-icon-notice"></i><span>\u7F51\u7AD9\u516C\u544A</span></div>
-      <div class="notice-card-content">${homeBulletin}</div>
-    </div></div>` : ""}
-  </div>`;
-  const rollHtml = rollBulletin ? `<div class="roll-notice-bar"><i class="layui-icon layui-icon-speaker"></i><div class="roll-notice-content">${esc(rollBulletin)}</div></div>` : "";
-  let categoryHtml = "";
-  if (sorts.length) {
-    const items = categories.map(
-      (s) => `<a class="category-item" href="/?sort_id=${s.sid}"><div class="category-icon">${s.sorticon ? `<i class="${esc(s.sorticon)}"></i>` : `<i class="ri-store-2-line"></i>`}</div><span>${esc(s.sortname)}</span></a>`
-    ).join("");
-    categoryHtml = `<div class="category-section"><div class="category-grid">${items}</div></div>`;
-  }
-  const filterHtml = `
-  <div class="fk-filter-bar">
-    ${orderChips.map(
-    (c) => `<a class="fk-filter-chip ${order === c.key ? "active" : ""}" href="${baseUrl.replace("/?action=search", "/?action=index").replace("/?action=index", "/?action=index")}&order=${c.key}"><i class="ri ${c.icon} fk-chip-ri"></i><label>${c.label}</label></a>`
-  ).join("")}
-  </div>`;
+  const allChip = `<a data-id="0" class="switch-category chip ${sortId === 0 ? "is-primary" : ""}" href="/"><span class="chip-icon"><i class="fa-duotone fa-regular fa-shapes"></i></span>\u5168\u90E8</a>`;
+  const sortChips = sorts.map(
+    (s) => `<a data-id="${s.sid}" class="switch-category chip ${sortId === s.sid ? "is-primary" : ""}" href="/?sort_id=${s.sid}">${s.sorticon ? `<span class="chip-icon"><i class="${esc(s.sorticon)}"></i></span>` : ""}${esc(s.sortname)}</a>`
+  ).join("");
   const body = `
-  <main class="blog-container">
-    ${heroRow}
-    ${rollHtml}
-    ${categoryHtml}
-    ${filterHtml}
-    <div class="goods-list-section" id="fk-goods-list-section">
-      <div class="goods-grid goods-grid-layout-grid">
-        ${gridHtml}
+  <main class="container py-4">
+    ${homeBulletin ? `<div class="panel">
+      <div class="panel-header">
+        <span class="icon"><i class="fa-duotone fa-regular fa-bullhorn"></i></span>
+        <h6 class="panel-title">\u516C\u544A</h6>
+      </div>
+      <div class="panel-body">${homeBulletin}</div>
+    </div>` : ""}
+    <div class="panel">
+      <div class="panel-header">
+        <span class="icon"><i class="fa-duotone fa-regular fa-cart-shopping"></i></span>
+        <h6 class="panel-title">\u8D2D\u4E70</h6>
+      </div>
+      <div class="panel-body">
+        <div class="mb-3">
+          <div class="chip-list">${allChip}${sortChips}</div>
+        </div>
+        <div class="row item-list">${gridHtml}</div>
+        ${paginationHtml("/?action=index" + (sortId ? "&sort_id=" + sortId : "") + (kw ? "&q=" + encodeURIComponent(kw) : ""), page, pages, total)}
       </div>
     </div>
-    ${paginationHtml(baseUrl, page, pages, total)}
-  </main>
-  <style>
-  .fk-filter-bar a.fk-filter-chip.active{color:var(--theme-primary);border-color:var(--theme-primary);}
-  .category-section{margin:18px auto 6px;max-width:1200px;padding:0 12px;}
-  .empty-container{text-align:center;padding:60px 0 80px;color:#999;}
-  .empty-container i{font-size:48px;display:block;margin-bottom:12px;}
-  .goods-pagination{text-align:center;padding:24px 0 40px;}
-  .goods-pagination a{display:inline-block;margin:0 4px;padding:6px 12px;border:1px solid #e5e5e5;border-radius:6px;color:#666;}
-  .goods-pagination a.current{background:var(--theme-primary);color:#fff;border-color:var(--theme-primary);}
-  </style>`;
-  return new Response(layout(env, { ...opts, title: kw ? "\u641C\u7D22 - " + kw : opt(opts, "site_title", "DCSHOP\u53D1\u5361\u7CFB\u7EDF") }, navItems, body), { headers: HTML_HEADERS2 });
+  </main>`;
+  return new Response(layout(env, { ...opts, title: kw ? "\u641C\u7D22 - " + kw : opt(opts, "site_title", "ACG\u53D1\u5361\u7CFB\u7EDF") }, navItems, body), { headers: HTML_HEADERS2 });
 }
 function goodsCardHtml(g, env) {
   const typeBadgeCls = TYPE_BADGE[g.type] || "";
   const soldOut = parseInt(g.stock) <= 0;
   const cover = g.cover && !g.cover.startsWith("../") ? g.cover : "";
-  const imgSrc = cover ? esc(cover) : "";
-  return `<div class="goods-grid-item layui-anim layui-anim-scaleSpring">
-  <a class="goods-card ${soldOut ? "goods-card-soldout" : ""}" href="/?action=goods&id=${g.id}">
-    ${imgSrc ? `<div class="goods-img-box"><img class="goods-img lazy" src="${imgSrc}" alt="${esc(g.title)}">${typeBadgeCls ? `<span class="fk-type-badge ${typeBadgeCls}">${TYPE_NAME[g.type] || g.type}</span>` : ""}${soldOut ? `<div class="goods-soldout-mask"><span>\u5DF2\u552E\u7A7A</span></div>` : ""}</div>` : `<div class="goods-img-box"><img class="goods-img lazy" src="/img/logo.apng" alt="${esc(g.title)}" style="object-fit:contain;background:#f7f8fa;">${typeBadgeCls ? `<span class="fk-type-badge ${typeBadgeCls}">${TYPE_NAME[g.type] || g.type}</span>` : ""}${soldOut ? `<div class="goods-soldout-mask"><span>\u5DF2\u552E\u7A7A</span></div>` : ""}</div>`}
-    <div class="goods-info">
-      <div class="goods-title row-2-hidden">${esc(g.title)}</div>
-      ${g.des ? `<div class="goods-desc">${esc(String(g.des).slice(0, 60))}</div>` : ""}
-      <div class="goods-meta">
-        ${opt(env._opts, "stock_switch", "y") === "y" ? `<span class="goods-meta-stock">\u5E93\u5B58 ${g.stock}</span>` : ""}
-        ${opt(env._opts, "sales_switch", "y") === "y" ? `<span class="goods-meta-sales">\u5DF2\u552E ${g.sales}</span>` : ""}
+  const stockSwitch = opt(env._opts, "stock_switch", "y") === "y";
+  const salesSwitch = opt(env._opts, "sales_switch", "y") === "y";
+  return `<a href="${soldOut ? "javascript:void(0);" : "/?action=goods&id=" + g.id}" class="col-12 col-md-6 col-lg-3 mb-3" data-id="${g.id}">
+  <div class="acg-card ${soldOut ? "soldout" : ""} h-100">
+    <div class="acg-thumb" style="background: url('${esc(cover)}') center/cover no-repeat;"></div>
+    <div class="p-3">
+      <div class="tags">
+        ${typeBadgeCls ? `<span class="badge-soft badge-soft-primary">${TYPE_NAME[g.type] || g.type}</span>` : ""}
+        <span class="badge-soft badge-soft-success">\u81EA\u52A8\u53D1\u8D27</span>
+        ${parseInt(g.index_top) > 0 ? '<span class="badge-soft badge-soft-primary">\u63A8\u8350</span>' : ""}
       </div>
-      <div class="goods-price-row">
-        <div class="price-wrap">
-          <span class="price-current"><i>\xA5</i>${fen2yuan(g._price || 0)}</span>
-        </div>
-        <div class="buy-btn">\u8D2D\u4E70</div>
+      <p class="goods-title">${esc(g.title)}</p>
+      <div class="stat-row mb-1">
+        <div class="price"><span class="unit">\xA5</span>${fen2yuan(g._price || 0)}</div>
+      </div>
+      <div class="stat-bottom">
+        ${stockSwitch ? `<span>\u5E93\u5B58\uFF1A${g.stock}</span>` : ""}
+        ${salesSwitch ? `<span>\u5DF2\u552E\uFF1A${g.sales}</span>` : ""}
       </div>
     </div>
-  </a>
-</div>`;
+    ${soldOut ? '<div class="soldout-ribbon">\u552E\u7F44</div>' : ""}
+  </div>
+</a>`;
 }
 async function pageGoods(request, env, q) {
   const { opts, navItems } = await ctx(env);
@@ -1004,93 +958,83 @@ async function pageGoods(request, env, q) {
   })();
   const specsData = skus.map((s) => ({ sku: s.sku, price: s.guest_price, market: s.market_price, stock: s.stock, sales: s.sales }));
   const specHtml = specGroups.map(
-    (grp, gi) => `<div class="spec-group">
-      <div class="spec-group-title">${esc(grp.title)}</div>
-      <div class="spec-options">
-        ${grp.options.map((o) => `<div class="spec-option" data-id="${o.id}" data-group="${gi}"><span>${esc(o.name)}</span></div>`).join("")}
+    (grp, gi) => `<div>
+      <label class="form-label mb-1">${esc(grp.title)}</label>
+      <div class="sku-list">
+        ${grp.options.map((o, oi) => `<a class="switch-race sku spec-option ${oi === 0 ? "is-primary" : ""}" data-id="${o.id}" data-group="${gi}" href="javascript:void(0);">${esc(o.name)}</a>`).join("")}
       </div>
     </div>`
   ).join("");
   const attachHtml = attachUser.map(
-    (f, i) => `<div class="input-field-row">
-      <div class="input-field-header"><div class="section-label">${f.required ? '<span class="required-star">*</span>' : ""}${esc(f.name)}</div>
-      <input class="input-field-input ${f.required ? "required-input" : ""}" name="attach[${esc(f.name)}]" placeholder="${esc(f.placeholder || "")}" data-validate-type="${esc(f.type || "string")}">
-      </div>
-      ${f.tip ? `<div class="input-field-note">${esc(f.tip)}</div>` : ""}
+    (f, i) => `<div>
+      <label class="form-label mb-1">${f.required ? '<span style="color:#f56c6c;">*</span>' : ""}${esc(f.name)}</label>
+      <input class="form-control ${f.required ? "required-input" : ""}" name="attach[${esc(f.name)}]" placeholder="${esc(f.placeholder || "")}" data-validate-type="${esc(f.type || "string")}">
+      ${f.tip ? `<div class="form-text">${esc(f.tip)}</div>` : ""}
     </div>`
   ).join("");
   const requiredHtml = orderRequired.map(
-    (f, i) => `<div class="input-field-row">
-      <div class="input-field-header"><div class="section-label"><span class="required-star">*</span>${esc(f.name || "\u8054\u7CFB\u4FE1\u606F")}</div>
-      <input class="input-field-input required-input" name="required[${esc(f.name || "\u8054\u7CFB\u4FE1\u606F")}]" placeholder="${esc(f.placeholder || "")}" data-validate-type="${esc(f.type || "string")}">
-      </div>
+    (f, i) => `<div>
+      <label class="form-label mb-1"><span style="color:#f56c6c;">*</span>${esc(f.name || "\u8054\u7CFB\u4FE1\u606F")}</label>
+      <input class="form-control required-input" name="required[${esc(f.name || "\u8054\u7CFB\u4FE1\u606F")}]" placeholder="${esc(f.placeholder || "")}" data-validate-type="${esc(f.type || "string")}">
     </div>`
   ).join("");
   const paymentMethods = paymentMethodsHtml(opts);
   const body = `
-  <main class="goods-detail-container">
-    <div class="kami-page-header">
-      <a class="kami-back-btn" href="javascript:history.back()"><i class="fa fa-chevron-left"></i></a>
-      <div class="kami-page-title">\u5546\u54C1\u8BE6\u60C5</div>
-      <a class="kami-share-btn" id="goodsShareBtn" href="javascript:;">\u5206\u4EAB</a>
-    </div>
-    <div class="kami-page-header-placeholder"></div>
-    <div class="main-card">
-      <div class="goods-layout">
-        <div class="goods-left">
-          ${cover ? `<div class="goods-cover-section" id="goodsGallerySection">
-            <div class="goods-cover-main cover-arrows-hidden" id="goodsCoverMain">
-              <img id="goodsCoverImg" src="${esc(cover)}" alt="${esc(g.title)}">
-              <span class="cover-arrow cover-arrow-prev"><i class="ri-arrow-left-s-line"></i></span>
-              <span class="cover-arrow cover-arrow-next"><i class="ri-arrow-right-s-line"></i></span>
+  <main class="container py-4">
+    <div class="panel mt-3">
+      <div class="panel-body">
+        <div class="row g-4 align-items-stretch">
+          <div class="col-12 col-lg-6 d-flex">
+            <div class="acg-card h-100 w-100 flex-fill acg-cover">
+              ${cover ? `<img src="${esc(cover)}" class="item-cover" alt="${esc(g.title)}">` : `<div class="d-flex align-items-center justify-content-center h-100 text-muted"><i class="fa-duotone fa-regular fa-image" style="font-size:64px;"></i></div>`}
             </div>
-          </div>` : `<div class="goods-cover-section"><div class="goods-cover-main"><img id="goodsCoverImg" src="/img/logo.apng" alt="" style="object-fit:contain;background:#f7f8fa;"></div></div>`}
-        </div>
-        <div class="goods-right">
-          <div class="goods-title-section">
-            <h1 class="goods-title">${esc(g.title)}</h1>
-            <div class="goods-meta">\u5DF2\u552E ${g.sales} <span style="margin-left:10px;">\u5E93\u5B58 <span id="goodsStock">${stock}</span></span></div>
           </div>
-          <div class="spec-section" id="specSection">
-            ${specHtml}
-          </div>
-          <form id="buyFormSection" class="buy-form-section layui-form" data-dc-physical-goods="">
-            <div class="price-quantity-row">
-              <div class="price-section">
-                <span class="section-label">\u4EF7\u683C</span>
-                <span class="section-value"><span class="unit-price" id="unitPrice">\xA5${fen2yuan(price)}</span><span class="unit">/${esc(g.unit_name || "\u4E2A")}</span>
-                <span class="market-price" id="marketPrice" style="text-decoration:line-through;color:#bbb;font-size:13px;margin-left:6px;"></span>
-                </span>
+          <div class="col-12 col-lg-6 d-flex">
+            <div class="flex-fill">
+              <h4>${esc(g.title)}</h4>
+              <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+                <span class="badge-soft badge-soft-success">\u81EA\u52A8\u53D1\u8D27</span>
+                <span class="badge-soft badge-soft-primary">\u5DF2\u552E ${g.sales}</span>
+                <span class="badge-soft badge-soft-success item-stock">\u5E93\u5B58 <span id="goodsStock">${stock}</span></span>
               </div>
-              <div class="quantity-section">
-                <span class="section-label">\u6570\u91CF</span>
-                <div class="quantity-selector">
-                  <button type="button" class="quantity-btn" id="qtyMinus">-</button>
-                  <input type="number" class="quantity-input" id="qtyInput" value="1" min="1">
-                  <button type="button" class="quantity-btn" id="qtyPlus">+</button>
+              <div class="d-flex align-items-baseline gap-2 mb-3 abacus">
+                <div class="price"><span class="unit">\xA5</span><span id="unitPrice">${fen2yuan(price)}</span></div>
+                <del class="text-muted" id="marketPrice" style="font-size:14px;"></del>
+              </div>
+              <form method="post" class="vstack gap-3" id="buyFormSection">
+                ${specHtml}
+                <div id="inputFields">
+                  ${attachHtml}
+                  ${requiredHtml}
                 </div>
-              </div>
+                <div>
+                  <label class="form-label mb-1">\u8D2D\u4E70\u6570\u91CF</label>
+                  <div class="input-group qty-group" style="width:170px;">
+                    <button type="button" class="btn btn-outline-secondary change-num-sub" id="qtyMinus">-</button>
+                    <input type="number" class="form-control text-center" id="qtyInput" name="num" value="1" min="1">
+                    <button type="button" class="btn btn-outline-secondary change-num-add" id="qtyPlus">+</button>
+                  </div>
+                </div>
+                <div class="cash-pay p-2" style="border:1px dashed #dee2e6;border-radius:12px;">
+                  <label class="form-label mb-2"><i class="fa-duotone fa-regular fa-cart-shopping"></i> \u4ED8\u6B3E</label>
+                  ${paymentMethods}
+                </div>
+                <div>
+                  <button type="button" class="btn btn-primary br-12 w-100" id="submitPayBtn" style="padding:12px;font-size:16px;">\u7ACB\u5373\u8D2D\u4E70\uFF08\u5408\u8BA1 \xA5<span id="totalPrice">${fen2yuan(price)}</span>\uFF09</button>
+                </div>
+              </form>
             </div>
-            <div class="stock-row"><span>\u5E93\u5B58\uFF1A</span><span class="stock-value" id="goodsStock2">${stock}</span></div>
-            <div id="inputFields">
-              ${attachHtml}
-              ${requiredHtml}
-            </div>
-            ${paymentMethods}
-            <div class="drawer-footer">
-              <div class="pay-bar">
-                <span class="pay-amount">\u5408\u8BA1\uFF1A<span class="dynamic-price" id="totalPrice">\xA5${fen2yuan(price)}</span></span>
-                <button type="button" class="pay-btn" id="submitPayBtn">\u7ACB\u5373\u8D2D\u4E70</button>
-              </div>
-            </div>
-          </form>
+          </div>
         </div>
       </div>
     </div>
-    ${g.content ? `<section class="goods-detail-section">
-      <div class="goods-detail-header"><span class="goods-detail-bar"></span><span class="goods-detail-title">\u5546\u54C1\u8BE6\u60C5</span></div>
-      <div class="goods-detail-body"><div class="intro" id="goodsDesc">${g.content}</div></div>
-    </section>` : ""}
+    ${g.content ? `<div class="panel mt-3 item-detail">
+      <div class="panel-header">
+        <span class="icon"><i class="fa-duotone fa-regular fa-memo-circle-info"></i></span>
+        <h6 class="panel-title">\u5B9D\u8D1D\u8BE6\u60C5</h6>
+      </div>
+      <div class="panel-body">${g.content}</div>
+    </div>` : ""}
   </main>
   <script>
   (function(){
@@ -1108,26 +1052,21 @@ async function pageGoods(request, env, q) {
       var sk = currentSku();
       var row = findSku(sk);
       var price = row ? (row.price||0) : (GOODS.is_sku ? 0 : GOODS.min_price);
-      $('#unitPrice').text('\xA5' + (price/100).toFixed(2));
+      $('#unitPrice').text((price/100).toFixed(2));
       $('#marketPrice').text(row && row.market ? '\xA5' + (row.market/100).toFixed(2) : '');
       var st = row ? (parseInt(row.stock)||0) : GOODS.stock;
-      $('#goodsStock').text(st); $('#goodsStock2').text(st);
+      $('#goodsStock').text(st);
       var qty = parseInt($('#qtyInput').val()) || 1;
-      $('#totalPrice').text('\xA5' + (price*qty/100).toFixed(2));
-      if (st > 0 && qty > st) { $('#qtyInput').val(st); $('#totalPrice').text('\xA5' + (price*st/100).toFixed(2)); }
+      if (st > 0 && qty > st) { qty = st; $('#qtyInput').val(st); }
+      $('#totalPrice').text((price*qty/100).toFixed(2));
     }
     $('.spec-option').on('click', function(){
       var $t = $(this);
       var gid = $t.data('group');
-      $('.spec-option[data-group="'+gid+'"]').removeClass('active');
-      $t.addClass('active');
-      var g = GOODS.attrs[gid];
-      var idx = selected.length;
-      if (g.options) {
-        while (selected.length <= gid) { selected.push(undefined); }
-        selected[gid] = String($t.data('id'));
-      }
-      // \u5408\u5E76\u5DF2\u9009\u503C
+      $('.spec-option[data-group="'+gid+'"]').removeClass('is-primary');
+      $t.addClass('is-primary');
+      while (selected.length <= gid) { selected.push(undefined); }
+      selected[gid] = String($t.data('id'));
       var skArr = [];
       for (var i=0;i<GOODS.attrs.length;i++){
         var v = selected[i];
@@ -1146,7 +1085,7 @@ async function pageGoods(request, env, q) {
       var qty = parseInt($('#qtyInput').val())||1;
       var sku = currentSku();
       var fd = { goods_id: GOODS.id, quantity: qty, sku_ids: sku === '0' ? [] : sku.split('-') };
-      $('.payment-item.active').each(function(){ fd.payment_plugin = $(this).data('method'); });
+      $('.pay-list .pay.is-primary').each(function(){ fd.payment_plugin = $(this).data('method'); });
       $('#inputFields input').each(function(){
         var n = $(this).attr('name'); if (!n) return;
         if (n.indexOf('attach[') === 0) {
@@ -1169,19 +1108,24 @@ async function pageGoods(request, env, q) {
       }, 'json').fail(function(){ paying=false; layer.msg('\u7F51\u7EDC\u9519\u8BEF'); });
     });
   })();
-  </script>`;
+  <\/script>`;
   return new Response(layout(env, { ...opts, title: g.title }, navItems, body), { headers: HTML_HEADERS2 });
 }
 function paymentMethodsHtml(opts) {
   const balanceSwitch = opt(opts, "balance_switch", "y");
-  return `<div class="payment-methods">
-  ${balanceSwitch === "y" ? `<div class="payment-item" data-method="balance"><i class="ri-wallet-3-line payment-icon"></i><div class="payment-info"><span class="payment-name">\u4F59\u989D\u652F\u4ED8</span></div><i class="ri-checkbox-circle-fill payment-checked"></i></div>` : ""}
-  <div class="payment-item active" data-method="test"><i class="ri-bank-card-line payment-icon"></i><div class="payment-info"><span class="payment-name">\u6D4B\u8BD5\u652F\u4ED8\uFF08\u6A21\u62DF\uFF09</span></div><i class="ri-checkbox-circle-fill payment-checked"></i></div>
-  ${epayConfig(opts) ? `<div class="payment-item" data-method="epay_wx"><i class="ri-wechat-pay-line payment-icon"></i><div class="payment-info"><span class="payment-name">\u6613\u652F\u4ED8/\u5FAE\u4FE1</span></div><i class="ri-checkbox-circle-fill payment-checked"></i></div>
-  <div class="payment-item" data-method="epay_ali"><i class="ri-alipay-line payment-icon"></i><div class="payment-info"><span class="payment-name">\u6613\u652F\u4ED8/\u652F\u4ED8\u5B9D</span></div><i class="ri-checkbox-circle-fill payment-checked"></i></div>` : ""}
+  const pays = [];
+  if (balanceSwitch === "y") pays.push({ method: "balance", name: "\u4F59\u989D\u652F\u4ED8", icon: "fa-duotone fa-regular fa-wallet" });
+  pays.push({ method: "test", name: "\u6D4B\u8BD5\u652F\u4ED8\uFF08\u6A21\u62DF\uFF09", icon: "fa-duotone fa-regular fa-shield-halved" });
+  if (epayConfig(opts)) {
+    pays.push({ method: "epay_wx", name: "\u5FAE\u4FE1\u652F\u4ED8", img: "/assets/user/images/cash/wechat.png" });
+    pays.push({ method: "epay_ali", name: "\u652F\u4ED8\u5B9D", img: "/assets/user/images/cash/alipay.png" });
+  }
+  const items = pays.map((p, i) => `<a class="pay ${i === 0 ? "is-primary" : ""}" data-method="${p.method}">${p.img ? `<img src="${p.img}" alt="">` : `<i class="${p.icon}"></i>`}<span>${p.name}</span></a>`).join("");
+  return `<div class="pay-list">
+  ${items}
   </div>
-  <style>.payment-methods .payment-item{cursor:pointer;}</style>
-  <script>$(function(){ $('.payment-methods .payment-item').on('click', function(){ $('.payment-methods .payment-item').removeClass('active'); $(this).addClass('active'); }); });</script>`;
+  <style>.pay-list .pay{cursor:pointer;}</style>
+  <script>$(function(){ $('.pay-list .pay').on('click', function(){ $('.pay-list .pay').removeClass('is-primary'); $(this).addClass('is-primary'); }); });<\/script>`;
 }
 function epayConfig(opts) {
   try {
@@ -1264,26 +1208,31 @@ async function pagePay(request, env, q) {
   const countDown = Math.max(0, (parseInt(order.expire_time) || 0) - now());
   const itemsHtml = list.results.map((l) => `<tr><td class="item-image">${l.cover && !l.cover.startsWith("../") ? `<img src="${esc(l.cover)}" alt="">` : ""}</td><td class="item-info"><div class="title">${esc(l.title)}</div><div class="spec">${l.attr_spec || ""}</div></td><td class="item-price">\xA5${fen2yuan(l.unit_price)}</td><td class="item-quantity">\xD7${l.quantity}</td><td class="item-total">\xA5${fen2yuan(l.price)}</td></tr>`).join("");
   const body = `
-  <main class="container order-container" style="max-width:960px;margin:24px auto;padding:0 16px;">
+  <main class="container py-4" style="max-width:960px;">
     <div class="panel">
-      <h2 style="font-size:18px;margin:0 0 14px;">\u8BA2\u5355\u652F\u4ED8</h2>
-      <div class="pay-order-status" style="padding:14px;background:#f6f8fa;border-radius:8px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;">
-        <span>\u8BA2\u5355\u53F7\uFF1A<b>${esc(order.out_trade_no)}</b></span>
-        <span>\u72B6\u6001\uFF1A<b style="color:${paid ? "#4caf50" : expired ? "#999" : "#ff9800"}">${statusText}</b></span>
+      <div class="panel-header">
+        <span class="icon"><i class="fa-duotone fa-regular fa-money-check-dollar"></i></span>
+        <h6 class="panel-title">\u8BA2\u5355\u652F\u4ED8</h6>
       </div>
-      <table class="order-items" style="width:100%;border-collapse:collapse;margin-bottom:18px;">
-        <thead><tr><th style="text-align:left;padding:8px;">\u5546\u54C1</th><th>\u5355\u4EF7</th><th>\u6570\u91CF</th><th>\u5C0F\u8BA1</th></tr></thead>
-        <tbody>${itemsHtml}</tbody>
-      </table>
-      <div class="pay-amount-row" style="text-align:right;font-size:16px;margin-bottom:18px;">\u5E94\u4ED8\u91D1\u989D\uFF1A<b style="color:#ff6600;font-size:22px;">\xA5${fen2yuan(order.amount)}</b></div>
-      ${!paid && !expired ? `
-      <div class="payment-buttons" style="display:flex;gap:12px;flex-wrap:wrap;">
-        <button class="action-btn primary" id="btnMockPay" style="flex:1;min-width:200px;">\u6A21\u62DF\u652F\u4ED8\u6210\u529F\uFF08\u6D4B\u8BD5\uFF09</button>
-        ${opt(opts, "balance_switch", "y") === "y" && user ? `<button class="action-btn" id="btnBalancePay" style="flex:1;min-width:200px;">\u4F59\u989D\u652F\u4ED8\uFF08\u4F59\u989D \xA5${fen2yuan(user.money * 100)}\uFF09</button>` : ""}
+      <div class="panel-body">
+        <div class="pay-order-status" style="padding:14px;background:#f6f8fa;border-radius:8px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+          <span>\u8BA2\u5355\u53F7\uFF1A<b>${esc(order.out_trade_no)}</b></span>
+          <span>\u72B6\u6001\uFF1A<b style="color:${paid ? "#4caf50" : expired ? "#999" : "#ff9800"}">${statusText}</b></span>
+        </div>
+        <table class="table">
+          <thead><tr><th>\u5546\u54C1</th><th>\u5355\u4EF7</th><th>\u6570\u91CF</th><th>\u5C0F\u8BA1</th></tr></thead>
+          <tbody>${itemsHtml}</tbody>
+        </table>
+        <div class="text-end mb-3" style="font-size:16px;">\u5E94\u4ED8\u91D1\u989D\uFF1A<b style="color:#ff6600;font-size:22px;">\xA5${fen2yuan(order.amount)}</b></div>
+        ${!paid && !expired ? `
+        <div class="d-flex gap-2 flex-wrap">
+          <button class="btn btn-primary br-12" id="btnMockPay">\u6A21\u62DF\u652F\u4ED8\u6210\u529F\uFF08\u6D4B\u8BD5\uFF09</button>
+          ${opt(opts, "balance_switch", "y") === "y" && user ? `<button class="btn btn-outline-success br-12" id="btnBalancePay">\u4F59\u989D\u652F\u4ED8\uFF08\u4F59\u989D \xA5${fen2yuan(user.money * 100)}\uFF09</button>` : ""}
+        </div>
+        ${epayConfig(opts) ? `<div class="mt-3 text-muted" style="font-size:13px;">\u5DF2\u914D\u7F6E\u6613\u652F\u4ED8\u7F51\u5173\uFF0C\u8BF7\u5728\u652F\u4ED8\u5206\u9875\u4E2D\u9009\u62E9\u5FAE\u4FE1/\u652F\u4ED8\u5B9D\u3002</div>` : ""}
+        <div class="mt-3 text-muted" style="font-size:13px;">${countDown > 0 ? `\u8BF7\u5728 <b>${Math.ceil(countDown / 60)}</b> \u5206\u949F\u5185\u5B8C\u6210\u652F\u4ED8\uFF0C\u8D85\u65F6\u8BA2\u5355\u5C06\u81EA\u52A8\u53D6\u6D88\u3002` : "\u8BA2\u5355\u5DF2\u8D85\u65F6\uFF0C\u8BF7\u91CD\u65B0\u4E0B\u5355\u3002"}</div>
+        ` : paid ? `<a class="btn btn-primary br-12" href="/?action=order_result&out_trade_no=${esc(order.out_trade_no)}">\u67E5\u770B\u8BA2\u5355\u7ED3\u679C</a>` : `<a class="btn btn-outline-secondary br-12" href="/">\u8FD4\u56DE\u9996\u9875</a>`}
       </div>
-      ${epayConfig(opts) ? `<div class="epay-tip" style="margin-top:12px;color:#888;font-size:13px;">\u5DF2\u914D\u7F6E\u6613\u652F\u4ED8\u7F51\u5173\uFF0C\u8BF7\u5728\u652F\u4ED8\u5206\u9875\u4E2D\u9009\u62E9\u5FAE\u4FE1/\u652F\u4ED8\u5B9D\u3002</div>` : ""}
-      <div style="margin-top:16px;color:#888;font-size:13px;">${countDown > 0 ? `\u8BF7\u5728 <b>${Math.ceil(countDown / 60)}</b> \u5206\u949F\u5185\u5B8C\u6210\u652F\u4ED8\uFF0C\u8D85\u65F6\u8BA2\u5355\u5C06\u81EA\u52A8\u53D6\u6D88\u3002` : "\u8BA2\u5355\u5DF2\u8D85\u65F6\uFF0C\u8BF7\u91CD\u65B0\u4E0B\u5355\u3002"}</div>
-      ` : paid ? `<a class="action-btn primary" href="/?action=order_result&out_trade_no=${esc(order.out_trade_no)}">\u67E5\u770B\u8BA2\u5355\u7ED3\u679C</a>` : `<a class="action-btn" href="/">\u8FD4\u56DE\u9996\u9875</a>`}
     </div>
   </main>
   <script>
@@ -1296,7 +1245,7 @@ async function pagePay(request, env, q) {
   }
   $('#btnMockPay').on('click', function(){ doPay('test'); });
   $('#btnBalancePay').on('click', function(){ doPay('balance'); });
-  </script>`;
+  <\/script>`;
   return new Response(layout(env, { ...opts, title: "\u8BA2\u5355\u652F\u4ED8" }, navItems, body), { headers: HTML_HEADERS2 });
 }
 async function apiPaySubmit(request, env) {
@@ -1381,33 +1330,33 @@ async function pageOrderResult(request, env, q) {
   const statusMap = { 0: ["\u5F85\u652F\u4ED8", "#ff9800"], 1: ["\u5DF2\u652F\u4ED8\u5F85\u53D1\u8D27", "#ff9800"], 2: ["\u5DF2\u5B8C\u6210", "#4caf50"], 3: ["\u5DF2\u53D6\u6D88", "#999"] };
   const [statusText, statusColor] = statusMap[order.status] || ["\u672A\u77E5", "#999"];
   const orderCards = lists.map(
-    (l) => `<div class="order-card gift-card">
-    <div class="order-header-info">
-      <span class="order-no">${esc(order.out_trade_no)}</span>
-      <span class="order-status paid" style="color:${statusColor}">${statusText}</span>
+    (l) => `<div class="panel mb-3"><div class="panel-body" style="padding:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <span class="text-muted" style="font-size:13px;">${esc(order.out_trade_no)}</span>
+      <span style="color:${statusColor}">${statusText}</span>
     </div>
-    <div class="order-goods">
-      <div class="goods-item"><div class="goods-info"><div class="goods-name">${esc(l.title)}</div>${l.attr_spec ? `<div class="goods-spec">${l.attr_spec}</div>` : ""}</div></div>
+    <div style="margin:10px 0;color:#333;">${esc(l.title)}${l.attr_spec ? `<span class="text-muted" style="font-size:13px;margin-left:8px;">${l.attr_spec}</span>` : ""}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#888;">
+      <span>${order.pay_time ? ts2str(order.pay_time) : ""}</span>
+      <span>\u5171${l.quantity}\u4EF6\uFF0C\u5408\u8BA1 <b style="color:#ff6600;">\xA5${fen2yuan(l.price)}</b></span>
     </div>
-    <div class="order-amount">
-      <div class="pay-time">${order.pay_time ? ts2str(order.pay_time) : ""}</div>
-      <div class="amount-info">\u5171${l.quantity}\u4EF6\uFF0C\u5408\u8BA1 <b style="color:#ff6600;">\xA5${fen2yuan(l.price)}</b></div>
-    </div>
-  </div>`
+  </div></div>`
   ).join("");
   const kamiHtml = kamiLines.length > 0 ? buildKamiHtml(kamiLines) : "";
   const body = `
-  <main class="result-body" style="max-width:860px;margin:24px auto;padding:0 16px;">
-    <div class="order-list-page" id="orderListPage">
-      <div class="result-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-        <div class="result-title" style="font-size:18px;font-weight:600;">\u8BA2\u5355\u7ED3\u679C</div>
-        <div class="result-count"><span>\u5171\u627E\u5230 ${1} \u4E2A\u8BA2\u5355</span></div>
+  <main class="container py-4" style="max-width:860px;">
+    <div class="panel">
+      <div class="panel-header">
+        <span class="icon"><i class="fa-duotone fa-regular fa-gift"></i></span>
+        <h6 class="panel-title">\u8BA2\u5355\u7ED3\u679C</h6>
       </div>
-      <div class="order-list">${orderCards}</div>
-      ${kamiHtml}
-      <div style="margin-top:20px;text-align:center;">
-        <a class="action-btn" href="/?action=order_query">\u67E5\u8BE2\u5176\u4ED6\u8BA2\u5355</a>
-        <a class="btn-rebuy" href="/" style="display:inline-block;margin-left:10px;">\u518D\u4E70\u4E00\u5355</a>
+      <div class="panel-body">
+        ${orderCards}
+        ${kamiHtml}
+        <div class="mt-4 text-center">
+          <a class="btn btn-outline-secondary br-12" href="/?action=order_query">\u67E5\u8BE2\u5176\u4ED6\u8BA2\u5355</a>
+          <a class="btn btn-primary br-12" href="/" style="margin-left:10px;">\u518D\u4E70\u4E00\u5355</a>
+        </div>
       </div>
     </div>
   </main>`;
@@ -1433,19 +1382,20 @@ async function apiKami(request, env, q) {
 async function pageOrderQuery(request, env, q) {
   const { opts, navItems } = await ctx(env);
   const body = `
-  <main class="order-body" style="max-width:760px;margin:40px auto;padding:0 16px;">
-    <div class="query-card" style="background:#fff;border:1px solid #eee;border-radius:14px;overflow:hidden;">
-      <div class="query-card-bg" style="padding:40px 24px 16px;text-align:center;">
-        <div class="query-title" style="font-size:20px;color:#333;">\u8F7B\u677E\u67E5\u8BE2\u8BA2\u5355...</div>
+  <main class="container py-4" style="max-width:760px;">
+    <div class="panel">
+      <div class="panel-header">
+        <span class="icon"><i class="fa-duotone fa-regular fa-magnifying-glass"></i></span>
+        <h6 class="panel-title">\u8BA2\u5355\u67E5\u8BE2</h6>
       </div>
-      <div class="query-card-content" style="padding:16px 24px 28px;">
-        <div class="search-box" style="display:flex;gap:10px;">
-          <input id="queryInput" type="text" class="search-input" style="flex:1;padding:12px 16px;border:1px solid #ddd;border-radius:8px;" placeholder="\u8BF7\u8F93\u5165\u8BA2\u5355\u53F7 \u6216 \u4E0B\u5355\u65F6\u586B\u5199\u7684\u8054\u7CFB\u65B9\u5F0F">
-          <button class="search-btn" id="queryOrder" style="padding:12px 22px;background:var(--theme-primary);color:#fff;border:none;border-radius:8px;cursor:pointer;">\u67E5\u8BE2</button>
-        </div>
-        <div class="warning-box" style="margin-top:18px;background:#fff8e6;border-radius:8px;padding:14px 16px;font-size:13px;color:#8a6d3b;">
-          <div class="warning-title" style="font-weight:600;margin-bottom:4px;">\u6E29\u99A8\u63D0\u793A</div>
-          <div class="warning-content">\u8BF7\u4F7F\u7528\u4E0B\u5355\u65F6\u586B\u5199\u7684\u8054\u7CFB\u65B9\u5F0F\uFF08\u624B\u673A\u53F7/\u90AE\u7BB1/QQ\u53F7\uFF09\u6216\u8BA2\u5355\u53F7\u67E5\u8BE2\u8BA2\u5355\u3002\u5982\u65E0\u6CD5\u67E5\u5230\uFF0C\u8BF7\u8054\u7CFB\u5BA2\u670D\u534F\u52A9\u5904\u7406\u3002</div>
+      <div class="panel-body">
+        <div class="d-flex justify-content-center align-items-center gap-3 flex-wrap">
+          <div style="width:300px;max-width:100%;">
+            <input type="text" class="form-control" id="queryInput" placeholder="\u8BA2\u5355\u53F7/\u8054\u7CFB\u65B9\u5F0F">
+          </div>
+          <div>
+            <button type="button" class="btn btn-primary br-12" id="queryOrder"><i class="fa-duotone fa-regular fa-search me-2"></i>\u67E5\u8BE2\u8BA2\u5355</button>
+          </div>
         </div>
       </div>
     </div>
@@ -1457,23 +1407,23 @@ async function pageOrderQuery(request, env, q) {
     if (!v) { layer.msg('\u8BF7\u8F93\u5165\u8BA2\u5355\u53F7\u6216\u8054\u7CFB\u65B9\u5F0F'); return; }
     $('#resultArea').html('<div style="text-align:center;padding:30px;color:#888;">\u67E5\u8BE2\u4E2D...</div>');
     $.get('/?action=order_query&q=' + encodeURIComponent(v), function(res){
-      if (res.code !== 0) { $('#resultArea').html('<div class="empty-order" style="text-align:center;padding:30px;color:#888;background:#fff;border:1px solid #eee;border-radius:10px;">' + res.msg + '</div>'); return; }
+      if (res.code !== 0) { $('#resultArea').html('<div class="panel pt-3"><div class="panel-body text-center"><div class="mb-3"><i class="fa-duotone fa-regular fa-search" style="font-size:3rem;color:#6b7280;"></i></div><h6 class="text-muted">' + res.msg + '</h6></div></div>'); return; }
       var html = '';
       for (var i=0;i<res.list.length;i++){
         var o = res.list[i];
-        html += '<div class="order-card gift-card" style="background:#fff;border:1px solid #eee;border-radius:10px;padding:16px;margin-bottom:14px;">' +
+        html += '<div class="panel order-card" style="padding:16px;margin-bottom:14px;">' +
           '<div style="display:flex;justify-content:space-between;align-items:center;"><span style="color:#333;">' + o.out_trade_no + '</span><span style="color:#4caf50;">' + o.status_text + '</span></div>' +
           '<div style="margin:10px 0;color:#555;font-size:14px;">' + o.title_html + '</div>' +
           '<div style="display:flex;justify-content:space-between;align-items:center;font-size:14px;color:#888;"><span>' + o.create_time_text + '</span><span>\u5171' + o.count + '\u4EF6 \u5408\u8BA1 <b style="color:#ff6600;">\xA5' + o.amount + '</b></span></div>' +
-          (o.can_view ? '<div style="margin-top:12px;text-align:right;"><a class="action-btn primary" href="/?action=order_result&out_trade_no=' + o.out_trade_no + '" style="display:inline-block;padding:8px 18px;background:var(--theme-primary);color:#fff;border-radius:6px;text-decoration:none;">\u67E5\u770B\u8BA2\u5355</a></div>' : '') +
+          (o.can_view ? '<div style="margin-top:12px;text-align:right;"><a class="btn btn-primary btn-sm br-12" href="/?action=order_result&out_trade_no=' + o.out_trade_no + '">\u67E5\u770B\u8BA2\u5355</a></div>' : '') +
         '</div>';
       }
-      $('#resultArea').html('<div class="result-header" style="margin-bottom:12px;color:#555;">\u5171\u627E\u5230 ' + res.list.length + ' \u4E2A\u8BA2\u5355</div>' + html);
+      $('#resultArea').html('<div class="text-muted mb-2">\u5171\u627E\u5230 ' + res.list.length + ' \u4E2A\u8BA2\u5355</div>' + html);
     }, 'json');
   }
   $('#queryOrder').on('click', doQuery);
   $('#queryInput').on('keydown', function(e){ if (e.key === 'Enter') doQuery(); });
-  </script>`;
+  <\/script>`;
   return new Response(layout(env, { ...opts, title: "\u8BA2\u5355\u67E5\u8BE2" }, navItems, body), { headers: HTML_HEADERS2 });
 }
 async function apiOrderQuery(request, env, q) {
@@ -1524,26 +1474,34 @@ async function pageHelp(request, env, q) {
     ["\u652F\u6301\u54EA\u4E9B\u652F\u4ED8\u65B9\u5F0F\uFF1F", "\u652F\u6301\u5FAE\u4FE1\u3001\u652F\u4ED8\u5B9D\uFF08\u6613\u652F\u4ED8\u7F51\u5173\uFF09\u53CA\u7AD9\u5185\u4F59\u989D\u652F\u4ED8\u3002"]
   ];
   const body = `
-  <main class="help-container" style="max-width:860px;margin:28px auto;padding:0 16px;">
-    <div class="help-section" style="background:#fff;border:1px solid #eee;border-radius:12px;padding:22px 24px;">
-      <div class="section-title" style="font-size:17px;font-weight:600;border-left:3px solid var(--theme-primary);padding-left:10px;margin-bottom:16px;">\u5E38\u89C1\u95EE\u9898</div>
-      ${faqs.map(
+  <main class="container py-4" style="max-width:860px;">
+    <div class="panel">
+      <div class="panel-header">
+        <span class="icon"><i class="fa-duotone fa-regular fa-circle-question"></i></span>
+        <h6 class="panel-title">\u5E38\u89C1\u95EE\u9898</h6>
+      </div>
+      <div class="panel-body">
+        ${faqs.map(
     (f, i) => `<div class="faq-item" style="border-bottom:1px dashed #eee;padding:14px 0;">
-        <div class="faq-title" style="font-weight:500;color:#333;cursor:pointer;display:flex;justify-content:space-between;"><span><span class="faq-num" style="color:var(--theme-price);margin-right:8px;">${i + 1}.</span>${f[0]}</span><span class="faq-arrow">+</span></div>
+        <div class="faq-title" style="font-weight:500;color:#333;cursor:pointer;display:flex;justify-content:space-between;"><span><span class="faq-num" style="color:#139655;margin-right:8px;">${i + 1}.</span>${f[0]}</span><span class="faq-arrow">+</span></div>
         <div class="faq-answer" style="color:#777;font-size:14px;line-height:1.8;margin-top:10px;display:none;">${f[1]}</div>
       </div>`
   ).join("")}
+      </div>
     </div>
-    <div class="contact-card" style="background:#fff;border:1px solid #eee;border-radius:12px;padding:22px 24px;margin-top:16px;">
-      <div class="section-title" style="font-size:17px;font-weight:600;border-left:3px solid var(--theme-primary);padding-left:10px;margin-bottom:12px;">\u8054\u7CFB\u65B9\u5F0F</div>
-      <div style="color:#555;font-size:14px;line-height:2;">\u5DE5\u4F5C\u65F6\u95F4\uFF1A\u6BCF\u65E5 9:00 - 22:00<br>\u5982\u6709\u95EE\u9898\u8BF7\u63D0\u4F9B\u8BA2\u5355\u53F7\u54A8\u8BE2\u5728\u7EBF\u5BA2\u670D\u3002</div>
+    <div class="panel mt-3">
+      <div class="panel-header">
+        <span class="icon"><i class="fa-duotone fa-regular fa-headset"></i></span>
+        <h6 class="panel-title">\u8054\u7CFB\u65B9\u5F0F</h6>
+      </div>
+      <div class="panel-body" style="color:#555;font-size:14px;line-height:2;">\u5DE5\u4F5C\u65F6\u95F4\uFF1A\u6BCF\u65E5 9:00 - 22:00<br>\u5982\u6709\u95EE\u9898\u8BF7\u63D0\u4F9B\u8BA2\u5355\u53F7\u54A8\u8BE2\u5728\u7EBF\u5BA2\u670D\u3002</div>
     </div>
   </main>
   <script>
   $(function(){
     $('.faq-title').on('click', function(){ var a=$(this).next(); a.slideToggle(150); $(this).find('.faq-arrow').text(a.is(':visible')?'-':'+'); });
   });
-  </script>`;
+  <\/script>`;
   return new Response(layout(env, { ...opts, title: "\u4E70\u5BB6\u5E2E\u52A9" }, navItems, body), { headers: HTML_HEADERS2 });
 }
 async function pageUser(request, env, q) {
@@ -1557,19 +1515,26 @@ async function pageUser(request, env, q) {
     const orderRows = orders.map(
       (o) => `<tr><td>${esc(o.out_trade_no)}</td><td>\xA5${fen2yuan(o.amount)}</td><td>${ts2str(o.create_time)}</td><td>${statusText[o.status] || "\u672A\u77E5"}</td><td>${o.pay_status == 1 ? `<a href="/?action=order_result&out_trade_no=${esc(o.out_trade_no)}">\u67E5\u770B</a>` : `<a href="/?action=pay&out_trade_no=${esc(o.out_trade_no)}">\u652F\u4ED8</a>`}</td></tr>`
     ).join("");
-    inner = `<div style="background:#fff;border:1px solid #eee;border-radius:12px;padding:20px 24px;">
-      <h2 style="font-size:18px;margin:0 0 10px;">\u4F60\u597D\uFF0C${esc(user.nickname || user.username)}</h2>
-      <div style="color:#777;font-size:14px;margin-bottom:18px;">\u4F59\u989D\uFF1A<b style="color:#ff6600;">\xA5${fen2yuan(Math.round((user.money || 0) * 100))}</b></div>
-      <table style="width:100%;border-collapse:collapse;font-size:14px;"><thead><tr style="background:#f6f8fa;"><th style="padding:8px;text-align:left;">\u8BA2\u5355\u53F7</th><th style="padding:8px;text-align:left;">\u91D1\u989D</th><th style="padding:8px;text-align:left;">\u65F6\u95F4</th><th style="padding:8px;text-align:left;">\u72B6\u6001</th><th style="padding:8px;text-align:left;">\u64CD\u4F5C</th></tr></thead><tbody>${orderRows || '<tr><td colspan="5" style="padding:20px;text-align:center;color:#999;">\u6682\u65E0\u8BA2\u5355</td></tr>'}</tbody></table>
-      <div style="margin-top:18px;"><a href="/?action=user&logout=1" style="color:#e53e3e;">\u9000\u51FA\u767B\u5F55</a></div>
+    inner = `<div class="panel">
+      <div class="panel-body">
+        <h4 class="mb-1">\u4F60\u597D\uFF0C${esc(user.nickname || user.username)}</h4>
+        <div class="text-muted mb-3" style="font-size:14px;">\u4F59\u989D\uFF1A<b style="color:#ff6600;">\xA5${fen2yuan(Math.round((user.money || 0) * 100))}</b></div>
+        <div class="table-responsive"><table class="table table-hover"><thead><tr><th>\u8BA2\u5355\u53F7</th><th>\u91D1\u989D</th><th>\u65F6\u95F4</th><th>\u72B6\u6001</th><th>\u64CD\u4F5C</th></tr></thead><tbody>${orderRows || '<tr><td colspan="5" style="padding:20px;text-align:center;color:#999;">\u6682\u65E0\u8BA2\u5355</td></tr>'}</tbody></table></div>
+        <div class="mt-3"><a href="/?action=user&logout=1" style="color:#e53e3e;">\u9000\u51FA\u767B\u5F55</a></div>
+      </div>
     </div>`;
   } else {
-    inner = `<div style="background:#fff;border:1px solid #eee;border-radius:12px;padding:30px 24px;max-width:420px;margin:0 auto;">
-      <h2 style="font-size:18px;margin:0 0 16px;">\u4F1A\u5458\u767B\u5F55</h2>
-      <div style="margin-bottom:12px;"><input id="lUser" class="search-input" style="width:100%;padding:11px 14px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;" placeholder="\u7528\u6237\u540D"></div>
-      <div style="margin-bottom:16px;"><input id="lPwd" type="password" class="search-input" style="width:100%;padding:11px 14px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;" placeholder="\u5BC6\u7801"></div>
-      <button id="btnLogin" style="width:100%;padding:12px;background:var(--theme-primary);color:#fff;border:none;border-radius:8px;cursor:pointer;">\u767B \u5F55</button>
-      <div style="margin-top:10px;color:#999;font-size:13px;">\u6E38\u5BA2\u53EF\u76F4\u63A5\u4E0B\u5355\uFF0C\u767B\u5F55\u540E\u53EF\u67E5\u770B\u4F59\u989D\u4E0E\u8BA2\u5355\u3002</div>
+    inner = `<div class="panel" style="max-width:420px;margin:0 auto;">
+      <div class="panel-header">
+        <span class="icon"><i class="fa-duotone fa-regular fa-right-to-bracket"></i></span>
+        <h6 class="panel-title">\u4F1A\u5458\u767B\u5F55</h6>
+      </div>
+      <div class="panel-body">
+        <div class="mb-3"><input id="lUser" class="form-control" placeholder="\u7528\u6237\u540D"></div>
+        <div class="mb-3"><input id="lPwd" type="password" class="form-control" placeholder="\u5BC6\u7801"></div>
+        <button id="btnLogin" class="btn btn-primary br-12 w-100" style="padding:10px;">\u767B \u5F55</button>
+        <div class="mt-2 text-muted" style="font-size:13px;">\u6E38\u5BA2\u53EF\u76F4\u63A5\u4E0B\u5355\uFF0C\u767B\u5F55\u540E\u53EF\u67E5\u770B\u4F59\u989D\u4E0E\u8BA2\u5355\u3002</div>
+      </div>
     </div>
     <script>
     $('#btnLogin').on('click', function(){
@@ -1577,9 +1542,9 @@ async function pageUser(request, env, q) {
         if (res.code === 0) { location.reload(); } else { layer.msg(res.msg || '\u767B\u5F55\u5931\u8D25'); }
       }, 'json');
     });
-    </script>`;
+    <\/script>`;
   }
-  const body = `<main class="blog-container" style="max-width:960px;margin:30px auto;padding:0 16px;">${inner}</main>`;
+  const body = `<main class="container py-4" style="max-width:960px;">${inner}</main>`;
   return new Response(layout(env, { ...opts, title: "\u4F1A\u5458\u4E2D\u5FC3" }, navItems, body), { headers: HTML_HEADERS2 });
 }
 async function apiLogin(request, env) {
@@ -1667,7 +1632,7 @@ function buildKamiHtml(kamiLines) {
     (k, i) => '<div class="kami-item"><span class="kami-index">' + (i + 1) + "</span><code>" + esc(k.content) + '</code><button class="kami-item-copy" data-c="' + esc(k.content) + '">\u590D\u5236</button></div>'
   ).join("");
   const allText = JSON.stringify(kamiLines.map((k) => k.content).join("\n"));
-  return '<div class="kami-list" id="kamiList"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><b>\u5361\u5BC6\u4FE1\u606F\uFF08\u5171 ' + kamiLines.length + ' \u6761\uFF09</b><button class="action-btn" id="btnCopyAll">\u4E00\u952E\u590D\u5236</button></div>' + items + "</div><script>$('#btnCopyAll').on('click', function(){  var t = " + allText + ";  if (navigator.clipboard) navigator.clipboard.writeText(t).then(function(){ layer.msg('\u5DF2\u590D\u5236\u5168\u90E8'); });  else { var ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); layer.msg('\u5DF2\u590D\u5236\u5168\u90E8'); }});$(document).on('click', '.kami-item-copy', function(){  var t = $(this).data('c');  if (navigator.clipboard) navigator.clipboard.writeText(t).then(function(){ layer.msg('\u5DF2\u590D\u5236'); });  else { var ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); layer.msg('\u5DF2\u590D\u5236'); }});</script><style>.kami-list{margin-top:18px;background:#fff;border:1px solid #eee;border-radius:10px;padding:18px;}.kami-item{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px dashed #eee;}.kami-item:last-child{border-bottom:none;}.kami-index{width:24px;height:24px;border-radius:50%;background:var(--theme-primary);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;}.kami-item code{flex:1;word-break:break-all;color:#333;}.kami-item-copy{color:var(--theme-primary);cursor:pointer;background:none;border:none;font-size:13px;}.action-btn{padding:8px 18px;border-radius:6px;border:1px solid #ddd;background:#fff;color:#555;cursor:pointer;}.action-btn.primary{background:var(--theme-primary);border-color:var(--theme-primary);color:#fff;}</style>";
+  return '<div class="kami-list" id="kamiList"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><b>\u5361\u5BC6\u4FE1\u606F\uFF08\u5171 ' + kamiLines.length + ' \u6761\uFF09</b><button class="btn btn-primary btn-sm br-12" id="btnCopyAll">\u4E00\u952E\u590D\u5236</button></div>' + items + "</div><script>$('#btnCopyAll').on('click', function(){  var t = " + allText + ";  if (navigator.clipboard) navigator.clipboard.writeText(t).then(function(){ layer.msg('\u5DF2\u590D\u5236\u5168\u90E8'); });  else { var ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); layer.msg('\u5DF2\u590D\u5236\u5168\u90E8'); }});$(document).on('click', '.kami-item-copy', function(){  var t = $(this).data('c');  if (navigator.clipboard) navigator.clipboard.writeText(t).then(function(){ layer.msg('\u5DF2\u590D\u5236'); });  else { var ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta); layer.msg('\u5DF2\u590D\u5236'); }});<\/script><style>.kami-list{margin-top:18px;background:#fff;border:1px solid #eee;border-radius:10px;padding:18px;}.kami-item{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px dashed #eee;}.kami-item:last-child{border-bottom:none;}.kami-index{width:24px;height:24px;border-radius:50%;background:#139655;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;}.kami-item code{flex:1;word-break:break-all;color:#333;}.kami-item-copy{color:#139655;cursor:pointer;background:none;border:none;font-size:13px;}</style>";
 }
 function json2(o) {
   return new Response(JSON.stringify(o), { headers: JSON_HEADERS2 });

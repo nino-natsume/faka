@@ -139,117 +139,108 @@ export async function buildAttrSpec(db, skuStr) {
   return s;
 }
 
-// ---------- 面页骨架 ----------
+// ---------- 面页骨架 (ACG-faka Cartoon 主题) ----------
 export function pageHead(opts) {
-  const title = opts.title || 'DCSHOP多财商城';
-  const kw = opts.keywords || '自动发卡,虚拟商品,卡密';
+  const siteName = opts.blogname || opts.shop_name || 'ACG发卡';
+  const title = opts.title ? opts.title + ' - ' + siteName : siteName;
+  const kw = opts.keywords || '自动发卡,虚拟商品,卡密,ACG';
   const desc = opts.description || '';
+  const bg = opt(opts, 'background_url', '') || opt(opts, 'bg_img', '');
+  const bgStyle = bg ? `background-size:cover;background-image:linear-gradient(180deg,rgb(255 255 255/0%),rgb(255 255 255/71%)),url('${esc(bg)}');` : 'background:#f4f6fa;';
   return `<!DOCTYPE html>
-<html lang="zh-cn" data-theme="light">
+<html lang="zh-cn">
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
-<title>${esc(title)}</title>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
 <meta name="keywords" content="${esc(kw)}">
 <meta name="description" content="${esc(desc)}">
 <link rel="icon" href="/favicon.ico">
-<script src="/vendor/jquery.min.js"></script>
-<link rel="stylesheet" href="/vendor/font-awesome/css/font-awesome.min.css">
-<link rel="stylesheet" href="/vendor/remixicon/remixicon.css">
-<link rel="stylesheet" href="/vendor/layui/css/layui.css">
-<script src="/vendor/layui/layui.js"></script>
-<link rel="stylesheet" href="/css/header.css">
-<script src="/js/header.js"></script>
-<link rel="stylesheet" href="/css/em.css">
-<link rel="stylesheet" href="/css/style.css">
-<link rel="stylesheet" href="/css/goods-layout.css">
-<link rel="stylesheet" href="/css/theme.css">
-<style>
-html,body{height:100%;}
-body{display:flex;flex-direction:column;min-height:100vh;margin:0;}
-#app-main{flex:1;}
-</style>
+<title>${esc(title)}</title>
+<link href="/assets/common/css/bootstrap.min.css" rel="stylesheet">
+<link href="/assets/common/css/_.css" rel="stylesheet">
+<link href="/assets/common/css/font.min.css" rel="stylesheet">
+<link href="/assets/common/js/layui/css/layui.css" rel="stylesheet">
+<link href="/assets/common/css/component.css" rel="stylesheet">
+<link href="/assets/common/css/toastr.min.css" rel="stylesheet">
+<link href="/assets/common/js/layer/theme/default/layer.css" rel="stylesheet">
+<link href="/assets/user/css/index.css" rel="stylesheet">
 ${opts.extraHead || ''}
 </head>
-<body>
-<div id="mask"></div>
+<body style="${bgStyle}">
 `;
 }
 
-// 头部（对应 content/common/header.php 骨架）
+// 头部 (对应 acg-faka Cartoon Index/Header.html)
 export function headerHtml(env, opts, navItems) {
-  const siteName = opts.blogname || 'DCSHOP多财商城';
-  const subtitle = opt(opts, 'site_subtitle', '');
-  const logo = opt(opts, 'logo', '');
-  const loginSwitch = opt(opts, 'login_switch', 'y');
+  const siteName = opts.blogname || opts.shop_name || 'ACG发卡';
   const navLis = (navItems || [])
-    .map((n) => `<li class="${n.active ? 'current' : ''}"><a href="${esc(n.url)}"${n.newtab ? ' target="_blank"' : ''}>${esc(n.name)}</a></li>`)
+    .map((n) => `<li class="nav-item"><a class="nav-link ${n.active ? 'active' : ''}" href="${esc(n.url)}"${n.newtab ? ' target="_blank"' : ''}>${esc(n.name)}</a></li>`)
     .join('');
-  return `<header class="header">
-<div class="h-fix">
+  return `<nav class="navbar navbar-expand-lg navbar-acg">
 <div class="container">
-<h1 class="logo-brand">
-<a href="/">
-${logo ? `<img class="brand-logo" src="${esc(logo)}" alt="${esc(siteName)}">` : `<img class="brand-logo" src="/img/logo.apng" alt="${esc(siteName)}" style="display:none;">`}
-<div class="brand-text">
-<span class="brand-title">${esc(siteName)}</span>
-${subtitle ? `<span class="brand-subtitle">${esc(subtitle)}</span>` : ''}
-</div>
+<a class="navbar-brand fw-bold d-flex align-items-center" href="/">
+<img src="/favicon.ico" alt="ACG Logo" class="brand-logo me-2">
+<span style="color:#1396558a;">${esc(siteName)}</span>
 </a>
-</h1>
-<div class="nav-container">
-<nav class="nav-bar" id="nav-box">
-<ul class="nav">
+<button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav" aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+<span class="navbar-toggler-icon"></span>
+</button>
+<div class="collapse navbar-collapse" id="navbarNav">
+<ul class="navbar-nav me-auto mb-lg-0">
 ${navLis}
 </ul>
+<div class="d-none d-lg-flex search-input" role="search">
+<div class="input-group">
+<span class="input-group-text"><i class="fa-duotone fa-regular fa-magnifying-glass nav-icon"></i></span>
+<input class="form-control item-search-input" type="search" id="acgSearchInput" placeholder="搜索商品关键词.." aria-label="Search">
+</div>
+</div>
+</div>
+<div class="ms-2 user-login-box">
+<a class="btn btn-outline-secondary btn-sm br-12" href="/?action=order_query"><i class="fa-duotone fa-regular fa-magnifying-glass nav-icon"></i>查询订单</a>
+<a class="btn btn-primary btn-sm br-12" href="/?action=help"><i class="fa-duotone fa-regular fa-circle-question nav-icon"></i>买家帮助</a>
+</div>
+</div>
 </nav>
-</div>
-<div class="header-right">
-<div class="header-right-btn">
-<div class="search">
-<button class="s-btn off" type="button"><i class="fa fa-search"></i></button>
-<form id="headerSearchExpand" class="header-search-expand" action="/" method="get" style="display:none;">
-<input type="hidden" name="action" value="search">
-<input name="q" type="text" class="header-search-input" placeholder="搜索商品..." autocomplete="off">
-<button type="submit" class="header-search-submit"><i class="fa fa-search"></i></button>
-<span class="header-search-close"><i class="fa fa-times"></i></span>
-</form>
-</div>
-${loginSwitch === 'y' ? `<div class="header-user"><a href="/?action=user"><i class="fa fa-user-o"></i></a></div>` : ''}
-<div class="header-search-order-btn"><a href="/?action=order_query">查询订单</a></div>
-<div class="header-help-mobile"><a class="header-help-btn" href="/?action=help">买家帮助</a></div>
-<div id="m-btn" class="m-btn"><i class="fa fa-bars"></i></div>
-</div>
-</div>
-</div>
-</div>
-</header>
+<div id="pjax-container">
 `;
 }
 
-// 尾部（对应 content/common/footer.php 骨架）
+// 尾部 (对应 acg-faka Cartoon Index/Footer.html)
 export function footerHtml(env, opts) {
-  const footerInfo = opt(opts, 'footer_info', 'Powered by DuoCai | DCSHOP提供技术支持');
   const icp = opt(opts, 'icp', '');
-  return `<footer class="main-footer">
-<div class="container">
-<div class="footer-content">
-<div class="footer-info">
-<div class="copyright">
-<span>${footerInfo}</span>${icp ? `&nbsp;<a class="icp-link" href="https://beian.miit.gov.cn/" target="_blank" rel="nofollow">${esc(icp)}</a>` : ''}
-</div>
-</div>
-</div>
-</div>
-</footer>
+  return `</div>
+${icp ? `<footer class="text-center text-muted py-3" style="font-size:13px;">${esc(icp)}</footer>` : ''}
+<script src="/assets/common/js/jquery.min.js"></script>
+<script src="/assets/common/js/bootstrap/bootstrap.bundle.min.js"></script>
+<script src="/assets/common/js/util/dict.js"></script>
+<script src="/assets/common/js/toastr.min.js"></script>
+<script src="/assets/common/js/layer/layer.js"></script>
+<script src="/assets/common/js/util.js"></script>
+<script src="/assets/common/js/format.js"></script>
+<script src="/assets/common/js/message.js"></script>
+<script src="/assets/common/js/component.js"></script>
+<script src="/assets/common/js/cache.js"></script>
+<script src="/assets/user/js/trade.js"></script>
+<script src="/assets/user/js/treasure.js"></script>
+<script src="/assets/user/js/_index.js"></script>
 <script>
-if (window.tipsMsg === undefined) { window.tipsMsg = function(msg, type) { alert(msg); }; }
+$(function(){
+  $('#acgSearchInput').on('keypress', function(e){
+    if (e.which === 13) {
+      var kw = $(this).val().trim();
+      if (!kw) { layer.msg('请输入要搜索的商品名称关键词'); return; }
+      location.href = '/?action=search&q=' + encodeURIComponent(kw);
+    }
+  });
+});
 </script>
 `;
 }
 
 export function pageFoot() {
-  return `</div>\n</body>\n</html>`;
+  return `</body>
+</html>`;
 }
 
 // 组装完整页面
@@ -257,11 +248,8 @@ export function layout(env, opts, navItems, body) {
   return (
     pageHead(opts) +
     headerHtml(env, opts, navItems) +
-    '<div id="app-main">' +
     body +
-    '</div>' +
     footerHtml(env, opts) +
-    '<script src="/js/header.js"></script>' +
     pageFoot()
   );
 }
@@ -290,11 +278,12 @@ export function toastScript(msg) {
 // ---------- 分页 ----------
 export function paginationHtml(baseUrl, page, pages, total) {
   if (pages <= 1) return '';
-  const link = (p) => `<a href="${baseUrl}&page=${p}" class="${p === page ? 'current' : ''}">${p}</a>`;
-  let html = '<div class="goods-pagination">';
-  if (page > 1) html += `<a href="${baseUrl}&page=${page - 1}">上一页</a>`;
+  const sep = baseUrl.includes('?') ? '&' : '?';
+  const link = (p) => `<li class="page-item ${p === page ? 'active' : ''}"><a class="page-link" href="${baseUrl}${sep}page=${p}">${p}</a></li>`;
+  let html = '<nav class="mt-3"><ul class="pagination justify-content-center mb-0">';
+  if (page > 1) html += `<li class="page-item"><a class="page-link" href="${baseUrl}${sep}page=${page - 1}">上一页</a></li>`;
   for (let i = 1; i <= pages; i++) html += link(i);
-  if (page < pages) html += `<a href="${baseUrl}&page=${page + 1}">下一页</a>`;
-  html += `</div>`;
+  if (page < pages) html += `<li class="page-item"><a class="page-link" href="${baseUrl}${sep}page=${page + 1}">下一页</a></li>`;
+  html += `</ul></nav>`;
   return html;
 }

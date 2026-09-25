@@ -34,7 +34,7 @@ async function router(request, env) {
   const q = parseQuery(url.search);
 
   // --- 静态资源 ---
-  if (/^\/(css|js|img|vendor|favicon\.ico)/.test(path)) {
+  if (/^\/(css|js|img|vendor|assets|favicon\.ico|robots\.txt)/.test(path)) {
     const a = await serveAsset(request, env);
     if (a) return a;
     return new Response('Not Found', { status: 404 });
@@ -118,7 +118,7 @@ async function pageHome(request, env, q, isSearch) {
 
   const { results: goods } = await env.DB
     .prepare(
-      'SELECT g.*, s.sortname FROM dc_goods g LEFT JOIN dc_sort s ON s.sid = g.sort_id ' +
+      'SELECT g.*, s.sortname, (SELECT MIN(guest_price) FROM dc_skus WHERE goods_id = g.id) AS _price FROM dc_goods g LEFT JOIN dc_sort s ON s.sid = g.sort_id ' +
         where + ' ' + orderSql + ' LIMIT ? OFFSET ?'
     )
     .bind(...binds, pageSize, (page - 1) * pageSize)
@@ -132,125 +132,80 @@ async function pageHome(request, env, q, isSearch) {
   const sorts = await getSorts(env.DB);
   const categories = sorts.slice(0, 12);
 
-  // banner 是否可用
-  let bannerShow = true;
-  if (env.ASSETS) {
-    const b = await env.ASSETS.fetch(new URL('/img/Banner.png', request.url));
-    if (b.status === 404) bannerShow = false;
-  }
-
-  const orderChips = [
-    { key: 'default', label: '综合', icon: 'ri-apps-2-line' },
-    { key: 'sales', label: '销量', icon: 'ri-fire-line' },
-    { key: 'price_asc', label: '价格', icon: 'ri-arrow-up-down-line' },
-    { key: 'stock', label: '库存', icon: 'ri-stack-line' },
-  ];
-
-  const baseUrl = '/?action=' + (isSearch ? 'search' : 'index') + (sortId ? '&sort_id=' + sortId : '') + (kw ? '&q=' + encodeURIComponent(kw) : '');
-
   // 商品卡片
   let gridHtml = '';
   for (const g of goods) {
     gridHtml += goodsCardHtml(g, env);
   }
   if (!goods.length) {
-    gridHtml = `<div class="empty-container"><i class="ri-inbox-2-line"></i><p>暂无商品${kw ? '（搜索无结果）' : ''}</p></div>`;
+    gridHtml = `<div class="item-message">${kw ? '没有搜索到相关商品' : '暂无商品'}</div>`;
   }
 
-  const rollBulletin = opt(opts, 'roll_bulletin', '');
   const homeBulletin = opt(opts, 'home_bulletin', '');
 
-  const heroRow = `
-  <div class="fk-hero-row ${bannerShow ? '' : 'no-banner'}">
-    ${bannerShow ? `<div class="fk-banner-wrap"><div class="fk-banner" id="fk-banner">
-      <div class="fk-banner-track is-fade" id="fk-banner-track">
-        <div class="fk-banner-slide"><a href="/"><img src="/img/Banner.png" alt="banner"></a></div>
-      </div>
-      <div class="fk-banner-dots" id="fk-banner-dots"><button class="fk-banner-dot active"></button></div>
-      <button class="fk-banner-arrow fk-banner-prev" type="button"><i class="ri-arrow-left-s-line"></i></button>
-      <button class="fk-banner-arrow fk-banner-next" type="button"><i class="ri-arrow-right-s-line"></i></button>
-    </div></div>` : ''}
-    ${homeBulletin ? `<div class="fk-notice-col"><div class="notice-card">
-      <div class="notice-card-header"><i class="layui-icon layui-icon-notice"></i><span>网站公告</span></div>
-      <div class="notice-card-content">${homeBulletin}</div>
-    </div></div>` : ''}
-  </div>`;
-
-  const rollHtml = rollBulletin
-    ? `<div class="roll-notice-bar"><i class="layui-icon layui-icon-speaker"></i><div class="roll-notice-content">${esc(rollBulletin)}</div></div>`
-    : '';
-
-  let categoryHtml = '';
-  if (sorts.length) {
-    const items = categories
-      .map(
-        (s) => `<a class="category-item" href="/?sort_id=${s.sid}"><div class="category-icon">${s.sorticon ? `<i class="${esc(s.sorticon)}"></i>` : `<i class="ri-store-2-line"></i>`}</div><span>${esc(s.sortname)}</span></a>`
-      )
-      .join('');
-    categoryHtml = `<div class="category-section"><div class="category-grid">${items}</div></div>`;
-  }
-
-  const filterHtml = `
-  <div class="fk-filter-bar">
-    ${orderChips
-      .map(
-        (c) =>
-          `<a class="fk-filter-chip ${order === c.key ? 'active' : ''}" href="${baseUrl.replace('/?action=search', '/?action=index').replace('/?action=index', '/?action=index')}&order=${c.key}"><i class="ri ${c.icon} fk-chip-ri"></i><label>${c.label}</label></a>`
-      )
-      .join('')}
-  </div>`;
+  // 分类 chips
+  const allChip = `<a data-id="0" class="switch-category chip ${sortId === 0 ? 'is-primary' : ''}" href="/"><span class="chip-icon"><i class="fa-duotone fa-regular fa-shapes"></i></span>全部</a>`;
+  const sortChips = sorts
+    .map(
+      (s) => `<a data-id="${s.sid}" class="switch-category chip ${sortId === s.sid ? 'is-primary' : ''}" href="/?sort_id=${s.sid}">${s.sorticon ? `<span class="chip-icon"><i class="${esc(s.sorticon)}"></i></span>` : ''}${esc(s.sortname)}</a>`
+    )
+    .join('');
 
   const body = `
-  <main class="blog-container">
-    ${heroRow}
-    ${rollHtml}
-    ${categoryHtml}
-    ${filterHtml}
-    <div class="goods-list-section" id="fk-goods-list-section">
-      <div class="goods-grid goods-grid-layout-grid">
-        ${gridHtml}
+  <main class="container py-4">
+    ${homeBulletin ? `<div class="panel">
+      <div class="panel-header">
+        <span class="icon"><i class="fa-duotone fa-regular fa-bullhorn"></i></span>
+        <h6 class="panel-title">公告</h6>
+      </div>
+      <div class="panel-body">${homeBulletin}</div>
+    </div>` : ''}
+    <div class="panel">
+      <div class="panel-header">
+        <span class="icon"><i class="fa-duotone fa-regular fa-cart-shopping"></i></span>
+        <h6 class="panel-title">购买</h6>
+      </div>
+      <div class="panel-body">
+        <div class="mb-3">
+          <div class="chip-list">${allChip}${sortChips}</div>
+        </div>
+        <div class="row item-list">${gridHtml}</div>
+        ${paginationHtml('/?action=index' + (sortId ? '&sort_id=' + sortId : '') + (kw ? '&q=' + encodeURIComponent(kw) : ''), page, pages, total)}
       </div>
     </div>
-    ${paginationHtml(baseUrl, page, pages, total)}
-  </main>
-  <style>
-  .fk-filter-bar a.fk-filter-chip.active{color:var(--theme-primary);border-color:var(--theme-primary);}
-  .category-section{margin:18px auto 6px;max-width:1200px;padding:0 12px;}
-  .empty-container{text-align:center;padding:60px 0 80px;color:#999;}
-  .empty-container i{font-size:48px;display:block;margin-bottom:12px;}
-  .goods-pagination{text-align:center;padding:24px 0 40px;}
-  .goods-pagination a{display:inline-block;margin:0 4px;padding:6px 12px;border:1px solid #e5e5e5;border-radius:6px;color:#666;}
-  .goods-pagination a.current{background:var(--theme-primary);color:#fff;border-color:var(--theme-primary);}
-  </style>`;
+  </main>`;
 
-  return new Response(layout(env, { ...opts, title: kw ? '搜索 - ' + kw : opt(opts, 'site_title', 'DCSHOP发卡系统') }, navItems, body), { headers: HTML_HEADERS });
+  return new Response(layout(env, { ...opts, title: kw ? '搜索 - ' + kw : opt(opts, 'site_title', 'ACG发卡系统') }, navItems, body), { headers: HTML_HEADERS });
 }
 
-// 商品卡片
+// 商品卡片 (acg-faka Cartoon acg-card)
 function goodsCardHtml(g, env) {
   const typeBadgeCls = TYPE_BADGE[g.type] || '';
   const soldOut = parseInt(g.stock) <= 0;
   const cover = g.cover && !g.cover.startsWith('../') ? g.cover : '';
-  const imgSrc = cover ? esc(cover) : '';
-  return `<div class="goods-grid-item layui-anim layui-anim-scaleSpring">
-  <a class="goods-card ${soldOut ? 'goods-card-soldout' : ''}" href="/?action=goods&id=${g.id}">
-    ${imgSrc ? `<div class="goods-img-box"><img class="goods-img lazy" src="${imgSrc}" alt="${esc(g.title)}">${typeBadgeCls ? `<span class="fk-type-badge ${typeBadgeCls}">${TYPE_NAME[g.type] || g.type}</span>` : ''}${soldOut ? `<div class="goods-soldout-mask"><span>已售空</span></div>` : ''}</div>` : `<div class="goods-img-box"><img class="goods-img lazy" src="/img/logo.apng" alt="${esc(g.title)}" style="object-fit:contain;background:#f7f8fa;">${typeBadgeCls ? `<span class="fk-type-badge ${typeBadgeCls}">${TYPE_NAME[g.type] || g.type}</span>` : ''}${soldOut ? `<div class="goods-soldout-mask"><span>已售空</span></div>` : ''}</div>`}
-    <div class="goods-info">
-      <div class="goods-title row-2-hidden">${esc(g.title)}</div>
-      ${g.des ? `<div class="goods-desc">${esc(String(g.des).slice(0, 60))}</div>` : ''}
-      <div class="goods-meta">
-        ${opt(env._opts, 'stock_switch', 'y') === 'y' ? `<span class="goods-meta-stock">库存 ${g.stock}</span>` : ''}
-        ${opt(env._opts, 'sales_switch', 'y') === 'y' ? `<span class="goods-meta-sales">已售 ${g.sales}</span>` : ''}
+  const stockSwitch = opt(env._opts, 'stock_switch', 'y') === 'y';
+  const salesSwitch = opt(env._opts, 'sales_switch', 'y') === 'y';
+  return `<a href="${soldOut ? 'javascript:void(0);' : '/?action=goods&id=' + g.id}" class="col-12 col-md-6 col-lg-3 mb-3" data-id="${g.id}">
+  <div class="acg-card ${soldOut ? 'soldout' : ''} h-100">
+    <div class="acg-thumb" style="background: url('${esc(cover)}') center/cover no-repeat;"></div>
+    <div class="p-3">
+      <div class="tags">
+        ${typeBadgeCls ? `<span class="badge-soft badge-soft-primary">${TYPE_NAME[g.type] || g.type}</span>` : ''}
+        <span class="badge-soft badge-soft-success">自动发货</span>
+        ${parseInt(g.index_top) > 0 ? '<span class="badge-soft badge-soft-primary">推荐</span>' : ''}
       </div>
-      <div class="goods-price-row">
-        <div class="price-wrap">
-          <span class="price-current"><i>¥</i>${fen2yuan(g._price || 0)}</span>
-        </div>
-        <div class="buy-btn">购买</div>
+      <p class="goods-title">${esc(g.title)}</p>
+      <div class="stat-row mb-1">
+        <div class="price"><span class="unit">¥</span>${fen2yuan(g._price || 0)}</div>
+      </div>
+      <div class="stat-bottom">
+        ${stockSwitch ? `<span>库存：${g.stock}</span>` : ''}
+        ${salesSwitch ? `<span>已售：${g.sales}</span>` : ''}
       </div>
     </div>
-  </a>
-</div>`;
+    ${soldOut ? '<div class="soldout-ribbon">售罄</div>' : ''}
+  </div>
+</a>`;
 }
 
 // ============================================================
@@ -311,10 +266,10 @@ async function pageGoods(request, env, q) {
 
   const specHtml = specGroups
     .map(
-      (grp, gi) => `<div class="spec-group">
-      <div class="spec-group-title">${esc(grp.title)}</div>
-      <div class="spec-options">
-        ${grp.options.map((o) => `<div class="spec-option" data-id="${o.id}" data-group="${gi}"><span>${esc(o.name)}</span></div>`).join('')}
+      (grp, gi) => `<div>
+      <label class="form-label mb-1">${esc(grp.title)}</label>
+      <div class="sku-list">
+        ${grp.options.map((o, oi) => `<a class="switch-race sku spec-option ${oi === 0 ? 'is-primary' : ''}" data-id="${o.id}" data-group="${gi}" href="javascript:void(0);">${esc(o.name)}</a>`).join('')}
       </div>
     </div>`
     )
@@ -322,21 +277,19 @@ async function pageGoods(request, env, q) {
 
   const attachHtml = attachUser
     .map(
-      (f, i) => `<div class="input-field-row">
-      <div class="input-field-header"><div class="section-label">${f.required ? '<span class="required-star">*</span>' : ''}${esc(f.name)}</div>
-      <input class="input-field-input ${f.required ? 'required-input' : ''}" name="attach[${esc(f.name)}]" placeholder="${esc(f.placeholder || '')}" data-validate-type="${esc(f.type || 'string')}">
-      </div>
-      ${f.tip ? `<div class="input-field-note">${esc(f.tip)}</div>` : ''}
+      (f, i) => `<div>
+      <label class="form-label mb-1">${f.required ? '<span style="color:#f56c6c;">*</span>' : ''}${esc(f.name)}</label>
+      <input class="form-control ${f.required ? 'required-input' : ''}" name="attach[${esc(f.name)}]" placeholder="${esc(f.placeholder || '')}" data-validate-type="${esc(f.type || 'string')}">
+      ${f.tip ? `<div class="form-text">${esc(f.tip)}</div>` : ''}
     </div>`
     )
     .join('');
 
   const requiredHtml = orderRequired
     .map(
-      (f, i) => `<div class="input-field-row">
-      <div class="input-field-header"><div class="section-label"><span class="required-star">*</span>${esc(f.name || '联系信息')}</div>
-      <input class="input-field-input required-input" name="required[${esc(f.name || '联系信息')}]" placeholder="${esc(f.placeholder || '')}" data-validate-type="${esc(f.type || 'string')}">
-      </div>
+      (f, i) => `<div>
+      <label class="form-label mb-1"><span style="color:#f56c6c;">*</span>${esc(f.name || '联系信息')}</label>
+      <input class="form-control required-input" name="required[${esc(f.name || '联系信息')}]" placeholder="${esc(f.placeholder || '')}" data-validate-type="${esc(f.type || 'string')}">
     </div>`
     )
     .join('');
@@ -344,69 +297,61 @@ async function pageGoods(request, env, q) {
   const paymentMethods = paymentMethodsHtml(opts);
 
   const body = `
-  <main class="goods-detail-container">
-    <div class="kami-page-header">
-      <a class="kami-back-btn" href="javascript:history.back()"><i class="fa fa-chevron-left"></i></a>
-      <div class="kami-page-title">商品详情</div>
-      <a class="kami-share-btn" id="goodsShareBtn" href="javascript:;">分享</a>
-    </div>
-    <div class="kami-page-header-placeholder"></div>
-    <div class="main-card">
-      <div class="goods-layout">
-        <div class="goods-left">
-          ${cover ? `<div class="goods-cover-section" id="goodsGallerySection">
-            <div class="goods-cover-main cover-arrows-hidden" id="goodsCoverMain">
-              <img id="goodsCoverImg" src="${esc(cover)}" alt="${esc(g.title)}">
-              <span class="cover-arrow cover-arrow-prev"><i class="ri-arrow-left-s-line"></i></span>
-              <span class="cover-arrow cover-arrow-next"><i class="ri-arrow-right-s-line"></i></span>
+  <main class="container py-4">
+    <div class="panel mt-3">
+      <div class="panel-body">
+        <div class="row g-4 align-items-stretch">
+          <div class="col-12 col-lg-6 d-flex">
+            <div class="acg-card h-100 w-100 flex-fill acg-cover">
+              ${cover ? `<img src="${esc(cover)}" class="item-cover" alt="${esc(g.title)}">` : `<div class="d-flex align-items-center justify-content-center h-100 text-muted"><i class="fa-duotone fa-regular fa-image" style="font-size:64px;"></i></div>`}
             </div>
-          </div>` : `<div class="goods-cover-section"><div class="goods-cover-main"><img id="goodsCoverImg" src="/img/logo.apng" alt="" style="object-fit:contain;background:#f7f8fa;"></div></div>`}
-        </div>
-        <div class="goods-right">
-          <div class="goods-title-section">
-            <h1 class="goods-title">${esc(g.title)}</h1>
-            <div class="goods-meta">已售 ${g.sales} <span style="margin-left:10px;">库存 <span id="goodsStock">${stock}</span></span></div>
           </div>
-          <div class="spec-section" id="specSection">
-            ${specHtml}
-          </div>
-          <form id="buyFormSection" class="buy-form-section layui-form" data-dc-physical-goods="">
-            <div class="price-quantity-row">
-              <div class="price-section">
-                <span class="section-label">价格</span>
-                <span class="section-value"><span class="unit-price" id="unitPrice">¥${fen2yuan(price)}</span><span class="unit">/${esc(g.unit_name || '个')}</span>
-                <span class="market-price" id="marketPrice" style="text-decoration:line-through;color:#bbb;font-size:13px;margin-left:6px;"></span>
-                </span>
+          <div class="col-12 col-lg-6 d-flex">
+            <div class="flex-fill">
+              <h4>${esc(g.title)}</h4>
+              <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+                <span class="badge-soft badge-soft-success">自动发货</span>
+                <span class="badge-soft badge-soft-primary">已售 ${g.sales}</span>
+                <span class="badge-soft badge-soft-success item-stock">库存 <span id="goodsStock">${stock}</span></span>
               </div>
-              <div class="quantity-section">
-                <span class="section-label">数量</span>
-                <div class="quantity-selector">
-                  <button type="button" class="quantity-btn" id="qtyMinus">-</button>
-                  <input type="number" class="quantity-input" id="qtyInput" value="1" min="1">
-                  <button type="button" class="quantity-btn" id="qtyPlus">+</button>
+              <div class="d-flex align-items-baseline gap-2 mb-3 abacus">
+                <div class="price"><span class="unit">¥</span><span id="unitPrice">${fen2yuan(price)}</span></div>
+                <del class="text-muted" id="marketPrice" style="font-size:14px;"></del>
+              </div>
+              <form method="post" class="vstack gap-3" id="buyFormSection">
+                ${specHtml}
+                <div id="inputFields">
+                  ${attachHtml}
+                  ${requiredHtml}
                 </div>
-              </div>
+                <div>
+                  <label class="form-label mb-1">购买数量</label>
+                  <div class="input-group qty-group" style="width:170px;">
+                    <button type="button" class="btn btn-outline-secondary change-num-sub" id="qtyMinus">-</button>
+                    <input type="number" class="form-control text-center" id="qtyInput" name="num" value="1" min="1">
+                    <button type="button" class="btn btn-outline-secondary change-num-add" id="qtyPlus">+</button>
+                  </div>
+                </div>
+                <div class="cash-pay p-2" style="border:1px dashed #dee2e6;border-radius:12px;">
+                  <label class="form-label mb-2"><i class="fa-duotone fa-regular fa-cart-shopping"></i> 付款</label>
+                  ${paymentMethods}
+                </div>
+                <div>
+                  <button type="button" class="btn btn-primary br-12 w-100" id="submitPayBtn" style="padding:12px;font-size:16px;">立即购买（合计 ¥<span id="totalPrice">${fen2yuan(price)}</span>）</button>
+                </div>
+              </form>
             </div>
-            <div class="stock-row"><span>库存：</span><span class="stock-value" id="goodsStock2">${stock}</span></div>
-            <div id="inputFields">
-              ${attachHtml}
-              ${requiredHtml}
-            </div>
-            ${paymentMethods}
-            <div class="drawer-footer">
-              <div class="pay-bar">
-                <span class="pay-amount">合计：<span class="dynamic-price" id="totalPrice">¥${fen2yuan(price)}</span></span>
-                <button type="button" class="pay-btn" id="submitPayBtn">立即购买</button>
-              </div>
-            </div>
-          </form>
+          </div>
         </div>
       </div>
     </div>
-    ${g.content ? `<section class="goods-detail-section">
-      <div class="goods-detail-header"><span class="goods-detail-bar"></span><span class="goods-detail-title">商品详情</span></div>
-      <div class="goods-detail-body"><div class="intro" id="goodsDesc">${g.content}</div></div>
-    </section>` : ''}
+    ${g.content ? `<div class="panel mt-3 item-detail">
+      <div class="panel-header">
+        <span class="icon"><i class="fa-duotone fa-regular fa-memo-circle-info"></i></span>
+        <h6 class="panel-title">宝贝详情</h6>
+      </div>
+      <div class="panel-body">${g.content}</div>
+    </div>` : ''}
   </main>
   <script>
   (function(){
@@ -424,26 +369,21 @@ async function pageGoods(request, env, q) {
       var sk = currentSku();
       var row = findSku(sk);
       var price = row ? (row.price||0) : (GOODS.is_sku ? 0 : GOODS.min_price);
-      $('#unitPrice').text('¥' + (price/100).toFixed(2));
+      $('#unitPrice').text((price/100).toFixed(2));
       $('#marketPrice').text(row && row.market ? '¥' + (row.market/100).toFixed(2) : '');
       var st = row ? (parseInt(row.stock)||0) : GOODS.stock;
-      $('#goodsStock').text(st); $('#goodsStock2').text(st);
+      $('#goodsStock').text(st);
       var qty = parseInt($('#qtyInput').val()) || 1;
-      $('#totalPrice').text('¥' + (price*qty/100).toFixed(2));
-      if (st > 0 && qty > st) { $('#qtyInput').val(st); $('#totalPrice').text('¥' + (price*st/100).toFixed(2)); }
+      if (st > 0 && qty > st) { qty = st; $('#qtyInput').val(st); }
+      $('#totalPrice').text((price*qty/100).toFixed(2));
     }
     $('.spec-option').on('click', function(){
       var $t = $(this);
       var gid = $t.data('group');
-      $('.spec-option[data-group="'+gid+'"]').removeClass('active');
-      $t.addClass('active');
-      var g = GOODS.attrs[gid];
-      var idx = selected.length;
-      if (g.options) {
-        while (selected.length <= gid) { selected.push(undefined); }
-        selected[gid] = String($t.data('id'));
-      }
-      // 合并已选值
+      $('.spec-option[data-group="'+gid+'"]').removeClass('is-primary');
+      $t.addClass('is-primary');
+      while (selected.length <= gid) { selected.push(undefined); }
+      selected[gid] = String($t.data('id'));
       var skArr = [];
       for (var i=0;i<GOODS.attrs.length;i++){
         var v = selected[i];
@@ -462,7 +402,7 @@ async function pageGoods(request, env, q) {
       var qty = parseInt($('#qtyInput').val())||1;
       var sku = currentSku();
       var fd = { goods_id: GOODS.id, quantity: qty, sku_ids: sku === '0' ? [] : sku.split('-') };
-      $('.payment-item.active').each(function(){ fd.payment_plugin = $(this).data('method'); });
+      $('.pay-list .pay.is-primary').each(function(){ fd.payment_plugin = $(this).data('method'); });
       $('#inputFields input').each(function(){
         var n = $(this).attr('name'); if (!n) return;
         if (n.indexOf('attach[') === 0) {
@@ -490,17 +430,24 @@ async function pageGoods(request, env, q) {
   return new Response(layout(env, { ...opts, title: g.title }, navItems, body), { headers: HTML_HEADERS });
 }
 
-// 支付方式 HTML
+// 支付方式 HTML (acg-faka Cartoon pay-list)
 function paymentMethodsHtml(opts) {
   const balanceSwitch = opt(opts, 'balance_switch', 'y');
-  return `<div class="payment-methods">
-  ${balanceSwitch === 'y' ? `<div class="payment-item" data-method="balance"><i class="ri-wallet-3-line payment-icon"></i><div class="payment-info"><span class="payment-name">余额支付</span></div><i class="ri-checkbox-circle-fill payment-checked"></i></div>` : ''}
-  <div class="payment-item active" data-method="test"><i class="ri-bank-card-line payment-icon"></i><div class="payment-info"><span class="payment-name">测试支付（模拟）</span></div><i class="ri-checkbox-circle-fill payment-checked"></i></div>
-  ${epayConfig(opts) ? `<div class="payment-item" data-method="epay_wx"><i class="ri-wechat-pay-line payment-icon"></i><div class="payment-info"><span class="payment-name">易支付/微信</span></div><i class="ri-checkbox-circle-fill payment-checked"></i></div>
-  <div class="payment-item" data-method="epay_ali"><i class="ri-alipay-line payment-icon"></i><div class="payment-info"><span class="payment-name">易支付/支付宝</span></div><i class="ri-checkbox-circle-fill payment-checked"></i></div>` : ''}
+  const pays = [];
+  if (balanceSwitch === 'y') pays.push({ method: 'balance', name: '余额支付', icon: 'fa-duotone fa-regular fa-wallet' });
+  pays.push({ method: 'test', name: '测试支付（模拟）', icon: 'fa-duotone fa-regular fa-shield-halved' });
+  if (epayConfig(opts)) {
+    pays.push({ method: 'epay_wx', name: '微信支付', img: '/assets/user/images/cash/wechat.png' });
+    pays.push({ method: 'epay_ali', name: '支付宝', img: '/assets/user/images/cash/alipay.png' });
+  }
+  const items = pays
+    .map((p, i) => `<a class="pay ${i === 0 ? 'is-primary' : ''}" data-method="${p.method}">${p.img ? `<img src="${p.img}" alt="">` : `<i class="${p.icon}"></i>`}<span>${p.name}</span></a>`)
+    .join('');
+  return `<div class="pay-list">
+  ${items}
   </div>
-  <style>.payment-methods .payment-item{cursor:pointer;}</style>
-  <script>$(function(){ $('.payment-methods .payment-item').on('click', function(){ $('.payment-methods .payment-item').removeClass('active'); $(this).addClass('active'); }); });</script>`;
+  <style>.pay-list .pay{cursor:pointer;}</style>
+  <script>$(function(){ $('.pay-list .pay').on('click', function(){ $('.pay-list .pay').removeClass('is-primary'); $(this).addClass('is-primary'); }); });</script>`;
 }
 
 function epayConfig(opts) {
@@ -614,26 +561,31 @@ async function pagePay(request, env, q) {
     .join('');
 
   const body = `
-  <main class="container order-container" style="max-width:960px;margin:24px auto;padding:0 16px;">
+  <main class="container py-4" style="max-width:960px;">
     <div class="panel">
-      <h2 style="font-size:18px;margin:0 0 14px;">订单支付</h2>
-      <div class="pay-order-status" style="padding:14px;background:#f6f8fa;border-radius:8px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;">
-        <span>订单号：<b>${esc(order.out_trade_no)}</b></span>
-        <span>状态：<b style="color:${paid ? '#4caf50' : expired ? '#999' : '#ff9800'}">${statusText}</b></span>
+      <div class="panel-header">
+        <span class="icon"><i class="fa-duotone fa-regular fa-money-check-dollar"></i></span>
+        <h6 class="panel-title">订单支付</h6>
       </div>
-      <table class="order-items" style="width:100%;border-collapse:collapse;margin-bottom:18px;">
-        <thead><tr><th style="text-align:left;padding:8px;">商品</th><th>单价</th><th>数量</th><th>小计</th></tr></thead>
-        <tbody>${itemsHtml}</tbody>
-      </table>
-      <div class="pay-amount-row" style="text-align:right;font-size:16px;margin-bottom:18px;">应付金额：<b style="color:#ff6600;font-size:22px;">¥${fen2yuan(order.amount)}</b></div>
-      ${!paid && !expired ? `
-      <div class="payment-buttons" style="display:flex;gap:12px;flex-wrap:wrap;">
-        <button class="action-btn primary" id="btnMockPay" style="flex:1;min-width:200px;">模拟支付成功（测试）</button>
-        ${opt(opts, 'balance_switch', 'y') === 'y' && user ? `<button class="action-btn" id="btnBalancePay" style="flex:1;min-width:200px;">余额支付（余额 ¥${fen2yuan(user.money * 100)}）</button>` : ''}
+      <div class="panel-body">
+        <div class="pay-order-status" style="padding:14px;background:#f6f8fa;border-radius:8px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+          <span>订单号：<b>${esc(order.out_trade_no)}</b></span>
+          <span>状态：<b style="color:${paid ? '#4caf50' : expired ? '#999' : '#ff9800'}">${statusText}</b></span>
+        </div>
+        <table class="table">
+          <thead><tr><th>商品</th><th>单价</th><th>数量</th><th>小计</th></tr></thead>
+          <tbody>${itemsHtml}</tbody>
+        </table>
+        <div class="text-end mb-3" style="font-size:16px;">应付金额：<b style="color:#ff6600;font-size:22px;">¥${fen2yuan(order.amount)}</b></div>
+        ${!paid && !expired ? `
+        <div class="d-flex gap-2 flex-wrap">
+          <button class="btn btn-primary br-12" id="btnMockPay">模拟支付成功（测试）</button>
+          ${opt(opts, 'balance_switch', 'y') === 'y' && user ? `<button class="btn btn-outline-success br-12" id="btnBalancePay">余额支付（余额 ¥${fen2yuan(user.money * 100)}）</button>` : ''}
+        </div>
+        ${epayConfig(opts) ? `<div class="mt-3 text-muted" style="font-size:13px;">已配置易支付网关，请在支付分页中选择微信/支付宝。</div>` : ''}
+        <div class="mt-3 text-muted" style="font-size:13px;">${countDown > 0 ? `请在 <b>${Math.ceil(countDown / 60)}</b> 分钟内完成支付，超时订单将自动取消。` : '订单已超时，请重新下单。'}</div>
+        ` : paid ? `<a class="btn btn-primary br-12" href="/?action=order_result&out_trade_no=${esc(order.out_trade_no)}">查看订单结果</a>` : `<a class="btn btn-outline-secondary br-12" href="/">返回首页</a>`}
       </div>
-      ${epayConfig(opts) ? `<div class="epay-tip" style="margin-top:12px;color:#888;font-size:13px;">已配置易支付网关，请在支付分页中选择微信/支付宝。</div>` : ''}
-      <div style="margin-top:16px;color:#888;font-size:13px;">${countDown > 0 ? `请在 <b>${Math.ceil(countDown / 60)}</b> 分钟内完成支付，超时订单将自动取消。` : '订单已超时，请重新下单。'}</div>
-      ` : paid ? `<a class="action-btn primary" href="/?action=order_result&out_trade_no=${esc(order.out_trade_no)}">查看订单结果</a>` : `<a class="action-btn" href="/">返回首页</a>`}
     </div>
   </main>
   <script>
@@ -751,19 +703,17 @@ async function pageOrderResult(request, env, q) {
 
   const orderCards = lists
     .map(
-      (l) => `<div class="order-card gift-card">
-    <div class="order-header-info">
-      <span class="order-no">${esc(order.out_trade_no)}</span>
-      <span class="order-status paid" style="color:${statusColor}">${statusText}</span>
+      (l) => `<div class="panel mb-3"><div class="panel-body" style="padding:16px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;">
+      <span class="text-muted" style="font-size:13px;">${esc(order.out_trade_no)}</span>
+      <span style="color:${statusColor}">${statusText}</span>
     </div>
-    <div class="order-goods">
-      <div class="goods-item"><div class="goods-info"><div class="goods-name">${esc(l.title)}</div>${l.attr_spec ? `<div class="goods-spec">${l.attr_spec}</div>` : ''}</div></div>
+    <div style="margin:10px 0;color:#333;">${esc(l.title)}${l.attr_spec ? `<span class="text-muted" style="font-size:13px;margin-left:8px;">${l.attr_spec}</span>` : ''}</div>
+    <div style="display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#888;">
+      <span>${order.pay_time ? ts2str(order.pay_time) : ''}</span>
+      <span>共${l.quantity}件，合计 <b style="color:#ff6600;">¥${fen2yuan(l.price)}</b></span>
     </div>
-    <div class="order-amount">
-      <div class="pay-time">${order.pay_time ? ts2str(order.pay_time) : ''}</div>
-      <div class="amount-info">共${l.quantity}件，合计 <b style="color:#ff6600;">¥${fen2yuan(l.price)}</b></div>
-    </div>
-  </div>`
+  </div></div>`
     )
     .join('');
 
@@ -772,17 +722,19 @@ async function pageOrderResult(request, env, q) {
       ? buildKamiHtml(kamiLines)
       : '';
   const body = `
-  <main class="result-body" style="max-width:860px;margin:24px auto;padding:0 16px;">
-    <div class="order-list-page" id="orderListPage">
-      <div class="result-header" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-        <div class="result-title" style="font-size:18px;font-weight:600;">订单结果</div>
-        <div class="result-count"><span>共找到 ${1} 个订单</span></div>
+  <main class="container py-4" style="max-width:860px;">
+    <div class="panel">
+      <div class="panel-header">
+        <span class="icon"><i class="fa-duotone fa-regular fa-gift"></i></span>
+        <h6 class="panel-title">订单结果</h6>
       </div>
-      <div class="order-list">${orderCards}</div>
-      ${kamiHtml}
-      <div style="margin-top:20px;text-align:center;">
-        <a class="action-btn" href="/?action=order_query">查询其他订单</a>
-        <a class="btn-rebuy" href="/" style="display:inline-block;margin-left:10px;">再买一单</a>
+      <div class="panel-body">
+        ${orderCards}
+        ${kamiHtml}
+        <div class="mt-4 text-center">
+          <a class="btn btn-outline-secondary br-12" href="/?action=order_query">查询其他订单</a>
+          <a class="btn btn-primary br-12" href="/" style="margin-left:10px;">再买一单</a>
+        </div>
       </div>
     </div>
   </main>`;
@@ -817,19 +769,20 @@ async function apiKami(request, env, q) {
 async function pageOrderQuery(request, env, q) {
   const { opts, navItems } = await ctx(env);
   const body = `
-  <main class="order-body" style="max-width:760px;margin:40px auto;padding:0 16px;">
-    <div class="query-card" style="background:#fff;border:1px solid #eee;border-radius:14px;overflow:hidden;">
-      <div class="query-card-bg" style="padding:40px 24px 16px;text-align:center;">
-        <div class="query-title" style="font-size:20px;color:#333;">轻松查询订单...</div>
+  <main class="container py-4" style="max-width:760px;">
+    <div class="panel">
+      <div class="panel-header">
+        <span class="icon"><i class="fa-duotone fa-regular fa-magnifying-glass"></i></span>
+        <h6 class="panel-title">订单查询</h6>
       </div>
-      <div class="query-card-content" style="padding:16px 24px 28px;">
-        <div class="search-box" style="display:flex;gap:10px;">
-          <input id="queryInput" type="text" class="search-input" style="flex:1;padding:12px 16px;border:1px solid #ddd;border-radius:8px;" placeholder="请输入订单号 或 下单时填写的联系方式">
-          <button class="search-btn" id="queryOrder" style="padding:12px 22px;background:var(--theme-primary);color:#fff;border:none;border-radius:8px;cursor:pointer;">查询</button>
-        </div>
-        <div class="warning-box" style="margin-top:18px;background:#fff8e6;border-radius:8px;padding:14px 16px;font-size:13px;color:#8a6d3b;">
-          <div class="warning-title" style="font-weight:600;margin-bottom:4px;">温馨提示</div>
-          <div class="warning-content">请使用下单时填写的联系方式（手机号/邮箱/QQ号）或订单号查询订单。如无法查到，请联系客服协助处理。</div>
+      <div class="panel-body">
+        <div class="d-flex justify-content-center align-items-center gap-3 flex-wrap">
+          <div style="width:300px;max-width:100%;">
+            <input type="text" class="form-control" id="queryInput" placeholder="订单号/联系方式">
+          </div>
+          <div>
+            <button type="button" class="btn btn-primary br-12" id="queryOrder"><i class="fa-duotone fa-regular fa-search me-2"></i>查询订单</button>
+          </div>
         </div>
       </div>
     </div>
@@ -841,18 +794,18 @@ async function pageOrderQuery(request, env, q) {
     if (!v) { layer.msg('请输入订单号或联系方式'); return; }
     $('#resultArea').html('<div style="text-align:center;padding:30px;color:#888;">查询中...</div>');
     $.get('/?action=order_query&q=' + encodeURIComponent(v), function(res){
-      if (res.code !== 0) { $('#resultArea').html('<div class="empty-order" style="text-align:center;padding:30px;color:#888;background:#fff;border:1px solid #eee;border-radius:10px;">' + res.msg + '</div>'); return; }
+      if (res.code !== 0) { $('#resultArea').html('<div class="panel pt-3"><div class="panel-body text-center"><div class="mb-3"><i class="fa-duotone fa-regular fa-search" style="font-size:3rem;color:#6b7280;"></i></div><h6 class="text-muted">' + res.msg + '</h6></div></div>'); return; }
       var html = '';
       for (var i=0;i<res.list.length;i++){
         var o = res.list[i];
-        html += '<div class="order-card gift-card" style="background:#fff;border:1px solid #eee;border-radius:10px;padding:16px;margin-bottom:14px;">' +
+        html += '<div class="panel order-card" style="padding:16px;margin-bottom:14px;">' +
           '<div style="display:flex;justify-content:space-between;align-items:center;"><span style="color:#333;">' + o.out_trade_no + '</span><span style="color:#4caf50;">' + o.status_text + '</span></div>' +
           '<div style="margin:10px 0;color:#555;font-size:14px;">' + o.title_html + '</div>' +
           '<div style="display:flex;justify-content:space-between;align-items:center;font-size:14px;color:#888;"><span>' + o.create_time_text + '</span><span>共' + o.count + '件 合计 <b style="color:#ff6600;">¥' + o.amount + '</b></span></div>' +
-          (o.can_view ? '<div style="margin-top:12px;text-align:right;"><a class="action-btn primary" href="/?action=order_result&out_trade_no=' + o.out_trade_no + '" style="display:inline-block;padding:8px 18px;background:var(--theme-primary);color:#fff;border-radius:6px;text-decoration:none;">查看订单</a></div>' : '') +
+          (o.can_view ? '<div style="margin-top:12px;text-align:right;"><a class="btn btn-primary btn-sm br-12" href="/?action=order_result&out_trade_no=' + o.out_trade_no + '">查看订单</a></div>' : '') +
         '</div>';
       }
-      $('#resultArea').html('<div class="result-header" style="margin-bottom:12px;color:#555;">共找到 ' + res.list.length + ' 个订单</div>' + html);
+      $('#resultArea').html('<div class="text-muted mb-2">共找到 ' + res.list.length + ' 个订单</div>' + html);
     }, 'json');
   }
   $('#queryOrder').on('click', doQuery);
@@ -920,21 +873,29 @@ async function pageHelp(request, env, q) {
     ['支持哪些支付方式？', '支持微信、支付宝（易支付网关）及站内余额支付。'],
   ];
   const body = `
-  <main class="help-container" style="max-width:860px;margin:28px auto;padding:0 16px;">
-    <div class="help-section" style="background:#fff;border:1px solid #eee;border-radius:12px;padding:22px 24px;">
-      <div class="section-title" style="font-size:17px;font-weight:600;border-left:3px solid var(--theme-primary);padding-left:10px;margin-bottom:16px;">常见问题</div>
-      ${faqs
-        .map(
-          (f, i) => `<div class="faq-item" style="border-bottom:1px dashed #eee;padding:14px 0;">
-        <div class="faq-title" style="font-weight:500;color:#333;cursor:pointer;display:flex;justify-content:space-between;"><span><span class="faq-num" style="color:var(--theme-price);margin-right:8px;">${i + 1}.</span>${f[0]}</span><span class="faq-arrow">+</span></div>
+  <main class="container py-4" style="max-width:860px;">
+    <div class="panel">
+      <div class="panel-header">
+        <span class="icon"><i class="fa-duotone fa-regular fa-circle-question"></i></span>
+        <h6 class="panel-title">常见问题</h6>
+      </div>
+      <div class="panel-body">
+        ${faqs
+          .map(
+            (f, i) => `<div class="faq-item" style="border-bottom:1px dashed #eee;padding:14px 0;">
+        <div class="faq-title" style="font-weight:500;color:#333;cursor:pointer;display:flex;justify-content:space-between;"><span><span class="faq-num" style="color:#139655;margin-right:8px;">${i + 1}.</span>${f[0]}</span><span class="faq-arrow">+</span></div>
         <div class="faq-answer" style="color:#777;font-size:14px;line-height:1.8;margin-top:10px;display:none;">${f[1]}</div>
       </div>`
-        )
-        .join('')}
+          )
+          .join('')}
+      </div>
     </div>
-    <div class="contact-card" style="background:#fff;border:1px solid #eee;border-radius:12px;padding:22px 24px;margin-top:16px;">
-      <div class="section-title" style="font-size:17px;font-weight:600;border-left:3px solid var(--theme-primary);padding-left:10px;margin-bottom:12px;">联系方式</div>
-      <div style="color:#555;font-size:14px;line-height:2;">工作时间：每日 9:00 - 22:00<br>如有问题请提供订单号咨询在线客服。</div>
+    <div class="panel mt-3">
+      <div class="panel-header">
+        <span class="icon"><i class="fa-duotone fa-regular fa-headset"></i></span>
+        <h6 class="panel-title">联系方式</h6>
+      </div>
+      <div class="panel-body" style="color:#555;font-size:14px;line-height:2;">工作时间：每日 9:00 - 22:00<br>如有问题请提供订单号咨询在线客服。</div>
     </div>
   </main>
   <script>
@@ -964,19 +925,26 @@ async function pageUser(request, env, q) {
         (o) => `<tr><td>${esc(o.out_trade_no)}</td><td>¥${fen2yuan(o.amount)}</td><td>${ts2str(o.create_time)}</td><td>${statusText[o.status] || '未知'}</td><td>${o.pay_status == 1 ? `<a href="/?action=order_result&out_trade_no=${esc(o.out_trade_no)}">查看</a>` : `<a href="/?action=pay&out_trade_no=${esc(o.out_trade_no)}">支付</a>`}</td></tr>`
       )
       .join('');
-    inner = `<div style="background:#fff;border:1px solid #eee;border-radius:12px;padding:20px 24px;">
-      <h2 style="font-size:18px;margin:0 0 10px;">你好，${esc(user.nickname || user.username)}</h2>
-      <div style="color:#777;font-size:14px;margin-bottom:18px;">余额：<b style="color:#ff6600;">¥${fen2yuan(Math.round((user.money || 0) * 100))}</b></div>
-      <table style="width:100%;border-collapse:collapse;font-size:14px;"><thead><tr style="background:#f6f8fa;"><th style="padding:8px;text-align:left;">订单号</th><th style="padding:8px;text-align:left;">金额</th><th style="padding:8px;text-align:left;">时间</th><th style="padding:8px;text-align:left;">状态</th><th style="padding:8px;text-align:left;">操作</th></tr></thead><tbody>${orderRows || '<tr><td colspan="5" style="padding:20px;text-align:center;color:#999;">暂无订单</td></tr>'}</tbody></table>
-      <div style="margin-top:18px;"><a href="/?action=user&logout=1" style="color:#e53e3e;">退出登录</a></div>
+    inner = `<div class="panel">
+      <div class="panel-body">
+        <h4 class="mb-1">你好，${esc(user.nickname || user.username)}</h4>
+        <div class="text-muted mb-3" style="font-size:14px;">余额：<b style="color:#ff6600;">¥${fen2yuan(Math.round((user.money || 0) * 100))}</b></div>
+        <div class="table-responsive"><table class="table table-hover"><thead><tr><th>订单号</th><th>金额</th><th>时间</th><th>状态</th><th>操作</th></tr></thead><tbody>${orderRows || '<tr><td colspan="5" style="padding:20px;text-align:center;color:#999;">暂无订单</td></tr>'}</tbody></table></div>
+        <div class="mt-3"><a href="/?action=user&logout=1" style="color:#e53e3e;">退出登录</a></div>
+      </div>
     </div>`;
   } else {
-    inner = `<div style="background:#fff;border:1px solid #eee;border-radius:12px;padding:30px 24px;max-width:420px;margin:0 auto;">
-      <h2 style="font-size:18px;margin:0 0 16px;">会员登录</h2>
-      <div style="margin-bottom:12px;"><input id="lUser" class="search-input" style="width:100%;padding:11px 14px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;" placeholder="用户名"></div>
-      <div style="margin-bottom:16px;"><input id="lPwd" type="password" class="search-input" style="width:100%;padding:11px 14px;border:1px solid #ddd;border-radius:8px;box-sizing:border-box;" placeholder="密码"></div>
-      <button id="btnLogin" style="width:100%;padding:12px;background:var(--theme-primary);color:#fff;border:none;border-radius:8px;cursor:pointer;">登 录</button>
-      <div style="margin-top:10px;color:#999;font-size:13px;">游客可直接下单，登录后可查看余额与订单。</div>
+    inner = `<div class="panel" style="max-width:420px;margin:0 auto;">
+      <div class="panel-header">
+        <span class="icon"><i class="fa-duotone fa-regular fa-right-to-bracket"></i></span>
+        <h6 class="panel-title">会员登录</h6>
+      </div>
+      <div class="panel-body">
+        <div class="mb-3"><input id="lUser" class="form-control" placeholder="用户名"></div>
+        <div class="mb-3"><input id="lPwd" type="password" class="form-control" placeholder="密码"></div>
+        <button id="btnLogin" class="btn btn-primary br-12 w-100" style="padding:10px;">登 录</button>
+        <div class="mt-2 text-muted" style="font-size:13px;">游客可直接下单，登录后可查看余额与订单。</div>
+      </div>
     </div>
     <script>
     $('#btnLogin').on('click', function(){
@@ -987,7 +955,7 @@ async function pageUser(request, env, q) {
     </script>`;
   }
 
-  const body = `<main class="blog-container" style="max-width:960px;margin:30px auto;padding:0 16px;">${inner}</main>`;
+  const body = `<main class="container py-4" style="max-width:960px;">${inner}</main>`;
   return new Response(layout(env, { ...opts, title: '会员中心' }, navItems, body), { headers: HTML_HEADERS });
 }
 
@@ -1110,7 +1078,7 @@ function buildKamiHtml(kamiLines) {
     '<b>卡密信息（共 ' +
     kamiLines.length +
     ' 条）</b>' +
-    '<button class="action-btn" id="btnCopyAll">一键复制</button></div>' +
+    '<button class="btn btn-primary btn-sm br-12" id="btnCopyAll">一键复制</button></div>' +
     items +
     '</div>' +
     '<script>' +
@@ -1131,11 +1099,9 @@ function buildKamiHtml(kamiLines) {
     '.kami-list{margin-top:18px;background:#fff;border:1px solid #eee;border-radius:10px;padding:18px;}' +
     '.kami-item{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px dashed #eee;}' +
     '.kami-item:last-child{border-bottom:none;}' +
-    '.kami-index{width:24px;height:24px;border-radius:50%;background:var(--theme-primary);color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;}' +
+    '.kami-index{width:24px;height:24px;border-radius:50%;background:#139655;color:#fff;display:inline-flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0;}' +
     '.kami-item code{flex:1;word-break:break-all;color:#333;}' +
-    '.kami-item-copy{color:var(--theme-primary);cursor:pointer;background:none;border:none;font-size:13px;}' +
-    '.action-btn{padding:8px 18px;border-radius:6px;border:1px solid #ddd;background:#fff;color:#555;cursor:pointer;}' +
-    '.action-btn.primary{background:var(--theme-primary);border-color:var(--theme-primary);color:#fff;}' +
+    '.kami-item-copy{color:#139655;cursor:pointer;background:none;border:none;font-size:13px;}' +
     '</style>'
   );
 }
