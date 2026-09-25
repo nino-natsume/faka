@@ -1,0 +1,28 @@
+name = "faka"
+main = "worker.js"
+compatibility_date = "2026-09-01"
+
+# 静态资源 (public/) 由 Cloudflare 自动托管，Worker 仅处理动态请求
+assets = { directory = "./public", binding = "ASSETS" }
+
+# D1 数据库 (需先创建: wrangler d1 create faka，并将返回的 ID 填入下方)
+# 也可由 .github/workflows/deploy.yml 自动创建并回填
+[[d1_databases]]
+binding = "DB"
+database_name = "faka"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+# ============================================================
+# 应用变量（两种配置方式，任选其一；Worker 代码均有安全默认值）：
+#   1) GitHub Secrets（推荐，配合 GitHub Actions 自动部署）：
+#        FK_SECRET            -> 签名密钥（建议 32+ 位随机串）
+#        FK_ADMIN_USERNAME    -> 后台用户名（默认 admin）
+#        FK_ADMIN_PASSWORD    -> 后台密码（默认 admin123）
+#     在仓库 Settings -> Secrets and variables -> Actions 中配置，
+#     部署时自动通过 --var 注入，无需改动本文件。
+#   2) Cloudflare Dashboard：
+#        Workers & Pages -> 你的 Worker -> Settings -> Variables and
+#       Secrets，添加同名变量（SECRET / ADMIN_USERNAME / ADMIN_PASSWORD）。
+#       注意：若用 GitHub Actions 部署且 GitHub Secrets 已配置同名变量，
+#       会以 GitHub 注入的值为准（部署时 --var 覆盖）。
+# ============================================================

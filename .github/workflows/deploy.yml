@@ -1,0 +1,73 @@
+name: Deploy to Cloudflare Workers
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      # 可选应用变量（未配置则使用 Worker 代码中的默认值，或 Cloudflare Dashboard 中已配置的值）
+      FK_SECRET: ${{ secrets.FK_SECRET }}
+      FK_ADMIN_USERNAME: ${{ secrets.FK_ADMIN_USERNAME }}
+      FK_ADMIN_PASSWORD: ${{ secrets.FK_ADMIN_PASSWORD }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install wrangler
+        run: npm install --global wrangler
+
+      - name: Create D1 database if needed
+        run: |
+          set -euo pipefail
+          if grep -q "REPLACE_WITH_YOUR_D1_DATABASE_ID" wrangler.toml; then
+            echo "database_id 为占位符，尝试自动创建/获取 D1..."
+            if wrangler d1 list 2>/dev/null | grep -qi "faka"; then
+              echo "检测到已存在的 faka 数据库，复用其 ID"
+              ID=$(wrangler d1 list 2>/dev/null | grep -i "faka" | grep -oE "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
+            else
+              echo "创建新 D1 数据库 faka ..."
+              OUT=$(wrangler d1 create faka 2>&1)
+              echo "$OUT"
+              ID=$(echo "$OUT" | grep -oE "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}" | head -1)
+            fi
+            if [ -z "${ID:-}" ]; then
+              echo "::error::无法获取 D1 数据库 ID。请手动执行 wrangler d1 create faka 并将 ID 填入 wrangler.toml"
+              exit 1
+            fi
+            sed -i "s/REPLACE_WITH_YOUR_D1_DATABASE_ID/$ID/" wrangler.toml
+            echo "已回填 database_id=$ID"
+          else
+            echo "database_id 已配置，跳过 D1 创建"
+          fi
+
+      - name: Init schema
+        run: wrangler d1 execute faka --remote --file=schema.sql
+
+      - name: Seed demo data (idempotent)
+        run: wrangler d1 execute faka --remote --file=seed.sql
+
+      - name: Deploy Worker
+        run: |
+          set -euo pipefail
+          VAR_ARGS=()
+          if [ -n "${FK_SECRET:-}" ]; then VAR_ARGS+=(--var "SECRET:${FK_SECRET}"); fi
+          if [ -n "${FK_ADMIN_USERNAME:-}" ]; then VAR_ARGS+=(--var "ADMIN_USERNAME:${FK_ADMIN_USERNAME}"); fi
+          if [ -n "${FK_ADMIN_PASSWORD:-}" ]; then VAR_ARGS+=(--var "ADMIN_PASSWORD:${FK_ADMIN_PASSWORD}"); fi
+          if [ "${#VAR_ARGS[@]}" -gt 0 ]; then
+            echo "通过 GitHub Secrets 注入应用变量"
+            wrangler deploy "${VAR_ARGS[@]}"
+          else
+            echo "未配置 GitHub Secrets，使用默认值 / Cloudflare Dashboard 变量"
+            wrangler deploy
+          fi

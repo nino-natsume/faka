@@ -1,0 +1,112 @@
+/* 全局样式 start */
+*,*:before,*:after {
+    -webkit-box-sizing: border-box;
+    -moz-box-sizing: border-box;
+    box-sizing: border-box;
+}
+*{
+    word-break: break-all;
+    list-style: none;
+}
+body{
+    margin: 0;
+    padding: 0;
+    background: #f9f9f9;
+}
+/* 全局样式 end */
+
+/* 响应式网格布局 start */
+[class*="grid-cols-"] {
+    display: grid;
+    grid-gap: 0rem;
+    padding: 0rem;
+}
+/* 自定义间距 */
+.grid-gap-0 { grid-gap: 0; }
+.grid-gap-4 { grid-gap: 0.25rem; } /* 4px */
+.grid-gap-5 { grid-gap: 0.32rem; } /* 5px */
+.grid-gap-10 { grid-gap: 0.625rem; }  /* 10px */
+.grid-gap-12 { grid-gap: 0.75rem; }    /* 12px */
+.grid-gap-15 { grid-gap: 0.938rem; }  /* 15px */
+/* 超小屏幕 (手机, 小于576px) */
+.grid-cols-xs-1 { grid-template-columns: repeat(1, 1fr); }
+.grid-cols-xs-2 { grid-template-columns: repeat(2, 1fr); }
+.grid-cols-xs-3 { grid-template-columns: repeat(3, 1fr); }
+.grid-cols-xs-4 { grid-template-columns: repeat(4, 1fr); }
+.grid-cols-xs-5 { grid-template-columns: repeat(5, 1fr); }
+
+/* 小屏幕 (平板, 576px 及以上) */
+@media (min-width: 576px) {
+    .grid-cols-sm-1 { grid-template-columns: repeat(1, 1fr); }
+    .grid-cols-sm-2 { grid-template-columns: repeat(2, 1fr); }
+    .grid-cols-sm-3 { grid-template-columns: repeat(3, 1fr); }
+    .grid-cols-sm-4 { grid-template-columns: repeat(4, 1fr); }
+}
+
+/* 中等屏幕 (桌面显示器, 768px 及以上) */
+@media (min-width: 768px) {
+    .grid-cols-md-1 { grid-template-columns: repeat(1, 1fr); }
+    .grid-cols-md-2 { grid-template-columns: repeat(2, 1fr); }
+    .grid-cols-md-3 { grid-template-columns: repeat(3, 1fr); }
+    .grid-cols-md-4 { grid-template-columns: repeat(4, 1fr); }
+    .grid-cols-md-5 { grid-template-columns: repeat(5, 1fr); }
+    .grid-cols-md-6 { grid-template-columns: repeat(6, 1fr); }
+}
+
+/* 大屏幕 (大桌面显示器, 992px 及以上) */
+@media (min-width: 992px) {
+    .grid-cols-lg-1 { grid-template-columns: repeat(1, 1fr); }
+    .grid-cols-lg-2 { grid-template-columns: repeat(2, 1fr); }
+    .grid-cols-lg-3 { grid-template-columns: repeat(3, 1fr); }
+    .grid-cols-lg-4 { grid-template-columns: repeat(4, 1fr); }
+    .grid-cols-lg-5 { grid-template-columns: repeat(5, 1fr); }
+    .grid-cols-lg-6 { grid-template-columns: repeat(6, 1fr); }
+}
+
+/* 超大屏幕 (超大桌面显示器, 1200px 及以上) */
+@media (min-width: 1200px) {
+    .grid-cols-xl-1 { grid-template-columns: repeat(1, 1fr); }
+    .grid-cols-xl-2 { grid-template-columns: repeat(2, 1fr); }
+    .grid-cols-xl-3 { grid-template-columns: repeat(3, 1fr); }
+    .grid-cols-xl-4 { grid-template-columns: repeat(4, 1fr); }
+    .grid-cols-xl-5 { grid-template-columns: repeat(5, 1fr); }
+    .grid-cols-xl-6 { grid-template-columns: repeat(6, 1fr); }
+    .grid-cols-xl-7 { grid-template-columns: repeat(7, 1fr); }
+    .grid-cols-xl-8 { grid-template-columns: repeat(8, 1fr); }
+}
+/* 响应式网格布局 end */
+
+/* 文字溢出隐藏类 start */
+.row-1-hidden {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.row-2-hidden {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+/* 文字溢出隐藏类 end */
+
+/* 浮动类 start */
+.fl{float:left;}
+.fr{float:right;}
+/* 浮动类 end */
+
+
+/* 覆盖layui的样式 start */
+.layui-input-block{
+    margin-left: 0;
+}
+.layui-form-label{
+    width: unset;
+    padding: 0;
+    float: unset;
+    text-align: left;
+}
+/* 覆盖layui的样式 end */

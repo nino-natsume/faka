@@ -1,0 +1,217 @@
+/* ========== 主题配色CSS变量 (静态化自 theme.php, 默认主题色) ========== */
+:root {
+    --theme-primary: #2196F3;
+    --theme-primary-rgb: 33, 150, 243;
+    --theme-primary-light: #87fcff;
+    --theme-primary-dark: #006fcc;
+    --theme-price: #ff6600;
+    --theme-price-rgb: 255, 102, 0;
+    --theme-button: #2f69d9;
+    --theme-button-rgb: 47, 105, 217;
+    --theme-button-dark: #154fbf;
+    --theme-accent: #ff9800;
+    --theme-accent-rgb: 255, 152, 0;
+    --theme-accent-dark: #d87100;
+}
+
+/* ========== 选中状态 ========== */
+.goods-select-item.active,
+.spec-option.active {
+    background: rgba(var(--theme-primary-rgb), 0.1) !important;
+    border-color: var(--theme-primary) !important;
+    color: var(--theme-primary-dark) !important;
+}
+.goods-select-item.active::after,
+.spec-option.active::after {
+    border-color: transparent transparent var(--theme-primary) transparent !important;
+}
+.goods-select-item:hover,
+.spec-option:hover {
+    background: rgba(var(--theme-primary-rgb), 0.05) !important;
+    border-color: rgba(var(--theme-primary-rgb), 0.3) !important;
+}
+
+/* ========== 支付方式选中 ========== */
+.payment-item.active {
+    border-color: var(--theme-primary) !important;
+    background: rgba(var(--theme-primary-rgb), 0.1) !important;
+}
+.payment-item:hover {
+    border-color: rgba(var(--theme-primary-rgb), 0.3) !important;
+    background: rgba(var(--theme-primary-rgb), 0.03) !important;
+}
+.payment-checked {
+    color: var(--theme-primary) !important;
+}
+
+/* ========== 价格颜色 ========== */
+.section-value,
+.unit-price,
+.dynamic-price,
+.goods-price,
+.price,
+.pay-amount .dynamic-price {
+    color: var(--theme-price) !important;
+}
+.required-star,
+.input-field-note {
+    color: var(--theme-price) !important;
+}
+
+/* ========== 按钮颜色 ========== */
+.pay-btn {
+    background: var(--theme-button) !important;
+}
+.pay-btn:hover {
+    background: var(--theme-button-dark) !important;
+}
+
+/* ========== 强调色/优惠券 ========== */
+.coupon-checkbox:checked + .coupon-checkbox-box {
+    background: var(--theme-accent) !important;
+    border-color: var(--theme-accent) !important;
+}
+.coupon-input:focus {
+    border-color: var(--theme-accent) !important;
+}
+.coupon-check-btn {
+    background: var(--theme-accent) !important;
+}
+.coupon-check-btn:hover {
+    background: var(--theme-accent-dark) !important;
+}
+
+/* ========== 输入框焦点 ========== */
+.input-field-input:focus,
+.email-input:focus,
+.search-input:focus,
+.captcha-input:focus {
+    border-color: var(--theme-primary) !important;
+}
+
+/* ========== 开关选中 ========== */
+.email-switch-input:checked + .email-switch-slider {
+    background-color: var(--theme-primary) !important;
+}
+
+/* ========== 链接和图标 ========== */
+.stock-row .stock-value {
+    color: var(--theme-primary) !important;
+}
+.faq-item.active .faq-arrow {
+    color: var(--theme-primary) !important;
+}
+.faq-answer a {
+    color: var(--theme-primary) !important;
+}
+.section-title {
+    border-left-color: var(--theme-primary) !important;
+}
+.shortcut-icon.blue {
+    background: rgba(var(--theme-primary-rgb), 0.1) !important;
+    color: var(--theme-primary) !important;
+}
+
+/* ========== 订单结果页 ========== */
+.result-count span,
+.goods-name a:hover,
+.action-btn:hover,
+.btn-rebuy,
+.btn-copy-all,
+.btn-export,
+.kami-item-copy,
+.chat-img-btn:hover,
+.kami-info-text span,
+.kami-pay-content a {
+    color: var(--theme-primary) !important;
+}
+.action-btn:hover,
+.btn-rebuy {
+    border-color: var(--theme-primary) !important;
+}
+.action-btn.primary,
+.btn-rebuy:hover,
+.btn-copy-all:hover,
+.chat-send-btn,
+.chat-msg.user .chat-bubble,
+.chat-avatar,
+.chat-msg.admin .chat-avatar,
+.kami-icon,
+.search-btn,
+.query-btn,
+.empty-btn {
+    background: var(--theme-primary) !important;
+    background-color: var(--theme-primary) !important;
+}
+.action-btn.primary {
+    border-color: var(--theme-primary) !important;
+}
+
+/* ========== 售后按钮（仅默认申请状态跟随强调色） ========== */
+.btn-aftersale:not(.btn-chat-history):not(.btn-completed):not(.btn-rejected):not(.btn-closed):not(.btn-expired) {
+    color: var(--theme-accent) !important;
+    border-color: var(--theme-accent) !important;
+}
+.btn-aftersale:not(.btn-chat-history):not(.btn-completed):not(.btn-rejected):not(.btn-closed):not(.btn-expired):hover {
+    background: var(--theme-accent) !important;
+    color: #fff !important;
+}
+
+/* ========== 警告图标 ========== */
+.disclaimer .icon {
+    color: var(--theme-accent) !important;
+}
+
+/* ========== FAQ编号 ========== */
+.faq-num {
+    color: var(--theme-price) !important;
+}
+
+/* ========== 批发优惠标签 ========== */
+#discountTag {
+    color: var(--theme-primary) !important;
+}
+
+/* ========== 通知栏 ========== */
+.notice-bar {
+    border-left-color: var(--theme-primary) !important;
+}
+.notice-bar .layui-icon {
+    color: var(--theme-primary) !important;
+}
+
+/* ========== 底部导航 ========== */
+.footer-nav:not([class*="dc-bottom-nav-"]) .nav-item.active {
+    color: var(--theme-primary) !important;
+}
+@media (max-width: 1200px) {
+    .footer-nav:not([class*="dc-bottom-nav-"]) {
+        background: rgba(255, 255, 255, 0.72) !important;
+        -webkit-backdrop-filter: saturate(180%) blur(20px) !important;
+        backdrop-filter: saturate(180%) blur(20px) !important;
+        border-top: 0.5px solid rgba(0, 0, 0, 0.1) !important;
+        box-shadow: none !important;
+    }
+}
+
+/* ========== 深色模式适配 ========== */
+html[data-theme="dark"] .goods-select-item.active,
+html[data-theme="dark"] .spec-option.active {
+    background: rgba(var(--theme-primary-rgb), 0.2) !important;
+    color: var(--theme-primary-light) !important;
+}
+html[data-theme="dark"] .payment-item.active {
+    background: rgba(var(--theme-primary-rgb), 0.2) !important;
+}
+html[data-theme="dark"] .footer-nav:not([class*="dc-bottom-nav-"]) {
+    background: rgba(18, 18, 18, 0.75) !important;
+    -webkit-backdrop-filter: saturate(180%) blur(20px) !important;
+    backdrop-filter: saturate(180%) blur(20px) !important;
+    border-top-color: rgba(255, 255, 255, 0.08) !important;
+}
+html[data-theme="dark"] .footer-nav:not([class*="dc-bottom-nav-"]) .nav-item {
+    color: #888 !important;
+}
+html[data-theme="dark"] .footer-nav:not([class*="dc-bottom-nav-"]) .nav-item.active {
+    color: var(--theme-primary) !important;
+}
