@@ -223,7 +223,7 @@ async function pageHome(request, env, q, isSearch) {
   .goods-pagination a.current{background:var(--theme-primary);color:#fff;border-color:var(--theme-primary);}
   </style>`;
 
-  return new Response(layout(env, { ...opts, title: kw ? '搜索 - ' + kw : opt(opts, 'site_title', 'DCSHOP发卡系统') }, navItems, body), HTML_HEADERS);
+  return new Response(layout(env, { ...opts, title: kw ? '搜索 - ' + kw : opt(opts, 'site_title', 'DCSHOP发卡系统') }, navItems, body), { headers: HTML_HEADERS });
 }
 
 // 商品卡片
@@ -487,7 +487,7 @@ async function pageGoods(request, env, q) {
   })();
   </script>`;
 
-  return new Response(layout(env, { ...opts, title: g.title }, navItems, body), HTML_HEADERS);
+  return new Response(layout(env, { ...opts, title: g.title }, navItems, body), { headers: HTML_HEADERS });
 }
 
 // 支付方式 HTML
@@ -648,7 +648,7 @@ async function pagePay(request, env, q) {
   $('#btnBalancePay').on('click', function(){ doPay('balance'); });
   </script>`;
 
-  return new Response(layout(env, { ...opts, title: '订单支付' }, navItems, body), HTML_HEADERS);
+  return new Response(layout(env, { ...opts, title: '订单支付' }, navItems, body), { headers: HTML_HEADERS });
 }
 
 // ============================================================
@@ -787,7 +787,7 @@ async function pageOrderResult(request, env, q) {
     </div>
   </main>`;
 
-  return new Response(layout(env, { ...opts, title: '订单结果' }, navItems, body), HTML_HEADERS);
+  return new Response(layout(env, { ...opts, title: '订单结果' }, navItems, body), { headers: HTML_HEADERS });
 }
 
 // ============================================================
@@ -858,7 +858,7 @@ async function pageOrderQuery(request, env, q) {
   $('#queryOrder').on('click', doQuery);
   $('#queryInput').on('keydown', function(e){ if (e.key === 'Enter') doQuery(); });
   </script>`;
-  return new Response(layout(env, { ...opts, title: '订单查询' }, navItems, body), HTML_HEADERS);
+  return new Response(layout(env, { ...opts, title: '订单查询' }, navItems, body), { headers: HTML_HEADERS });
 }
 
 async function apiOrderQuery(request, env, q) {
@@ -942,7 +942,7 @@ async function pageHelp(request, env, q) {
     $('.faq-title').on('click', function(){ var a=$(this).next(); a.slideToggle(150); $(this).find('.faq-arrow').text(a.is(':visible')?'-':'+'); });
   });
   </script>`;
-  return new Response(layout(env, { ...opts, title: '买家帮助' }, navItems, body), HTML_HEADERS);
+  return new Response(layout(env, { ...opts, title: '买家帮助' }, navItems, body), { headers: HTML_HEADERS });
 }
 
 // ============================================================
@@ -988,7 +988,7 @@ async function pageUser(request, env, q) {
   }
 
   const body = `<main class="blog-container" style="max-width:960px;margin:30px auto;padding:0 16px;">${inner}</main>`;
-  return new Response(layout(env, { ...opts, title: '会员中心' }, navItems, body), HTML_HEADERS);
+  return new Response(layout(env, { ...opts, title: '会员中心' }, navItems, body), { headers: HTML_HEADERS });
 }
 
 async function apiLogin(request, env) {

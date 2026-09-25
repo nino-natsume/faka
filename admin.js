@@ -177,7 +177,7 @@ label{display:block;font-size:13px;color:#64748b;margin:8px 0 4px;}
 $(function(){ var p=location.pathname; $('.side a').each(function(){ if($(this).attr('href')===p) $(this).addClass('on'); }); });
 </script>
 </body></html>`,
-    HTML_HEADERS
+    { headers: HTML_HEADERS }
   );
 }
 
