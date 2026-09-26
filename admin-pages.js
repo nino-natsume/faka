@@ -699,6 +699,7 @@ function adminMenu(activePath) {
     { icon: '<path d="M9 13.75c-2.34 0-7 1.17-7 3.5V19h14v-1.75c0-2.33-4.66-3.5-7-3.5zM4.34 17c.84-.58 2.87-1.25 4.66-1.25s3.82.67 4.66 1.25H4.34zM9 12c1.93 0 3.5-1.57 3.5-3.5S10.93 5 9 5S5.5 6.57 5.5 8.5S7.07 12 9 12zm0-5c.83 0 1.5.67 1.5 1.5S9.83 10 9 10s-1.5-.67-1.5-1.5S8.17 7 9 7zm7.04 6.81c1.16.84 1.96 1.96 1.96 3.44V19h4v-1.75c0-2.02-3.5-3.17-5.96-3.44zM15 12c1.93 0 3.5-1.57 3.5-3.5S16.93 5 15 5c-.54 0-1.04.13-1.5.35c.63.89 1 1.98 1 3.15s-.37 2.26-1 3.15c.46.22.96.35 1.5.35z"/>', name: '会员管理', url: '/admin/user/index', section: 'User' },
     { icon: '<path d="M30 12a2 2 0 0 0-2-2V7c0-1.1-.9-2-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-3a2 2 0 0 0 2-2zM4 7h12v3.17A3 3 0 0 0 15 12c0 .77.29 1.47.76 2H16v3H4V7zm14 6a1 1 0 1 1 0-2a1 1 0 0 1 0 2z"/><path d="M6 9h6v2H6zm0 4h6v2H6z"/>'.replace('30 12a2','20 12a2'), name: '工单管理', url: '/admin/ticket/index', section: 'User' },
     { icon: '<path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM7 9h10v2H7V9zm6 5H7v-2h6v2zm4-6H7V6h10v2z"/>', name: '消息管理', url: '/admin/message/index', section: 'User' },
+    { icon: '<path d="M21 18v1c0 1.1-.9 2-2 2H5c-1.11 0-2-.9-2-2V5c0-1.1.89-2 2-2h14c1.1 0 2 .9 2 2v1h-9c-1.11 0-2 .9-2 2v8c0 1.1.89 2 2 2h9zm-9-2h10V8H12v8zm4-2.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/>', name: '提现管理', url: '/admin/cash/index', section: 'User' },
     { icon: '<path d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM4 8h16v8H4V8z"/><path d="M7 10h2v4H7zm4 0h2v4h-2zm4 0h2v4h-2z"/>'.replace('assets/',''), name: '充值订单', url: '/admin/recharge/order', section: 'User' },
     { icon: '<path d="M12 2l-5.5 9h11L12 2zm0 3.84L13.93 9h-3.87L12 5.84zM17.5 13c-2.49 0-4.5 2.01-4.5 4.5s2.01 4.5 4.5 4.5s4.5-2.01 4.5-4.5s-2.01-4.5-4.5-4.5zm0 7a2.5 2.5 0 0 1 0-5a2.5 2.5 0 0 1 0 5zM3 21.5h8v-8H3v8zm2-6h4v4H5v-4z"/>', name: '分类管理', url: '/admin/category/index', section: 'Trade' },
     { icon: '<path d="M20 2H4c-1 0-2 .9-2 2v3.01c0 .72.43 1.34 1 1.69V20c0 1.1 1.1 2 2 2h14c.9 0 2-.9 2-2V8.7c.57-.35 1-.97 1-1.69V4c0-1.1-1-2-2-2zm-1 18H5V9h14v11zm1-13H4V4h16v3z"/><path d="M9 12h6v2H9z"/>', name: '商品管理', url: '/admin/commodity/index', section: 'Trade' },
@@ -2400,4 +2401,156 @@ export function renderAdminMessagePage(cfg, manage) {
   });`;
 
   return renderCrudPage({ cfg, manage, title: '消息管理', activePath: '/admin/message/index', body, readyJs: js });
+}
+
+// 提现管理页
+export function renderAdminCashPage(cfg, manage) {
+  const body = `
+<div class="card mb-5 mb-xl-8">
+  <div class="card-header border-0 py-4">
+    <div class="card-title">
+      <div class="d-flex align-items-center flex-wrap gap-3">
+        <input type="text" class="form-control form-control-sm" style="width:180px" id="cash-keyword" placeholder="用户名/支付宝/微信/地址/理由">
+        <select class="form-select form-select-sm" style="width:140px" id="cash-status">
+          <option value="">全部状态</option>
+          <option value="0">待处理</option>
+          <option value="1">已通过</option>
+          <option value="2">已驳回</option>
+        </select>
+        <select class="form-select form-select-sm" style="width:130px" id="cash-type">
+          <option value="">全部类型</option>
+          <option value="0">普通提现</option>
+          <option value="1">佣金提现</option>
+        </select>
+        <button class="btn btn-sm btn-primary cash-search"><i class="fa-duotone fa-regular fa-magnifying-glass"></i> 搜索</button>
+        <span class="text-muted" id="cash-summary"></span>
+      </div>
+    </div>
+    <div class="card-toolbar">
+      <div class="d-flex align-items-center gap-2">
+        <input type="number" class="form-control form-control-sm" style="width:150px" id="cash-settle-amount" placeholder="最低结算金额" min="0">
+        <button class="btn btn-sm btn-light-primary cash-settle"><i class="fa-duotone fa-regular fa-arrows-rotate"></i> 一键自动结算</button>
+      </div>
+    </div>
+  </div>
+  <div class="card-body py-3">
+    <div class="table-responsive">
+      <table class="table table-row-bordered table-row-gray-200 align-middle gs-0 gy-3" id="cash-table">
+        <thead><tr class="fw-bold text-muted">
+          <th>ID</th><th>用户</th><th>金额</th><th>费用</th><th>类型</th><th>状态</th><th>收款方式</th><th>申请时间</th><th>处理时间</th><th>驳回理由</th><th>操作</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="d-flex justify-content-between align-items-center mt-3">
+        <span class="text-muted" id="cash-pageinfo"></span>
+        <div class="btn-group btn-group-sm" id="cash-pager"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" tabindex="-1" id="cashModal"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header py-3"><h5 class="modal-title">提现处理</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body">
+    <div class="mb-3">
+      <label class="form-label">处理方式</label>
+      <select class="form-select" id="cash-mode">
+        <option value="0">通过（已打款）</option>
+        <option value="1">驳回（退款到余额）</option>
+      </select>
+    </div>
+    <div class="mb-3 cash-reject-box">
+      <label class="form-label">驳回理由 <span class="text-danger">*</span></label>
+      <textarea class="form-control" id="cash-message" rows="3" maxlength="64" placeholder="请输入驳回理由（不超过64字）"></textarea>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+    <button type="button" class="btn btn-primary" id="cash-submit">确认处理</button>
+  </div>
+</div></div></div>`;
+
+  const js = `
+  ready(() => {
+    const table = document.getElementById('cash-table').querySelector('tbody');
+    const API = '/admin/api/cash/';
+    const state = { page: 1, pageSize: 10, total: 0, id: 0 };
+    const modal = new bootstrap.Modal(document.getElementById('cashModal'));
+    const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    function fmtTime(ts) { if (!ts) return '-'; const d = new Date(Number(ts) * 1000); return d.toLocaleString('zh-CN'); }
+    function statusBadge(s) { return s === 0 ? '<span class="badge badge-light-warning">待处理</span>' : s === 1 ? '<span class="badge badge-light-success">已通过</span>' : '<span class="badge badge-light-danger">已驳回</span>'; }
+    function load() {
+      util.post({ url: API + 'data', loader: false, data: {
+        page: state.page, limit: state.pageSize,
+        'equal-status': document.getElementById('cash-status').value,
+        'equal-type': document.getElementById('cash-type').value,
+        keyword: document.getElementById('cash-keyword').value.trim(),
+      },
+        done: res => {
+          const d = res.data || {};
+          state.total = Number(d.total) || 0;
+          document.getElementById('cash-summary').textContent = d.amount != null ? ('合计金额 ¥' + Number(d.amount).toFixed(2) + ' / 费用 ¥' + Number(d.cost || 0).toFixed(2)) : '';
+          table.innerHTML = '';
+          (d.list || []).forEach(c => {
+            const u = c.user || {};
+            const pay = u.alipay ? ('支付宝: ' + esc(u.alipay)) : u.wechat ? ('微信: ' + esc(u.wechat)) : u.wallet_address ? ('地址: ' + esc(u.wallet_address)) : '-';
+            const tr = document.createElement('tr');
+            tr.innerHTML = '<td>' + c.id + '</td>' +
+              '<td>' + (u.username ? '<div class="d-flex align-items-center gap-2">' + (u.avatar ? '<img src="' + esc(u.avatar) + '" class="rounded-circle" style="width:24px;height:24px;object-fit:cover">' : '') + '<span>' + esc(u.username) + (u.nicename ? ' <span class="text-muted">(' + esc(u.nicename) + ')</span>' : '') + '</span></div>' : '<span class="text-muted">#' + c.user_id + '</span>') + '</td>' +
+              '<td class="fw-bold">¥' + Number(c.amount).toFixed(2) + '</td>' +
+              '<td>¥' + Number(c.cost || 0).toFixed(2) + '</td>' +
+              '<td>' + (Number(c.type) === 1 ? '佣金' : '普通') + '</td>' +
+              '<td>' + statusBadge(Number(c.status)) + '</td>' +
+              '<td>' + pay + '</td>' +
+              '<td>' + fmtTime(c.create_time) + '</td>' +
+              '<td>' + fmtTime(c.arrive_time) + '</td>' +
+              '<td>' + esc(c.message) + '</td>' +
+              '<td>' + (Number(c.status) === 0 ? '<button class="btn btn-sm btn-light-success me-1 row-pass" data-id="' + c.id + '">通过</button><button class="btn btn-sm btn-light-danger row-reject" data-id="' + c.id + '">驳回</button>' : '<span class="text-muted">-</span>') + '</td>';
+            table.appendChild(tr);
+          });
+          renderPager();
+        },
+        error: res => message.error(res.msg) });
+    }
+    function renderPager() {
+      const pages = Math.max(1, Math.ceil(state.total / state.pageSize));
+      document.getElementById('cash-pageinfo').textContent = '共 ' + state.total + ' 条 / 第 ' + state.page + ' 页';
+      const el = document.getElementById('cash-pager');
+      el.innerHTML = '';
+      const mk = (label, p, dis) => { const b = document.createElement('button'); b.className = 'btn ' + (p === state.page ? 'btn-primary' : 'btn-light'); b.textContent = label; b.disabled = !!dis; b.addEventListener('click', () => { state.page = p; load(); }); el.appendChild(b); };
+      mk('上一页', state.page - 1, state.page <= 1);
+      mk('下一页', state.page + 1, state.page >= pages);
+    }
+    document.querySelector('.cash-search').addEventListener('click', () => { state.page = 1; load(); });
+    document.querySelector('.cash-settle').addEventListener('click', () => {
+      const amount = document.getElementById('cash-settle-amount').value;
+      if (!amount || Number(amount) <= 0) { message.error('请输入有效的最低结算金额'); return; }
+      if (!confirm('确定对余额大于 ¥' + amount + ' 的用户执行一键自动结算？')) return;
+      util.post({ url: API + 'settlement', data: { amount }, done: res => { message.success(res.msg); load(); }, error: res => message.error(res.msg) });
+    });
+    function openModal(id, mode) {
+      state.id = id;
+      document.getElementById('cash-mode').value = String(mode);
+      document.getElementById('cash-message').value = '';
+      document.querySelector('.cash-reject-box').style.display = mode === 1 ? '' : 'none';
+      modal.show();
+    }
+    document.addEventListener('click', e => {
+      const p = e.target.closest('.row-pass'); if (p) { openModal(Number(p.dataset.id), 0); return; }
+      const r = e.target.closest('.row-reject'); if (r) { openModal(Number(r.dataset.id), 1); return; }
+    });
+    document.getElementById('cash-mode').addEventListener('change', e => {
+      document.querySelector('.cash-reject-box').style.display = Number(e.target.value) === 1 ? '' : 'none';
+    });
+    document.getElementById('cash-submit').addEventListener('click', () => {
+      const mode = Number(document.getElementById('cash-mode').value);
+      const msg = document.getElementById('cash-message').value.trim();
+      if (mode === 1 && !msg) { message.error('请输入驳回理由'); return; }
+      util.post({ url: API + 'decide', data: { id: state.id, status: mode, message: msg },
+        done: res => { message.success(res.msg); modal.hide(); load(); }, error: res => message.error(res.msg) });
+    });
+    load();
+  });`;
+
+  return renderCrudPage({ cfg, manage, title: '提现管理', activePath: '/admin/cash/index', body, readyJs: js });
 }

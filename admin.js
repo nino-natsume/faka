@@ -2097,6 +2097,98 @@ export async function messageUpload(env, request, url, body = {}, manage) {
   throw new Error('当前环境未提供持久化文件存储，暂不支持图片上传');
 }
 
+// ============================================================
+// 提现管理 (后台) — 对齐原版 Cash.php
+//   data/decide/settlement
+// status: 0=待处理 1=已通过 2=已驳回
+// ============================================================
+// 提现列表
+export async function cashData(env, request, url, body = {}) {
+  const page = Math.max(1, Number(body.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(body.limit) || 10));
+  const wheres = [];
+  const params = [];
+  for (const [key, col] of [['equal-status', 'status'], ['equal-type', 'type'], ['equal-user_id', 'user_id'], ['equal-id', 'id']]) {
+    if (body[key] !== undefined && body[key] !== '') { wheres.push(`${col}=?`); params.push(String(body[key])); }
+  }
+  const startTs = ticketParseTime(body['betweenStart-create_time'] ?? body.create_time_start);
+  if (startTs !== null) { wheres.push('create_time >= ?'); params.push(String(startTs)); }
+  const endTs = ticketParseTime(body['betweenEnd-create_time'] ?? body.create_time_end);
+  if (endTs !== null) { wheres.push('create_time <= ?'); params.push(String(endTs)); }
+  const keyword = String(body.keyword ?? '').trim();
+  if (keyword !== '') {
+    const kw = `%${keyword}%`;
+    wheres.push(`(user_id IN (SELECT id FROM acg_user WHERE username LIKE ? OR alipay LIKE ? OR wechat LIKE ? OR wallet_address LIKE ?) OR message LIKE ?)`);
+    params.push(kw, kw, kw, kw, kw);
+  }
+  const where = wheres.length ? ' WHERE ' + wheres.join(' AND ') : '';
+  const total = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_cash${where}`, ...params);
+  const count = total ? Number(total.n) : 0;
+  const sumRow = await dbFirst(env, `SELECT COALESCE(SUM(amount),0) AS amount, COALESCE(SUM(cost),0) AS cost FROM acg_cash${where}`, ...params);
+  const rows = await dbRows(env, `SELECT * FROM acg_cash${where} ORDER BY id DESC LIMIT ? OFFSET ?`, ...params, pageSize, (page - 1) * pageSize);
+  const list = [];
+  for (const r of rows) {
+    list.push({
+      ...r,
+      user: r.user_id ? (await dbFirst(env, 'SELECT id, username, avatar, nicename, alipay, wechat, wallet_address FROM acg_user WHERE id=?', r.user_id)) || null : null,
+    });
+  }
+  return apiOk('success', { list, page, limit: pageSize, count, records: count, total: count, amount: (sumRow && sumRow.amount) ?? 0, cost: (sumRow && sumRow.cost) ?? 0 });
+}
+
+// 提现审批: status 0=通过 1=驳回
+export async function cashDecide(env, request, url, body = {}, manage) {
+  const id = Number(body.id) || 0;
+  const status = Number(body.status);
+  const message = String(body.message || '').trim();
+  if (id <= 0 || ![0, 1].includes(status)) throw new Error('请求参数不正确');
+  if (status === 1 && message === '') throw new Error('请输入驳回理由');
+  if (message.length > 64) throw new Error('驳回理由不能超过 64 个字');
+  const cash = await dbFirst(env, 'SELECT * FROM acg_cash WHERE id=?', id);
+  if (!cash) throw new Error('该记录不存在');
+  if (Number(cash.status) !== 0) throw new Error('该记录无法操作');
+  const ts = now();
+  if (status === 0) {
+    await dbUpdate(env, 'acg_cash', { status: 1, arrive_time: ts }, 'id=?', id);
+    try { await dbInsert(env, 'acg_manage_log', { email: 'admin', nickname: '', content: `[提现管理]通过了用户ID(${cash.user_id})的提现`, create_time: ts, create_ip: requestInfo(request).ip, ua: '', risk: 0 }); } catch (e) {}
+  } else {
+    await dbUpdate(env, 'acg_cash', { status: 2, message, arrive_time: ts }, 'id=?', id);
+    // 驳回退款: 余额 + amount + cost
+    const user = await dbFirst(env, 'SELECT * FROM acg_user WHERE id=?', cash.user_id);
+    if (user) {
+      const refund = Math.round((Number(cash.amount) + Number(cash.cost || 0)) * 100) / 100;
+      if (refund > 0) {
+        const newBalance = Math.round((Number(user.balance) + refund) * 100) / 100;
+        await dbUpdate(env, 'acg_user', { balance: newBalance }, 'id=?', user.id);
+        await dbInsert(env, 'acg_bill', { owner: user.id, amount: refund, balance: newBalance, type: 1, currency: 0, log: '兑现被拒绝', create_time: ts });
+      }
+    }
+    try { await dbInsert(env, 'acg_manage_log', { email: 'admin', nickname: '', content: `[提现管理]驳回了用户(${user ? user.username : cash.user_id})的提现`, create_time: ts, create_ip: requestInfo(request).ip, ua: '', risk: 0 }); } catch (e) {}
+  }
+  return apiOk('处理成功');
+}
+
+// 自动结算: coin >= amount 的用户自动生成提现单
+export async function cashSettlement(env, request, url, body = {}, manage) {
+  const rawAmount = Number(body.amount);
+  if (!isFinite(rawAmount) || rawAmount <= 0) throw new Error('最低结算金额必须大于 0');
+  const ts = now();
+  const users = await dbRows(env, 'SELECT id, coin, settlement FROM acg_user WHERE coin >= ? AND coin > 0', rawAmount);
+  let done = 0;
+  for (const u of users) {
+    const coin = Number(u.coin);
+    if (!(coin >= rawAmount) || !(coin > 0)) continue;
+    const usr = await dbFirst(env, 'SELECT id, coin, settlement FROM acg_user WHERE id=?', u.id);
+    if (!usr || Number(usr.coin) < rawAmount || Number(usr.coin) <= 0) continue;
+    await dbInsert(env, 'acg_cash', { user_id: usr.id, amount: coin, type: 0, card: usr.settlement ?? 0, create_time: ts, cost: 0, status: 0 });
+    await dbUpdate(env, 'acg_user', { coin: 0 }, 'id=?', usr.id);
+    await dbInsert(env, 'acg_bill', { owner: usr.id, amount: coin, balance: 0, type: 0, currency: 1, log: '自动结算', create_time: ts });
+    done++;
+  }
+  try { await dbInsert(env, 'acg_manage_log', { email: 'admin', nickname: '', content: `[提现管理]进行了一键自动结算，金额上限：${rawAmount}，生成 ${done} 单`, create_time: ts, create_ip: requestInfo(request).ip, ua: '', risk: 0 }); } catch (e) {}
+  return apiOk('结算完成', { count: done });
+}
+
 export async function adminEndpoint(env, request, url, ctl, act, body) {
   if (ctl === 'authentication' && act === 'login') return adminLogin(env, request, url, body);
   // 以下接口需要登录
@@ -2228,6 +2320,15 @@ export async function adminEndpoint(env, request, url, ctl, act, body) {
         return apiOk('success', { list: groups });
       }
       if (act === 'upload') return await messageUpload(env, request, url, body, manage);
+    } catch (e) {
+      return apiErr(e && e.message ? String(e.message) : '操作失败');
+    }
+  }
+  if (ctl === 'cash') {
+    try {
+      if (act === 'data') return await cashData(env, request, url, body);
+      if (act === 'decide') return await cashDecide(env, request, url, body, manage);
+      if (act === 'settlement') return await cashSettlement(env, request, url, body, manage);
     } catch (e) {
       return apiErr(e && e.message ? String(e.message) : '操作失败');
     }

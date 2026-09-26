@@ -1,5 +1,3 @@
-// DCSHOP faka - Pages 单文件入口 (由 worker.js+admin.js+lib.js 自动打包生成, 勿手改)
-
 // lib.js
 var now = () => Math.floor(Date.now() / 1e3);
 var randStr = (len = 32) => {
@@ -329,10 +327,10 @@ function indexVar(catId, cfg) {
     CURRENCY: { code: cfg.currency_code || "CNY", symbol: cfg.currency_symbol || "\xA5", rate: Number(cfg.currency_rate || 1), decimals: Number(cfg.currency_decimals || 2) },
     CAT_ID: Number(catId) || 0
   };
-  return `<script>window._data_var=${JSON.stringify(data)};</script>${langDictScript()}`;
+  return `<script>window._data_var=${JSON.stringify(data)};<\/script>${langDictScript()}`;
 }
 function itemVar(item) {
-  return `<script>window._data_var._var_item=${JSON.stringify(item)};</script>`;
+  return `<script>window._data_var._var_item=${JSON.stringify(item)};<\/script>`;
 }
 function generateTradeNo() {
   let s = String(1 + Math.floor(Math.random() * 9));
@@ -3366,6 +3364,104 @@ async function messageAudienceCount(env, request, url, body = {}) {
 async function messageUpload(env, request, url, body = {}, manage) {
   throw new Error("\u5F53\u524D\u73AF\u5883\u672A\u63D0\u4F9B\u6301\u4E45\u5316\u6587\u4EF6\u5B58\u50A8\uFF0C\u6682\u4E0D\u652F\u6301\u56FE\u7247\u4E0A\u4F20");
 }
+async function cashData(env, request, url, body = {}) {
+  const page = Math.max(1, Number(body.page) || 1);
+  const pageSize = Math.min(100, Math.max(1, Number(body.limit) || 10));
+  const wheres = [];
+  const params = [];
+  for (const [key, col] of [["equal-status", "status"], ["equal-type", "type"], ["equal-user_id", "user_id"], ["equal-id", "id"]]) {
+    if (body[key] !== void 0 && body[key] !== "") {
+      wheres.push(`${col}=?`);
+      params.push(String(body[key]));
+    }
+  }
+  const startTs = ticketParseTime(body["betweenStart-create_time"] ?? body.create_time_start);
+  if (startTs !== null) {
+    wheres.push("create_time >= ?");
+    params.push(String(startTs));
+  }
+  const endTs = ticketParseTime(body["betweenEnd-create_time"] ?? body.create_time_end);
+  if (endTs !== null) {
+    wheres.push("create_time <= ?");
+    params.push(String(endTs));
+  }
+  const keyword = String(body.keyword ?? "").trim();
+  if (keyword !== "") {
+    const kw = `%${keyword}%`;
+    wheres.push(`(user_id IN (SELECT id FROM acg_user WHERE username LIKE ? OR alipay LIKE ? OR wechat LIKE ? OR wallet_address LIKE ?) OR message LIKE ?)`);
+    params.push(kw, kw, kw, kw, kw);
+  }
+  const where = wheres.length ? " WHERE " + wheres.join(" AND ") : "";
+  const total = await dbFirst(env, `SELECT COUNT(*) AS n FROM acg_cash${where}`, ...params);
+  const count = total ? Number(total.n) : 0;
+  const sumRow = await dbFirst(env, `SELECT COALESCE(SUM(amount),0) AS amount, COALESCE(SUM(cost),0) AS cost FROM acg_cash${where}`, ...params);
+  const rows = await dbRows(env, `SELECT * FROM acg_cash${where} ORDER BY id DESC LIMIT ? OFFSET ?`, ...params, pageSize, (page - 1) * pageSize);
+  const list = [];
+  for (const r of rows) {
+    list.push({
+      ...r,
+      user: r.user_id ? await dbFirst(env, "SELECT id, username, avatar, nicename, alipay, wechat, wallet_address FROM acg_user WHERE id=?", r.user_id) || null : null
+    });
+  }
+  return apiOk("success", { list, page, limit: pageSize, count, records: count, total: count, amount: (sumRow && sumRow.amount) ?? 0, cost: (sumRow && sumRow.cost) ?? 0 });
+}
+async function cashDecide(env, request, url, body = {}, manage) {
+  const id = Number(body.id) || 0;
+  const status = Number(body.status);
+  const message = String(body.message || "").trim();
+  if (id <= 0 || ![0, 1].includes(status)) throw new Error("\u8BF7\u6C42\u53C2\u6570\u4E0D\u6B63\u786E");
+  if (status === 1 && message === "") throw new Error("\u8BF7\u8F93\u5165\u9A73\u56DE\u7406\u7531");
+  if (message.length > 64) throw new Error("\u9A73\u56DE\u7406\u7531\u4E0D\u80FD\u8D85\u8FC7 64 \u4E2A\u5B57");
+  const cash = await dbFirst(env, "SELECT * FROM acg_cash WHERE id=?", id);
+  if (!cash) throw new Error("\u8BE5\u8BB0\u5F55\u4E0D\u5B58\u5728");
+  if (Number(cash.status) !== 0) throw new Error("\u8BE5\u8BB0\u5F55\u65E0\u6CD5\u64CD\u4F5C");
+  const ts = now();
+  if (status === 0) {
+    await dbUpdate(env, "acg_cash", { status: 1, arrive_time: ts }, "id=?", id);
+    try {
+      await dbInsert(env, "acg_manage_log", { email: "admin", nickname: "", content: `[\u63D0\u73B0\u7BA1\u7406]\u901A\u8FC7\u4E86\u7528\u6237ID(${cash.user_id})\u7684\u63D0\u73B0`, create_time: ts, create_ip: requestInfo(request).ip, ua: "", risk: 0 });
+    } catch (e) {
+    }
+  } else {
+    await dbUpdate(env, "acg_cash", { status: 2, message, arrive_time: ts }, "id=?", id);
+    const user = await dbFirst(env, "SELECT * FROM acg_user WHERE id=?", cash.user_id);
+    if (user) {
+      const refund = Math.round((Number(cash.amount) + Number(cash.cost || 0)) * 100) / 100;
+      if (refund > 0) {
+        const newBalance = Math.round((Number(user.balance) + refund) * 100) / 100;
+        await dbUpdate(env, "acg_user", { balance: newBalance }, "id=?", user.id);
+        await dbInsert(env, "acg_bill", { owner: user.id, amount: refund, balance: newBalance, type: 1, currency: 0, log: "\u5151\u73B0\u88AB\u62D2\u7EDD", create_time: ts });
+      }
+    }
+    try {
+      await dbInsert(env, "acg_manage_log", { email: "admin", nickname: "", content: `[\u63D0\u73B0\u7BA1\u7406]\u9A73\u56DE\u4E86\u7528\u6237(${user ? user.username : cash.user_id})\u7684\u63D0\u73B0`, create_time: ts, create_ip: requestInfo(request).ip, ua: "", risk: 0 });
+    } catch (e) {
+    }
+  }
+  return apiOk("\u5904\u7406\u6210\u529F");
+}
+async function cashSettlement(env, request, url, body = {}, manage) {
+  const rawAmount = Number(body.amount);
+  if (!isFinite(rawAmount) || rawAmount <= 0) throw new Error("\u6700\u4F4E\u7ED3\u7B97\u91D1\u989D\u5FC5\u987B\u5927\u4E8E 0");
+  const ts = now();
+  const users = await dbRows(env, "SELECT id, coin, settlement FROM acg_user WHERE coin >= ? AND coin > 0", rawAmount);
+  let done = 0;
+  for (const u of users) {
+    const coin = Number(u.coin);
+    if (!(coin >= rawAmount) || !(coin > 0)) continue;
+    const usr = await dbFirst(env, "SELECT id, coin, settlement FROM acg_user WHERE id=?", u.id);
+    if (!usr || Number(usr.coin) < rawAmount || Number(usr.coin) <= 0) continue;
+    await dbInsert(env, "acg_cash", { user_id: usr.id, amount: coin, type: 0, card: usr.settlement ?? 0, create_time: ts, cost: 0, status: 0 });
+    await dbUpdate(env, "acg_user", { coin: 0 }, "id=?", usr.id);
+    await dbInsert(env, "acg_bill", { owner: usr.id, amount: coin, balance: 0, type: 0, currency: 1, log: "\u81EA\u52A8\u7ED3\u7B97", create_time: ts });
+    done++;
+  }
+  try {
+    await dbInsert(env, "acg_manage_log", { email: "admin", nickname: "", content: `[\u63D0\u73B0\u7BA1\u7406]\u8FDB\u884C\u4E86\u4E00\u952E\u81EA\u52A8\u7ED3\u7B97\uFF0C\u91D1\u989D\u4E0A\u9650\uFF1A${rawAmount}\uFF0C\u751F\u6210 ${done} \u5355`, create_time: ts, create_ip: requestInfo(request).ip, ua: "", risk: 0 });
+  } catch (e) {
+  }
+  return apiOk("\u7ED3\u7B97\u5B8C\u6210", { count: done });
+}
 async function adminEndpoint(env, request, url, ctl, act, body) {
   if (ctl === "authentication" && act === "login") return adminLogin(env, request, url, body);
   const manage = await authenticateManage(env, request);
@@ -3490,6 +3586,15 @@ async function adminEndpoint(env, request, url, ctl, act, body) {
       return apiErr(e && e.message ? String(e.message) : "\u64CD\u4F5C\u5931\u8D25");
     }
   }
+  if (ctl === "cash") {
+    try {
+      if (act === "data") return await cashData(env, request, url, body);
+      if (act === "decide") return await cashDecide(env, request, url, body, manage);
+      if (act === "settlement") return await cashSettlement(env, request, url, body, manage);
+    } catch (e) {
+      return apiErr(e && e.message ? String(e.message) : "\u64CD\u4F5C\u5931\u8D25");
+    }
+  }
   return apiErr("\u63A5\u53E3\u4E0D\u5B58\u5728", 404);
 }
 
@@ -3510,11 +3615,11 @@ function adminVar(cfg = {}) {
   for (const [k, v] of Object.entries(vars)) {
     s += `setVar(${JSON.stringify(k)}, ${JSON.stringify(v)});`;
   }
-  s += "</script>";
+  s += "<\/script>";
   return s;
 }
 var cssLinks = (paths) => paths.map((p) => `<link rel="stylesheet" href="${p}"/>`).join("\n");
-var jsScripts = (paths) => paths.map((p) => `<script src="${p}"></script>`).join("\n");
+var jsScripts = (paths) => paths.map((p) => `<script src="${p}"><\/script>`).join("\n");
 function renderAdminLoginPage(cfg = {}) {
   const bg = cfg.background_url || "/assets/admin/img/bg.jpg";
   const shopName = cfg.shop_name || "acg-faka";
@@ -3538,7 +3643,7 @@ function renderAdminLoginPage(cfg = {}) {
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1"/>
     <title>\u767B\u5F55 - ${htmlEscape(shopName)}</title>
-    <script>(function(){try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;var e=document.documentElement;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);}catch(_){document.documentElement.setAttribute('data-theme','light');}})();</script>
+    <script>(function(){try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;var e=document.documentElement;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);}catch(_){document.documentElement.setAttribute('data-theme','light');}})();<\/script>
     ${cssLinks([
     "/assets/common/css/_.css",
     "/assets/admin/css/auth.css",
@@ -3555,7 +3660,7 @@ function renderAdminLoginPage(cfg = {}) {
     "/assets/common/css/md-tokens.css",
     "/assets/admin/css/material-auth.css"
   ])}
-    <script src="/assets/common/js/ready.js"></script>
+    <script src="/assets/common/js/ready.js"><\/script>
     ${adminVar(cfg)}
 </head>
 <body class="ay-bg" style="background-image: linear-gradient(180deg, rgb(255 255 255 / 0%), rgb(255 255 255 / 71%)), url('${htmlEscape(bg)}')">
@@ -3652,7 +3757,7 @@ function renderAdminLoginPage(cfg = {}) {
     </section>
 </main>
 
-<script>ready("/assets/admin/controller/auth/login.js");</script>
+<script>ready("/assets/admin/controller/auth/login.js");<\/script>
 ${jsScripts([
     "/assets/common/js/_.js",
     "/assets/common/js/util/dict.js",
@@ -4172,6 +4277,7 @@ function adminMenu(activePath) {
     { icon: '<path d="M9 13.75c-2.34 0-7 1.17-7 3.5V19h14v-1.75c0-2.33-4.66-3.5-7-3.5zM4.34 17c.84-.58 2.87-1.25 4.66-1.25s3.82.67 4.66 1.25H4.34zM9 12c1.93 0 3.5-1.57 3.5-3.5S10.93 5 9 5S5.5 6.57 5.5 8.5S7.07 12 9 12zm0-5c.83 0 1.5.67 1.5 1.5S9.83 10 9 10s-1.5-.67-1.5-1.5S8.17 7 9 7zm7.04 6.81c1.16.84 1.96 1.96 1.96 3.44V19h4v-1.75c0-2.02-3.5-3.17-5.96-3.44zM15 12c1.93 0 3.5-1.57 3.5-3.5S16.93 5 15 5c-.54 0-1.04.13-1.5.35c.63.89 1 1.98 1 3.15s-.37 2.26-1 3.15c.46.22.96.35 1.5.35z"/>', name: "\u4F1A\u5458\u7BA1\u7406", url: "/admin/user/index", section: "User" },
     { icon: '<path d="M30 12a2 2 0 0 0-2-2V7c0-1.1-.9-2-2-2H4a2 2 0 0 0-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-3a2 2 0 0 0 2-2zM4 7h12v3.17A3 3 0 0 0 15 12c0 .77.29 1.47.76 2H16v3H4V7zm14 6a1 1 0 1 1 0-2a1 1 0 0 1 0 2z"/><path d="M6 9h6v2H6zm0 4h6v2H6z"/>'.replace("30 12a2", "20 12a2"), name: "\u5DE5\u5355\u7BA1\u7406", url: "/admin/ticket/index", section: "User" },
     { icon: '<path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM7 9h10v2H7V9zm6 5H7v-2h6v2zm4-6H7V6h10v2z"/>', name: "\u6D88\u606F\u7BA1\u7406", url: "/admin/message/index", section: "User" },
+    { icon: '<path d="M21 18v1c0 1.1-.9 2-2 2H5c-1.11 0-2-.9-2-2V5c0-1.1.89-2 2-2h14c1.1 0 2 .9 2 2v1h-9c-1.11 0-2 .9-2 2v8c0 1.1.89 2 2 2h9zm-9-2h10V8H12v8zm4-2.5c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5z"/>', name: "\u63D0\u73B0\u7BA1\u7406", url: "/admin/cash/index", section: "User" },
     { icon: '<path d="M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zM4 8h16v8H4V8z"/><path d="M7 10h2v4H7zm4 0h2v4h-2zm4 0h2v4h-2z"/>'.replace("assets/", ""), name: "\u5145\u503C\u8BA2\u5355", url: "/admin/recharge/order", section: "User" },
     { icon: '<path d="M12 2l-5.5 9h11L12 2zm0 3.84L13.93 9h-3.87L12 5.84zM17.5 13c-2.49 0-4.5 2.01-4.5 4.5s2.01 4.5 4.5 4.5s4.5-2.01 4.5-4.5s-2.01-4.5-4.5-4.5zm0 7a2.5 2.5 0 0 1 0-5a2.5 2.5 0 0 1 0 5zM3 21.5h8v-8H3v8zm2-6h4v4H5v-4z"/>', name: "\u5206\u7C7B\u7BA1\u7406", url: "/admin/category/index", section: "Trade" },
     { icon: '<path d="M20 2H4c-1 0-2 .9-2 2v3.01c0 .72.43 1.34 1 1.69V20c0 1.1 1.1 2 2 2h14c.9 0 2-.9 2-2V8.7c.57-.35 1-.97 1-1.69V4c0-1.1-1-2-2-2zm-1 18H5V9h14v11zm1-13H4V4h16v3z"/><path d="M9 12h6v2H9z"/>', name: "\u5546\u54C1\u7BA1\u7406", url: "/admin/commodity/index", section: "Trade" },
@@ -4247,7 +4353,7 @@ function renderAdminShell(opts = {}) {
 <head>
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-    <script>(function(){var e=document.documentElement;try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);var m=localStorage.getItem('admin-layout-mode')==='desktop'?'desktop':((window.innerWidth||screen.width)<992?'mobile':'desktop');e.setAttribute('data-admin-layout',m);}catch(_){e.setAttribute('data-theme','light');e.setAttribute('data-admin-layout',(window.innerWidth||screen.width)<992?'mobile':'desktop');}})();</script>
+    <script>(function(){var e=document.documentElement;try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);var m=localStorage.getItem('admin-layout-mode')==='desktop'?'desktop':((window.innerWidth||screen.width)<992?'mobile':'desktop');e.setAttribute('data-admin-layout',m);}catch(_){e.setAttribute('data-theme','light');e.setAttribute('data-admin-layout',(window.innerWidth||screen.width)<992?'mobile':'desktop');}})();<\/script>
     <title>${htmlEscape(title)}-${htmlEscape(shopName)}</title>
     <link rel="shortcut icon" href="/favicon.ico"/>
     ${cssLinks([
@@ -4273,13 +4379,13 @@ function renderAdminShell(opts = {}) {
     "/assets/common/css/mdicon.css",
     "/assets/admin/css/mobile.css"
   ])}
-    <script src="/assets/common/js/ready.js"></script>
+    <script src="/assets/common/js/ready.js"><\/script>
     ${adminVar(cfg)}
 </head>
 <body id="kt_body"
       class="header-fixed header-tablet-and-mobile-fixed toolbar-enabled toolbar-fixed aside-enabled aside-fixed"
       style="--kt-toolbar-height:55px;--kt-toolbar-height-tablet-and-mobile:55px;background: url('${htmlEscape(cfg.background_url || "")}') fixed no-repeat;background-size: cover;">
-<script>(function(){try{if((!window.matchMedia||matchMedia('(min-width: 992px)').matches)&&localStorage.getItem('admin-aside-minimize')==='on'){document.body.setAttribute('data-kt-aside-minimize','on');}}catch(_){}})();</script>
+<script>(function(){try{if((!window.matchMedia||matchMedia('(min-width: 992px)').matches)&&localStorage.getItem('admin-aside-minimize')==='on'){document.body.setAttribute('data-kt-aside-minimize','on');}}catch(_){}})();<\/script>
 <div class="d-flex flex-column flex-root">
     <div class="page d-flex flex-row flex-column-fluid">
         <!--begin::Aside-->
@@ -4392,7 +4498,7 @@ ${adminFooterScripts()}
 }
 function renderAdminDashboardPage(cfg, manage) {
   const body = `
-<script src="/assets/static/echarts.min.js"></script>
+<script src="/assets/static/echarts.min.js"><\/script>
 <div class="dash">
   <div class="dash__grid">
     <aside class="dash__side">
@@ -4619,7 +4725,7 @@ function renderAdminDashboardPage(cfg, manage) {
     </div>
   </div>
 </div>
-<script>ready("/assets/admin/controller/dashboard/index.js");</script>`;
+<script>ready("/assets/admin/controller/dashboard/index.js");<\/script>`;
   return renderAdminShell({ cfg, manage, title: "\u63A7\u5236\u53F0", activePath: "/admin/dashboard/index", body });
 }
 function renderAdminOrderPage(cfg, manage) {
@@ -5833,6 +5939,154 @@ function renderAdminMessagePage(cfg, manage) {
   });`;
   return renderCrudPage({ cfg, manage, title: "\u6D88\u606F\u7BA1\u7406", activePath: "/admin/message/index", body, readyJs: js });
 }
+function renderAdminCashPage(cfg, manage) {
+  const body = `
+<div class="card mb-5 mb-xl-8">
+  <div class="card-header border-0 py-4">
+    <div class="card-title">
+      <div class="d-flex align-items-center flex-wrap gap-3">
+        <input type="text" class="form-control form-control-sm" style="width:180px" id="cash-keyword" placeholder="\u7528\u6237\u540D/\u652F\u4ED8\u5B9D/\u5FAE\u4FE1/\u5730\u5740/\u7406\u7531">
+        <select class="form-select form-select-sm" style="width:140px" id="cash-status">
+          <option value="">\u5168\u90E8\u72B6\u6001</option>
+          <option value="0">\u5F85\u5904\u7406</option>
+          <option value="1">\u5DF2\u901A\u8FC7</option>
+          <option value="2">\u5DF2\u9A73\u56DE</option>
+        </select>
+        <select class="form-select form-select-sm" style="width:130px" id="cash-type">
+          <option value="">\u5168\u90E8\u7C7B\u578B</option>
+          <option value="0">\u666E\u901A\u63D0\u73B0</option>
+          <option value="1">\u4F63\u91D1\u63D0\u73B0</option>
+        </select>
+        <button class="btn btn-sm btn-primary cash-search"><i class="fa-duotone fa-regular fa-magnifying-glass"></i> \u641C\u7D22</button>
+        <span class="text-muted" id="cash-summary"></span>
+      </div>
+    </div>
+    <div class="card-toolbar">
+      <div class="d-flex align-items-center gap-2">
+        <input type="number" class="form-control form-control-sm" style="width:150px" id="cash-settle-amount" placeholder="\u6700\u4F4E\u7ED3\u7B97\u91D1\u989D" min="0">
+        <button class="btn btn-sm btn-light-primary cash-settle"><i class="fa-duotone fa-regular fa-arrows-rotate"></i> \u4E00\u952E\u81EA\u52A8\u7ED3\u7B97</button>
+      </div>
+    </div>
+  </div>
+  <div class="card-body py-3">
+    <div class="table-responsive">
+      <table class="table table-row-bordered table-row-gray-200 align-middle gs-0 gy-3" id="cash-table">
+        <thead><tr class="fw-bold text-muted">
+          <th>ID</th><th>\u7528\u6237</th><th>\u91D1\u989D</th><th>\u8D39\u7528</th><th>\u7C7B\u578B</th><th>\u72B6\u6001</th><th>\u6536\u6B3E\u65B9\u5F0F</th><th>\u7533\u8BF7\u65F6\u95F4</th><th>\u5904\u7406\u65F6\u95F4</th><th>\u9A73\u56DE\u7406\u7531</th><th>\u64CD\u4F5C</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+      <div class="d-flex justify-content-between align-items-center mt-3">
+        <span class="text-muted" id="cash-pageinfo"></span>
+        <div class="btn-group btn-group-sm" id="cash-pager"></div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="modal fade" tabindex="-1" id="cashModal"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header py-3"><h5 class="modal-title">\u63D0\u73B0\u5904\u7406</h5>
+    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button></div>
+  <div class="modal-body">
+    <div class="mb-3">
+      <label class="form-label">\u5904\u7406\u65B9\u5F0F</label>
+      <select class="form-select" id="cash-mode">
+        <option value="0">\u901A\u8FC7\uFF08\u5DF2\u6253\u6B3E\uFF09</option>
+        <option value="1">\u9A73\u56DE\uFF08\u9000\u6B3E\u5230\u4F59\u989D\uFF09</option>
+      </select>
+    </div>
+    <div class="mb-3 cash-reject-box">
+      <label class="form-label">\u9A73\u56DE\u7406\u7531 <span class="text-danger">*</span></label>
+      <textarea class="form-control" id="cash-message" rows="3" maxlength="64" placeholder="\u8BF7\u8F93\u5165\u9A73\u56DE\u7406\u7531\uFF08\u4E0D\u8D85\u8FC764\u5B57\uFF09"></textarea>
+    </div>
+  </div>
+  <div class="modal-footer">
+    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">\u53D6\u6D88</button>
+    <button type="button" class="btn btn-primary" id="cash-submit">\u786E\u8BA4\u5904\u7406</button>
+  </div>
+</div></div></div>`;
+  const js = `
+  ready(() => {
+    const table = document.getElementById('cash-table').querySelector('tbody');
+    const API = '/admin/api/cash/';
+    const state = { page: 1, pageSize: 10, total: 0, id: 0 };
+    const modal = new bootstrap.Modal(document.getElementById('cashModal'));
+    const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+    function fmtTime(ts) { if (!ts) return '-'; const d = new Date(Number(ts) * 1000); return d.toLocaleString('zh-CN'); }
+    function statusBadge(s) { return s === 0 ? '<span class="badge badge-light-warning">\u5F85\u5904\u7406</span>' : s === 1 ? '<span class="badge badge-light-success">\u5DF2\u901A\u8FC7</span>' : '<span class="badge badge-light-danger">\u5DF2\u9A73\u56DE</span>'; }
+    function load() {
+      util.post({ url: API + 'data', loader: false, data: {
+        page: state.page, limit: state.pageSize,
+        'equal-status': document.getElementById('cash-status').value,
+        'equal-type': document.getElementById('cash-type').value,
+        keyword: document.getElementById('cash-keyword').value.trim(),
+      },
+        done: res => {
+          const d = res.data || {};
+          state.total = Number(d.total) || 0;
+          document.getElementById('cash-summary').textContent = d.amount != null ? ('\u5408\u8BA1\u91D1\u989D \xA5' + Number(d.amount).toFixed(2) + ' / \u8D39\u7528 \xA5' + Number(d.cost || 0).toFixed(2)) : '';
+          table.innerHTML = '';
+          (d.list || []).forEach(c => {
+            const u = c.user || {};
+            const pay = u.alipay ? ('\u652F\u4ED8\u5B9D: ' + esc(u.alipay)) : u.wechat ? ('\u5FAE\u4FE1: ' + esc(u.wechat)) : u.wallet_address ? ('\u5730\u5740: ' + esc(u.wallet_address)) : '-';
+            const tr = document.createElement('tr');
+            tr.innerHTML = '<td>' + c.id + '</td>' +
+              '<td>' + (u.username ? '<div class="d-flex align-items-center gap-2">' + (u.avatar ? '<img src="' + esc(u.avatar) + '" class="rounded-circle" style="width:24px;height:24px;object-fit:cover">' : '') + '<span>' + esc(u.username) + (u.nicename ? ' <span class="text-muted">(' + esc(u.nicename) + ')</span>' : '') + '</span></div>' : '<span class="text-muted">#' + c.user_id + '</span>') + '</td>' +
+              '<td class="fw-bold">\xA5' + Number(c.amount).toFixed(2) + '</td>' +
+              '<td>\xA5' + Number(c.cost || 0).toFixed(2) + '</td>' +
+              '<td>' + (Number(c.type) === 1 ? '\u4F63\u91D1' : '\u666E\u901A') + '</td>' +
+              '<td>' + statusBadge(Number(c.status)) + '</td>' +
+              '<td>' + pay + '</td>' +
+              '<td>' + fmtTime(c.create_time) + '</td>' +
+              '<td>' + fmtTime(c.arrive_time) + '</td>' +
+              '<td>' + esc(c.message) + '</td>' +
+              '<td>' + (Number(c.status) === 0 ? '<button class="btn btn-sm btn-light-success me-1 row-pass" data-id="' + c.id + '">\u901A\u8FC7</button><button class="btn btn-sm btn-light-danger row-reject" data-id="' + c.id + '">\u9A73\u56DE</button>' : '<span class="text-muted">-</span>') + '</td>';
+            table.appendChild(tr);
+          });
+          renderPager();
+        },
+        error: res => message.error(res.msg) });
+    }
+    function renderPager() {
+      const pages = Math.max(1, Math.ceil(state.total / state.pageSize));
+      document.getElementById('cash-pageinfo').textContent = '\u5171 ' + state.total + ' \u6761 / \u7B2C ' + state.page + ' \u9875';
+      const el = document.getElementById('cash-pager');
+      el.innerHTML = '';
+      const mk = (label, p, dis) => { const b = document.createElement('button'); b.className = 'btn ' + (p === state.page ? 'btn-primary' : 'btn-light'); b.textContent = label; b.disabled = !!dis; b.addEventListener('click', () => { state.page = p; load(); }); el.appendChild(b); };
+      mk('\u4E0A\u4E00\u9875', state.page - 1, state.page <= 1);
+      mk('\u4E0B\u4E00\u9875', state.page + 1, state.page >= pages);
+    }
+    document.querySelector('.cash-search').addEventListener('click', () => { state.page = 1; load(); });
+    document.querySelector('.cash-settle').addEventListener('click', () => {
+      const amount = document.getElementById('cash-settle-amount').value;
+      if (!amount || Number(amount) <= 0) { message.error('\u8BF7\u8F93\u5165\u6709\u6548\u7684\u6700\u4F4E\u7ED3\u7B97\u91D1\u989D'); return; }
+      if (!confirm('\u786E\u5B9A\u5BF9\u4F59\u989D\u5927\u4E8E \xA5' + amount + ' \u7684\u7528\u6237\u6267\u884C\u4E00\u952E\u81EA\u52A8\u7ED3\u7B97\uFF1F')) return;
+      util.post({ url: API + 'settlement', data: { amount }, done: res => { message.success(res.msg); load(); }, error: res => message.error(res.msg) });
+    });
+    function openModal(id, mode) {
+      state.id = id;
+      document.getElementById('cash-mode').value = String(mode);
+      document.getElementById('cash-message').value = '';
+      document.querySelector('.cash-reject-box').style.display = mode === 1 ? '' : 'none';
+      modal.show();
+    }
+    document.addEventListener('click', e => {
+      const p = e.target.closest('.row-pass'); if (p) { openModal(Number(p.dataset.id), 0); return; }
+      const r = e.target.closest('.row-reject'); if (r) { openModal(Number(r.dataset.id), 1); return; }
+    });
+    document.getElementById('cash-mode').addEventListener('change', e => {
+      document.querySelector('.cash-reject-box').style.display = Number(e.target.value) === 1 ? '' : 'none';
+    });
+    document.getElementById('cash-submit').addEventListener('click', () => {
+      const mode = Number(document.getElementById('cash-mode').value);
+      const msg = document.getElementById('cash-message').value.trim();
+      if (mode === 1 && !msg) { message.error('\u8BF7\u8F93\u5165\u9A73\u56DE\u7406\u7531'); return; }
+      util.post({ url: API + 'decide', data: { id: state.id, status: mode, message: msg },
+        done: res => { message.success(res.msg); modal.hide(); load(); }, error: res => message.error(res.msg) });
+    });
+    load();
+  });`;
+  return renderCrudPage({ cfg, manage, title: "\u63D0\u73B0\u7BA1\u7406", activePath: "/admin/cash/index", body, readyJs: js });
+}
 
 // pages.js
 var CSS_AUTH = [
@@ -6406,7 +6660,7 @@ function renderHeader(v, extraScripts = "") {
     <link href="${favicon}?v=${app.version}" rel="icon">
     <title>${htmlEscape(title)} - ${htmlEscape(config.shop_name)}</title>
     ${CSS_FILES.map((f) => `<link href="${f}" rel="stylesheet">`).join("")}
-    <script src="/assets/common/js/ready.js"></script>
+    <script src="/assets/common/js/ready.js"><\/script>
     ${extraScripts}
 </head>
 <body style="background-size: cover;background-image: linear-gradient(180deg, rgb(255 255 255 / 0%), rgb(255 255 255 / 71%)), url('${htmlEscape(config.background_url || "")}')">
@@ -6453,7 +6707,7 @@ function renderHeader(v, extraScripts = "") {
 function renderFooter(v) {
   return `</div>
 ${v.setting && v.setting.icp ? `<footer>${htmlEscape(v.setting.icp)}</footer>` : ""}
-${JS_FILES.map((f) => `<script src="${f}"></script>`).join("")}
+${JS_FILES.map((f) => `<script src="${f}"><\/script>`).join("")}
 </body>
 </html>`;
 }
@@ -6695,7 +6949,7 @@ function pageIndex(v) {
     </div>
   </div>
 </main>
-<script src="/assets/user/controller/index/index.js"></script>`;
+<script src="/assets/user/controller/index/index.js"><\/script>`;
 }
 function pageItem(v) {
   const { item, config } = v;
@@ -6824,7 +7078,7 @@ function pageItem(v) {
 
 
 </main>
-<script src="/assets/user/controller/index/item.js"></script>`;
+<script src="/assets/user/controller/index/item.js"><\/script>`;
 }
 function pageQuery(v) {
   return `<main class="container py-4">
@@ -6849,7 +7103,7 @@ function pageQuery(v) {
         </div>
     </div>
 </main>
-<script src="/assets/user/controller/index/query.js"></script>`;
+<script src="/assets/user/controller/index/query.js"><\/script>`;
 }
 function pageClosed(v) {
   return `<main class="container py-5">
@@ -6990,6 +7244,9 @@ async function route(env, request, url, ctx) {
     }
     if (s === "/admin/message/index") {
       return pageRes(renderAdminMessagePage(cfg, manage));
+    }
+    if (s === "/admin/cash/index") {
+      return pageRes(renderAdminCashPage(cfg, manage));
     }
     return pageRes(renderAdminShell({ cfg, manage, title: "\u5EFA\u8BBE\u4E2D", activePath: s }, "text/html"));
   }
