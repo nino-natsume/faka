@@ -10,6 +10,7 @@ import {
   now, htmlEscape, md5hex, sha1hex, parseCookies, requestInfo,
   loadConfig, dbRows, dbFirst, dbRun, dbInsert, dbUpdate,
   generatePassword, verifyPassword, throttle, throttleClear,
+  queryListPage, dtString,
 } from './lib.js';
 import { captchaVerify } from './api.js';
 
@@ -2189,6 +2190,49 @@ export async function cashSettlement(env, request, url, body = {}, manage) {
   return apiOk('结算完成', { count: done });
 }
 
+// ============================================================
+// 账单管理 (后台) — 对齐原版 Api/Bill.php::data
+//   /admin/api/bill/data   筛选: equal-owner/equal-type/equal-currency/search-log/between-create_time
+//   原版 Bill::owner 关联 User(id, username, avatar)，create_time 为 datetime 字符串
+// ============================================================
+const BILL_COLUMNS = ['id', 'owner', 'amount', 'balance', 'type', 'currency', 'log', 'create_time'];
+export async function billData(env, request, url, body = {}) {
+  const page = await queryListPage(env, {
+    table: 'acg_bill',
+    columns: BILL_COLUMNS,
+    timeColumns: ['create_time'],
+    body,
+    defaultSort: 'id',
+  });
+  const list = [];
+  for (const r of page.list) {
+    const owner = r.owner ? await dbFirst(env, 'SELECT id, username, avatar FROM acg_user WHERE id=?', r.owner) : null;
+    list.push({ ...r, owner: owner || null, create_time: dtString(r.create_time) });
+  }
+  return apiOk('success', { list, total: page.total, page: page.page, limit: page.limit });
+}
+
+// ============================================================
+// 操作日志 (后台) — 对齐原版 Api/Log.php::data
+//   /admin/api/log/data
+//   原版: 键名白名单 equal-email/equal-nickname/equal-create_ip/search-content/
+//         between-create_time/equal-risk；limit 仅允许 15/30/50，默认 15
+// ============================================================
+const LOG_COLUMNS = ['id', 'email', 'nickname', 'content', 'create_time', 'create_ip', 'ua', 'risk'];
+export async function logData(env, request, url, body = {}) {
+  // 原版做了 array_intersect_key 白名单，这里用 columns 白名单等效
+  const page = await queryListPage(env, {
+    table: 'acg_manage_log',
+    columns: LOG_COLUMNS,
+    timeColumns: ['create_time'],
+    body,
+    defaultSort: 'id',
+    limitWhitelist: [15, 30, 50],
+  });
+  const list = page.list.map((r) => ({ ...r, risk: Number(r.risk) || 0, create_time: dtString(r.create_time) }));
+  return apiOk('success', { list, total: page.total, page: page.page, limit: page.limit });
+}
+
 export async function adminEndpoint(env, request, url, ctl, act, body) {
   if (ctl === 'authentication' && act === 'login') return adminLogin(env, request, url, body);
   // 以下接口需要登录
@@ -2329,6 +2373,22 @@ export async function adminEndpoint(env, request, url, ctl, act, body) {
       if (act === 'data') return await cashData(env, request, url, body);
       if (act === 'decide') return await cashDecide(env, request, url, body, manage);
       if (act === 'settlement') return await cashSettlement(env, request, url, body, manage);
+    } catch (e) {
+      return apiErr(e && e.message ? String(e.message) : '操作失败');
+    }
+  }
+  // 账单管理
+  if (ctl === 'bill') {
+    try {
+      if (act === 'data') return await billData(env, request, url, body);
+    } catch (e) {
+      return apiErr(e && e.message ? String(e.message) : '操作失败');
+    }
+  }
+  // 操作日志
+  if (ctl === 'log') {
+    try {
+      if (act === 'data') return await logData(env, request, url, body);
     } catch (e) {
       return apiErr(e && e.message ? String(e.message) : '操作失败');
     }

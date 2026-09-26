@@ -63,6 +63,8 @@ const ADMIN_PAGES = [
   ['/admin/ticket/index', '工单'],
   ['/admin/message/index', '消息'],
   ['/admin/cash/index', '提现'],
+  ['/admin/user/bill', '账单'],
+  ['/admin/log/index', '日志'],
 ];
 // 后台只读 API
 const ADMIN_APIS = [
@@ -83,6 +85,8 @@ const ADMIN_APIS = [
   '/admin/api/message/groups',
   '/admin/api/message/users?keyword=a',
   '/admin/api/cash/data?limit=5',
+  '/admin/api/bill/data?limit=5',
+  '/admin/api/log/data?limit=15',
   '/admin/api/app/ad',
 ];
 // 前台公开页: [路径, 标记, 允许 302 到登录]

@@ -405,3 +405,118 @@ export function throttle(key, limit, windowSec) {
   return rec.count > limit;
 }
 export function throttleClear(key) { throttleMap.delete(key); }
+
+// ============================================================
+// 通用列表查询引擎 — 逐条对齐原版 App\Service\Bind\Query::get
+//   筛选: <操作符>-<列>   操作符 ∈ equal | betweenStart | betweenEnd | search
+//   排序: sort_field + sort_rule (asc/desc)，列不在白名单一律回落 id desc
+//   分页: page / limit   返回 { list, total }
+//   安全: 列名必须命中白名单(且排除 password/salt/app_key/google_secret)，
+//         未命中/非法一律**静默丢弃该条件**(与原版一致: 不 500、不构成列存在性预言机)
+//   时间: 原版 create_time 是 MySQL datetime(字符串比较)，本移植存秒级整数，
+//         故对 timeColumns 声明的列做宽容解析(10位/13位/日期串)后按整数比较
+// ============================================================
+const QUERY_OPS = { equal: '=', betweenStart: '>=', betweenEnd: '<=', search: 'LIKE' };
+const QUERY_IDENT = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const QUERY_SENSITIVE = ['password', 'salt', 'app_key', 'google_secret'];
+
+// 宽松解析时间值 → 秒级整数；无法识别时返回原值(交由 SQLite 自行比较)
+// 显式正则优先：laydate 输出 'YYYY-MM-DD HH:mm:ss'，按本地时区构造(同 PHP strtotime 语义)，
+// 不依赖 V8 对非标准日期串的扩展解析
+export function parseTimeValue(v) {
+  const s = String(v == null ? '' : v).trim();
+  if (s === '') return v;
+  if (/^\d{10}$/.test(s)) return Number(s);
+  if (/^\d{13}$/.test(s)) return Math.floor(Number(s) / 1000);
+  const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})(?:[ T](\d{1,2}):(\d{1,2})(?::(\d{1,2}))?)?/);
+  if (m) {
+    return Math.floor(new Date(
+      Number(m[1]), Number(m[2]) - 1, Number(m[3]),
+      Number(m[4] || 0), Number(m[5] || 0), Number(m[6] || 0),
+    ).getTime() / 1000);
+  }
+  const ts = Date.parse(s.replace(/\//g, '-'));
+  return isNaN(ts) ? v : Math.floor(ts / 1000);
+}
+
+// 秒级整数 → 'YYYY-MM-DD HH:mm:ss' (对齐原版 App\Util\Date::current() 的输出格式)
+export function dtString(ts) {
+  const n = Number(ts);
+  if (!isFinite(n) || n <= 0) return '';
+  const d = new Date(n * 1000);
+  const p = (x) => String(x).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+// 解析 <操作符>-<列> 形式的筛选条件
+// opts: { columns: string[], timeColumns?: string[] }
+// 返回 { wheres: string[], params: any[] }
+export function buildQueryWhere(body = {}, opts = {}) {
+  const columns = new Set((opts.columns || []).filter(c => !QUERY_SENSITIVE.includes(c)));
+  const timeCols = new Set(opts.timeColumns || []);
+  const wheres = [];
+  const params = [];
+  for (const [rawKey, rawVal] of Object.entries(body || {})) {
+    if (rawVal === null || rawVal === undefined) continue;
+    if (typeof rawVal === 'object') continue;           // 数组/对象型过滤值直接丢弃
+    let key, val;
+    try {
+      key = decodeURIComponent(String(rawKey));
+      val = decodeURIComponent(String(rawVal));
+    } catch (e) { continue; }
+    if (val === '') continue;
+    const args = key.split('-');
+    if (args.length !== 2 && args.length !== 3) continue;
+    const sql = QUERY_OPS[args[0]];
+    if (!sql) continue;                                 // 未知操作符(含大小写不符)丢弃
+    const col = args[1];
+    if (!QUERY_IDENT.test(col)) continue;                // 挡 ` id` / `id ` 与非法标识符
+    if (args.length === 3) continue;                     // JSON 子键 `col->key`: 本移植不支持
+    if (!columns.has(col)) continue;                     // 列白名单
+    wheres.push(`${col} ${sql} ?`);
+    params.push(sql === 'LIKE' ? `%${val}%` : (timeCols.has(col) ? parseTimeValue(val) : val));
+  }
+  return { wheres, params };
+}
+
+// 解析排序: 非法列/非法规则一律回落 defaultCol + 'desc'
+export function buildQueryOrder(body = {}, columns = [], defaultCol = 'id') {
+  const allow = new Set((columns || []).filter(c => !QUERY_SENSITIVE.includes(c)));
+  const raw = body || {};
+  const col = String(raw.sort_field || '');
+  const rule = String(raw.sort_rule || '').toLowerCase() === 'asc' ? 'asc' : 'desc';
+  if (QUERY_IDENT.test(col) && (allow.has(col) || col === 'id')) return { col, rule };
+  return { col: defaultCol, rule: 'desc' };
+}
+
+// 组装并执行分页列表查询
+// opts: { table, columns, body, timeColumns, defaultSort, extraWhere:[], extraParams:[],
+//         select?, from? }
+// 返回 { list, total, page, limit }
+export async function queryListPage(env, opts = {}) {
+  const table = opts.table;
+  const columns = opts.columns || [];
+  const body = opts.body || {};
+  const { wheres, params } = buildQueryWhere(body, { columns, timeColumns: opts.timeColumns || [] });
+  const extraWhere = opts.extraWhere || [];
+  const extraParams = opts.extraParams || [];
+  const allWhere = [...extraWhere, ...wheres];
+  const allParams = [...extraParams, ...params];
+  const where = allWhere.length ? ' WHERE ' + allWhere.join(' AND ') : '';
+  const from = opts.from || table;
+  const select = opts.select || `${table}.*`;
+
+  const totalRow = await dbFirst(env, `SELECT COUNT(*) AS n FROM ${from}${where}`, ...allParams);
+  const count = totalRow ? Number(totalRow.n) : 0;
+
+  const page = Math.max(1, Number(body.page) || 1);
+  let limit = Number(body.limit) || 15;
+  limit = Math.min(100, Math.max(1, limit));
+  if (Array.isArray(opts.limitWhitelist) && opts.limitWhitelist.length && !opts.limitWhitelist.includes(limit)) {
+    limit = opts.limitWhitelist[0];
+  }
+  const order = buildQueryOrder(body, columns, opts.defaultSort || 'id');
+  const rows = await dbRows(env, `SELECT ${select} FROM ${from}${where} ORDER BY ${order.col} ${order.rule} LIMIT ? OFFSET ?`,
+    ...allParams, limit, (page - 1) * limit);
+  return { list: rows, total: count, page, limit };
+}
