@@ -2644,3 +2644,56 @@ export function renderAdminLogPage(cfg, manage) {
     body, readyJs: loadOrigCtl('/assets/admin/controller/manage/log.js'),
   });
 }
+
+// ============================================================
+// 支付插件页 — 对齐原版 View/Admin/Config/PayPlugin.html
+//   容器 <table id="pay-plugin-table"> + 原版 controller pay/plugin.js
+//   顶部保留原版「安装更多插件」入口(指向插件商店, 本移植无市场服务)
+// ============================================================
+export function renderAdminPayPluginPage(cfg, manage) {
+  const body = `
+<div class="card mb-5 mb-xl-8">
+    <div class="card-header border-0">
+        <div class="card-toolbar">
+            <a href="/admin/store/home" class="btn btn-sm btn-light-primary btn-app-create me-3"><i
+                        class="fa-duotone fa-regular fa-rectangle-history-circle-plus"></i>
+                安装更多插件
+            </a>
+        </div>
+    </div>
+    <div class="card-body py-3">
+        <table id="pay-plugin-table"></table>
+    </div>
+</div>`;
+  return renderCrudPage({
+    cfg, manage, title: '支付插件', activePath: '/admin/pay/plugin',
+    body, readyJs: loadOrigCtl('/assets/admin/controller/pay/plugin.js'),
+  });
+}
+
+// ============================================================
+// 支付接口页 — 对齐原版 View/Admin/Config/Pay.html
+//   工具栏「添加支付」「移除选中支付」+ <table id="pay-table">
+//   + 原版 controller pay/api.js
+// ============================================================
+export function renderAdminPayPage(cfg, manage) {
+  const body = `
+<div class="card mb-5 mb-xl-8">
+    <div class="card-header border-0">
+        <div class="card-toolbar">
+            <button class="btn btn-sm btn-light-primary btn-app-create me-3"><i class="fa-duotone fa-regular fa-circle-plus"></i>
+                添加支付
+            </button>
+            <button class="btn btn-sm btn-light-danger btn-app-del me-3"><i class="fa-duotone fa-regular fa-trash-can"></i> 移除选中支付
+            </button>
+        </div>
+    </div>
+    <div class="card-body py-3">
+        <table id="pay-table"></table>
+    </div>
+</div>`;
+  return renderCrudPage({
+    cfg, manage, title: '支付接口', activePath: '/admin/pay/index',
+    body, readyJs: loadOrigCtl('/assets/admin/controller/pay/api.js'),
+  });
+}

@@ -1,3 +1,5 @@
+// DCSHOP faka - Pages 单文件入口 (由 worker.js+admin.js+lib.js 自动打包生成, 勿手改)
+
 // lib.js
 var now = () => Math.floor(Date.now() / 1e3);
 var randStr = (len = 32) => {
@@ -327,10 +329,10 @@ function indexVar(catId, cfg) {
     CURRENCY: { code: cfg.currency_code || "CNY", symbol: cfg.currency_symbol || "\xA5", rate: Number(cfg.currency_rate || 1), decimals: Number(cfg.currency_decimals || 2) },
     CAT_ID: Number(catId) || 0
   };
-  return `<script>window._data_var=${JSON.stringify(data)};<\/script>${langDictScript()}`;
+  return `<script>window._data_var=${JSON.stringify(data)};</script>${langDictScript()}`;
 }
 function itemVar(item) {
-  return `<script>window._data_var._var_item=${JSON.stringify(item)};<\/script>`;
+  return `<script>window._data_var._var_item=${JSON.stringify(item)};</script>`;
 }
 function generateTradeNo() {
   let s = String(1 + Math.floor(Math.random() * 9));
@@ -785,7 +787,7 @@ async function trade(env, request, url, body) {
   const contact = String(body.contact || "");
   let num = Number(body.num) || 0;
   let cardId = Number(body.card_id) || 0;
-  const payId = Number(body.pay_id) || 0;
+  const payId2 = Number(body.pay_id) || 0;
   const device = /Mobile|Android|iPhone|iPad/i.test(info.ua) ? 2 : 1;
   const password = String(body.password || "");
   const coupon = String(body.coupon || "");
@@ -864,7 +866,7 @@ async function trade(env, request, url, body) {
   }
   if (valuationError) return apiError(valuationError);
   amount = Number(amount) || 0;
-  const pay = await dbFirst(env, "SELECT * FROM acg_pay WHERE id=?", payId);
+  const pay = await dbFirst(env, "SELECT * FROM acg_pay WHERE id=?", payId2);
   if (!pay) return apiError("\u8BE5\u652F\u4ED8\u65B9\u5F0F\u4E0D\u5B58\u5728");
   if (Number(pay.commodity) !== 1) return apiError("\u5F53\u524D\u652F\u4ED8\u65B9\u5F0F\u5DF2\u505C\u7528\uFF0C\u8BF7\u6362\u4E2A\u652F\u4ED8\u65B9\u5F0F\u518D\u8FDB\u884C\u652F\u4ED8");
   const tradeNo = generateTradeNo();
@@ -875,7 +877,7 @@ async function trade(env, request, url, body) {
     amount,
     commodity_id: commodityId,
     card_num: num,
-    pay_id: payId,
+    pay_id: payId2,
     create_time: now(),
     create_ip: info.ip,
     create_device: device,
@@ -1175,7 +1177,7 @@ async function changePassword(env, request, url, body) {
 async function rechargeCreate(env, request, url, body) {
   const user = await currentUser(env, request);
   if (!user) return apiError("\u8BF7\u5148\u767B\u5F55");
-  const payId = Number(body.pay_id) || 0;
+  const payId2 = Number(body.pay_id) || 0;
   const amount = Number(body.amount) || 0;
   if (amount <= 0) return apiError("\u5145\u503C\u91D1\u989D\u4E0D\u6B63\u786E");
   const cfg = await loadConfig(env);
@@ -1184,7 +1186,7 @@ async function rechargeCreate(env, request, url, body) {
   const max = Number(cfg.recharge_max) || 0;
   if (min > 0 && amount < min) return apiError(`\u6700\u4F4E\u5145\u503C${min}\u5143`);
   if (max > 0 && amount > max) return apiError(`\u6700\u9AD8\u5145\u503C${max}\u5143`);
-  const pay = await dbFirst(env, "SELECT * FROM acg_pay WHERE id=?", payId);
+  const pay = await dbFirst(env, "SELECT * FROM acg_pay WHERE id=?", payId2);
   if (!pay || Number(pay.commodity) !== 1) return apiError("\u5F53\u524D\u652F\u4ED8\u65B9\u5F0F\u4E0D\u53EF\u7528");
   const tradeNo = generateTradeNo();
   await dbInsert(env, "acg_recharge", {
@@ -1205,6 +1207,67 @@ async function rechargeCreate(env, request, url, body) {
   return apiSuccess("success", { url: gatewayUrl });
 }
 var apiSuccess = (msg, data = null) => new Response(JSON.stringify({ code: 200, msg, data }), { status: 200, headers: { "Content-Type": "application/json; charset=utf-8" } });
+
+// pay-plugins.js
+var PAY_PLUGINS = [
+  {
+    id: "#system",
+    info: {
+      name: "\u4F59\u989D\u652F\u4ED8",
+      version: "1.0.0",
+      author: "\u7CFB\u7EDF\u5185\u7F6E",
+      description: "\u4F7F\u7528\u7AD9\u5185\u4F59\u989D\u7ED3\u7B97\uFF0C\u4E0D\u7ECF\u8FC7\u4EFB\u4F55\u7B2C\u4E09\u65B9\u7F51\u5173\uFF0C\u4E0B\u5355\u5373\u65F6\u5230\u8D26",
+      options: { "\u7AD9\u5185\u7ED3\u7B97": "\u65E0\u9700\u7B2C\u4E09\u65B9", "\u5B9E\u65F6\u5230\u8D26": "\u4E0B\u5355\u5373\u5B8C\u6210", "\u96F6\u624B\u7EED\u8D39": "\u4E0D\u989D\u5916\u6263\u8D39" }
+    },
+    // 余额由系统直接扣，不需要任何配置
+    submit: [],
+    system: true
+  },
+  {
+    id: "Epay",
+    info: {
+      name: "\u6613\u652F\u4ED8",
+      version: "1.0.0",
+      author: "\u5F69\u8679\u4E91",
+      description: "\u5BF9\u63A5\u6613\u652F\u4ED8\uFF08\u5F69\u8679\u4E91\uFF09\u805A\u5408\u7F51\u5173\uFF0C\u4E00\u5957\u5546\u6237\u53F7\u8D70\u652F\u4ED8\u5B9D\u3001\u5FAE\u4FE1\u3001QQ \u94B1\u5305\u7B49\u901A\u9053",
+      options: { "\u805A\u5408\u7F51\u5173": "\u4E00\u6B21\u5BF9\u63A5\u591A\u901A\u9053", "MD5\u7B7E\u540D": "\u6807\u51C6\u6613\u652F\u4ED8\u534F\u8BAE", "302\u8DF3\u8F6C": "\u65E0\u9700\u672C\u7AD9\u6536\u94F6\u53F0" }
+    },
+    submit: [
+      {
+        type: "input",
+        name: "gateway",
+        title: "\u7F51\u5173\u5730\u5740",
+        tips: "\u6613\u652F\u4ED8\u7F51\u5173\u6839\u5730\u5740\uFF0C\u7ED3\u5C3E\u4E0D\u8981\u5E26\u659C\u6760\uFF0C\u4F8B\u5982 https://pay.example.com",
+        placeholder: "https://pay.example.com",
+        required: true,
+        regex: { value: "^https?://[^\\s/]+(?:/[^\\s]*)?$", message: "\u7F51\u5173\u5730\u5740\u5FC5\u987B\u662F http(s) \u5F00\u5934\u3001\u4E0D\u542B\u7A7A\u683C\u7684\u5730\u5740" }
+      },
+      {
+        type: "input",
+        name: "pid",
+        title: "\u5546\u6237 PID",
+        tips: "\u6613\u652F\u4ED8\u5206\u914D\u7ED9\u4F60\u7684\u5546\u6237\u53F7",
+        placeholder: "1000",
+        required: true
+      },
+      {
+        type: "password",
+        name: "key",
+        title: "\u5546\u6237\u5BC6\u94A5",
+        tips: "\u7528\u4E8E MD5 \u7B7E\u540D\uFF0C\u4FDD\u5B58\u540E\u4E0D\u518D\u660E\u6587\u5C55\u793A",
+        placeholder: "\u5546\u6237\u5BC6\u94A5",
+        required: true
+      }
+    ]
+  }
+];
+var BY_HANDLE = new Map(PAY_PLUGINS.map((p) => [p.id, p]));
+function findPayPlugin(handle) {
+  return BY_HANDLE.get(String(handle ?? "")) || null;
+}
+function isPayPluginHandle(handle) {
+  return BY_HANDLE.has(String(handle ?? ""));
+}
 
 // admin.js
 var MANAGE_SESSION = "MANAGE_USER";
@@ -3587,6 +3650,530 @@ async function logData(env, request, url, body = {}) {
   const list = page.list.map((r) => ({ ...r, risk: Number(r.risk) || 0, create_time: dtString(r.create_time) }));
   return apiOk("success", { list, total: page.total, page: page.page, limit: page.limit });
 }
+var PAY_SAVE_FIELDS = [
+  "name",
+  "icon",
+  "code",
+  "commodity",
+  "recharge",
+  "handle",
+  "pay_config_id",
+  "sort",
+  "equipment",
+  "cost",
+  "cost_type"
+];
+var PAY_MAX_BATCH = 100;
+var PAY_COLUMNS = [
+  "id",
+  "name",
+  "icon",
+  "code",
+  "commodity",
+  "recharge",
+  "create_time",
+  "handle",
+  "pay_config_id",
+  "sort",
+  "equipment",
+  "cost",
+  "cost_type",
+  "archived"
+];
+function payIds(value) {
+  let list;
+  if (typeof value === "string") list = value.split(",");
+  else if (Array.isArray(value)) list = value;
+  else list = [value];
+  const ids = [];
+  for (const raw of list) {
+    if (raw === "" || raw === null || raw === void 0) continue;
+    const s = String(raw).trim();
+    if (!/^\d+$/.test(s)) throw new Error("\u652F\u4ED8\u63A5\u53E3 ID \u683C\u5F0F\u4E0D\u6B63\u786E");
+    const id = Number(s);
+    if (id < 1 || id > 4294967295) throw new Error("\u652F\u4ED8\u63A5\u53E3 ID \u8D85\u51FA\u6709\u6548\u8303\u56F4");
+    ids.push(id);
+  }
+  const uniq = [...new Set(ids)];
+  if (uniq.length > PAY_MAX_BATCH) throw new Error(`\u5355\u6B21\u6700\u591A\u64CD\u4F5C ${PAY_MAX_BATCH} \u4E2A\u652F\u4ED8\u63A5\u53E3`);
+  return uniq;
+}
+function payId(value) {
+  if (value === "" || value === null || value === void 0 || value === 0 || value === "0") return 0;
+  return payIds([value])[0] || 0;
+}
+function payInt(value, label, min, max) {
+  const s = String(value == null ? "" : value).trim();
+  if (!/^-?\d+$/.test(s)) throw new Error(`${label}\u683C\u5F0F\u4E0D\u6B63\u786E`);
+  const n = Number(s);
+  if (n < min || n > max) throw new Error(`${label}\u8D85\u51FA\u6709\u6548\u8303\u56F4`);
+  return n;
+}
+function payStr(value, label) {
+  if (value === null || value === void 0 || typeof value === "object") throw new Error(`${label}\u683C\u5F0F\u4E0D\u6B63\u786E`);
+  return String(value).trim();
+}
+async function payConfigBelongs(env, handle, configId) {
+  if (!(configId > 0)) return false;
+  const row = await dbFirst(env, "SELECT id FROM acg_pay_config WHERE id=? AND handle=?", configId, String(handle));
+  return !!row;
+}
+async function paySaveMap(env, raw, existing) {
+  const allowed = /* @__PURE__ */ new Set(["id", ...PAY_SAVE_FIELDS]);
+  for (const field of Object.keys(raw || {})) {
+    if (!allowed.has(field)) throw new Error("\u652F\u4ED8\u63A5\u53E3\u4FDD\u5B58\u8BF7\u6C42\u5305\u542B\u672A\u6388\u6743\u5B57\u6BB5");
+  }
+  if (existing && Number(existing.id) === 1) throw new Error("\u7CFB\u7EDF\u5185\u7F6E\u4F59\u989D\u63A5\u53E3\u65E0\u6CD5\u4FEE\u6539");
+  const src = { ...raw };
+  delete src.id;
+  if (existing && Object.prototype.hasOwnProperty.call(src, "handle")) {
+    if (payStr(src.handle, "\u652F\u4ED8\u63D2\u4EF6") !== String(existing.handle)) {
+      throw new Error("\u5DF2\u6709\u652F\u4ED8\u63A5\u53E3\u7684\u6240\u5C5E\u63D2\u4EF6\u4E0D\u53EF\u66F4\u6539");
+    }
+    delete src.handle;
+  }
+  const map = {};
+  if (Object.prototype.hasOwnProperty.call(src, "name")) {
+    const name = payStr(src.name, "\u652F\u4ED8\u540D\u79F0");
+    if (name === "" || name.length > 16 || /[\x00-\x1F\x7F<>]/.test(name)) {
+      throw new Error("\u652F\u4ED8\u540D\u79F0\u5FC5\u987B\u662F 1\u201316 \u4E2A\u4E0D\u542B HTML \u7684\u5B57\u7B26");
+    }
+    map.name = name;
+  }
+  if (Object.prototype.hasOwnProperty.call(src, "icon")) {
+    const icon = payStr(src.icon, "\u652F\u4ED8\u56FE\u6807");
+    if (icon === "" || icon.length > 255 || /[\x00-\x20\x7F<>"']/.test(icon) || icon.startsWith("//") || !/^(?:\/|https?:\/\/)/i.test(icon)) {
+      throw new Error("\u652F\u4ED8\u56FE\u6807\u5FC5\u987B\u662F\u7AD9\u5185\u7EDD\u5BF9\u8DEF\u5F84\u6216 HTTP(S) \u5730\u5740");
+    }
+    map.icon = icon;
+  }
+  if (Object.prototype.hasOwnProperty.call(src, "handle")) {
+    const handle = payStr(src.handle, "\u652F\u4ED8\u63D2\u4EF6");
+    if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(handle)) throw new Error("\u652F\u4ED8\u63D2\u4EF6\u6807\u8BC6\u4E0D\u6B63\u786E");
+    map.handle = handle;
+  }
+  if (Object.prototype.hasOwnProperty.call(src, "code")) {
+    const code = String(src.code == null ? "" : src.code);
+    if (code.trim() === "" || code.length > 32 || /[\x00-\x1F\x7F<>"']/.test(code)) {
+      throw new Error("\u652F\u4ED8\u65B9\u5F0F\u4EE3\u7801\u4E0D\u6B63\u786E");
+    }
+    map.code = code;
+  }
+  for (const [field, label] of [["commodity", "\u5546\u54C1\u4E0B\u5355\u72B6\u6001"], ["recharge", "\u4F59\u989D\u5145\u503C\u72B6\u6001"], ["cost_type", "\u624B\u7EED\u8D39\u6A21\u5F0F"]]) {
+    if (Object.prototype.hasOwnProperty.call(src, field)) map[field] = payInt(src[field], label, 0, 1);
+  }
+  if (Object.prototype.hasOwnProperty.call(src, "equipment")) map.equipment = payInt(src.equipment, "\u663E\u793A\u7EC8\u7AEF", 0, 2);
+  if (Object.prototype.hasOwnProperty.call(src, "sort")) map.sort = payInt(src.sort, "\u663E\u793A\u6392\u5E8F", 0, 65535);
+  if (Object.prototype.hasOwnProperty.call(src, "pay_config_id")) {
+    const cid = payInt(src.pay_config_id, "\u652F\u4ED8\u914D\u7F6E", 0, 4294967295);
+    const handle = String(map.handle ?? existing?.handle ?? "");
+    if (cid > 0) {
+      if (!await payConfigBelongs(env, handle, cid)) throw new Error("\u652F\u4ED8\u914D\u7F6E\u4E0D\u5B58\u5728\u6216\u4E0D\u5C5E\u4E8E\u6240\u9009\u63D2\u4EF6");
+    }
+    map.pay_config_id = cid;
+  }
+  if (Object.prototype.hasOwnProperty.call(src, "cost")) {
+    let cost = payStr(src.cost, "\u624B\u7EED\u8D39");
+    if (cost === "") cost = "0";
+    if (!/^\d{1,7}(?:\.\d{1,3})?$/.test(cost) || Number(cost) > 9999999999e-3) {
+      throw new Error("\u624B\u7EED\u8D39\u5FC5\u987B\u662F\u4E0D\u8D85\u8FC7 3 \u4F4D\u5C0F\u6570\u7684\u975E\u8D1F\u6570");
+    }
+    map.cost = cost;
+  }
+  if (!existing) {
+    for (const [field, label] of [["name", "\u652F\u4ED8\u540D\u79F0"], ["icon", "\u652F\u4ED8\u56FE\u6807"], ["handle", "\u652F\u4ED8\u63D2\u4EF6"], ["code", "\u652F\u4ED8\u65B9\u5F0F"]]) {
+      if (!Object.prototype.hasOwnProperty.call(map, field)) throw new Error(`\u8BF7\u586B\u5199${label}`);
+    }
+    for (const [field, def] of Object.entries({
+      commodity: 0,
+      recharge: 0,
+      sort: 0,
+      equipment: 0,
+      cost: "0",
+      cost_type: 0,
+      pay_config_id: 0
+    })) {
+      if (!Object.prototype.hasOwnProperty.call(map, field)) map[field] = def;
+    }
+  }
+  if (!existing || Object.prototype.hasOwnProperty.call(map, "code")) {
+    const handle = String(map.handle ?? existing?.handle ?? "");
+    if (!isPayPluginHandle(handle)) throw new Error("\u652F\u4ED8\u63D2\u4EF6\u4E0D\u5B58\u5728");
+  }
+  const effCostType = Number(map.cost_type ?? existing?.cost_type ?? 0);
+  const effCost = Number(map.cost ?? existing?.cost ?? 0);
+  if (effCostType === 1 && effCost > 1) throw new Error("\u767E\u5206\u6BD4\u624B\u7EED\u8D39\u8BF7\u4F7F\u7528 0\u20131 \u4E4B\u95F4\u7684\u5C0F\u6570");
+  if (existing && Number(existing.archived) === 1 && (Number(map.commodity ?? 0) === 1 || Number(map.recharge ?? 0) === 1)) {
+    throw new Error("\u8BE5\u63A5\u53E3\u5DF2\u5F52\u6863\uFF0C\u8BF7\u5148\u5728\u300C\u5DF2\u5F52\u6863\u300D\u5217\u8868\u4E2D\u6062\u590D\u540E\u518D\u542F\u7528");
+  }
+  if (Object.keys(map).length === 0) throw new Error("\u6CA1\u6709\u53EF\u4FDD\u5B58\u7684\u652F\u4ED8\u63A5\u53E3\u5B57\u6BB5");
+  return map;
+}
+async function payLog(env, manage, request, content) {
+  try {
+    await dbInsert(env, "acg_manage_log", {
+      email: String(manage?.email || "admin"),
+      nickname: "",
+      content: String(content || ""),
+      create_time: now(),
+      create_ip: requestInfo(request).ip,
+      ua: "",
+      risk: 0
+    });
+  } catch (e) {
+  }
+}
+async function payData(env, request, url, body = {}) {
+  const b = { ...body };
+  if (b["equal-archived"] === void 0 || b["equal-archived"] === "") b["equal-archived"] = 0;
+  const page = await queryListPage(env, {
+    table: "acg_pay",
+    columns: PAY_COLUMNS,
+    timeColumns: ["create_time"],
+    body: b,
+    // 原版 getOrderBy($map, "sort", "asc") —— 前台按 sort 升序展示
+    defaultSort: "sort",
+    defaultRule: "asc"
+  });
+  const list = page.list.map((r) => ({
+    ...r,
+    archived: Number(r.archived) || 0,
+    commodity: Number(r.commodity) || 0,
+    recharge: Number(r.recharge) || 0,
+    create_time: dtString(r.create_time)
+  }));
+  return apiOk("success", { list, total: page.total, page: page.page, limit: page.limit });
+}
+async function paySave(env, request, url, body = {}, manage) {
+  const raw = body || {};
+  const id = payId(raw.id ?? null);
+  const created = id === 0;
+  const existing = created ? null : await dbFirst(env, "SELECT * FROM acg_pay WHERE id=?", id);
+  if (!created && !existing) throw new Error("\u652F\u4ED8\u63A5\u53E3\u4E0D\u5B58\u5728");
+  const map = await paySaveMap(env, raw, existing);
+  if (created) {
+    const row = { ...map, create_time: now() };
+    await dbInsert(env, "acg_pay", row);
+    const saved = await dbFirst(env, "SELECT id FROM acg_pay WHERE handle=? ORDER BY id DESC LIMIT 1", row.handle);
+    await payLog(env, manage, request, `[\u65B0\u589E]\u652F\u4ED8\u63A5\u53E3 ID\uFF1A${saved ? saved.id : 0}`);
+    return apiOk("\uFF08\uFF3E\u2200\uFF3E\uFF09\u4FDD\u5B58\u6210\u529F", { id: saved ? saved.id : 0 });
+  }
+  const sets = Object.keys(map).map((k) => `${k}=?`).join(", ");
+  await dbRun(env, `UPDATE acg_pay SET ${sets} WHERE id=?`, ...Object.values(map), id);
+  await payLog(env, manage, request, `[\u4FEE\u6539]\u652F\u4ED8\u63A5\u53E3 ID\uFF1A${id}`);
+  return apiOk("\uFF08\uFF3E\u2200\uFF3E\uFF09\u4FDD\u5B58\u6210\u529F", { id });
+}
+async function payDeleteImpactCalc(env, requestedIds) {
+  if (!requestedIds.length) throw new Error("\u4F60\u8FD8\u6CA1\u6709\u9009\u62E9\u652F\u4ED8\u63A5\u53E3");
+  const ph = requestedIds.map(() => "?").join(",");
+  const pays = await dbRows(
+    env,
+    `SELECT id, name, commodity, recharge, archived FROM acg_pay WHERE id IN (${ph}) ORDER BY id`,
+    ...requestedIds
+  );
+  const paymentIds = pays.map((p) => Number(p.id));
+  const stat = async (table, column) => {
+    if (!paymentIds.length) return /* @__PURE__ */ new Map();
+    const rows = await dbRows(
+      env,
+      `SELECT ${column} AS ref, COUNT(*) AS total, SUM(CASE WHEN status=1 THEN 1 ELSE 0 END) AS paid
+       FROM ${table} WHERE ${column} IN (${paymentIds.map(() => "?").join(",")}) GROUP BY ${column}`,
+      ...paymentIds
+    );
+    return new Map(rows.map((r) => [Number(r.ref), { total: Number(r.total) || 0, paid: Number(r.paid) || 0 }]));
+  };
+  const orderStats2 = await stat("acg_order", "pay_id");
+  const rechargeStats = await stat("acg_user_recharge", "pay_id");
+  const impact = {
+    delete_ids: [],
+    archive_ids: [],
+    requested_count: requestedIds.length,
+    payment_count: paymentIds.length,
+    missing_count: requestedIds.length - paymentIds.length,
+    names: pays.slice(0, 5).map((p) => String(p.name)),
+    built_in_count: 0,
+    order_count: 0,
+    paid_order_count: 0,
+    pending_order_count: 0,
+    recharge_count: 0,
+    paid_recharge_count: 0,
+    pending_recharge_count: 0,
+    commodity_enabled_count: 0,
+    recharge_enabled_count: 0,
+    delete_count: 0,
+    delete_names: [],
+    archive_count: 0,
+    archive_names: [],
+    already_archived_count: 0,
+    can_proceed: false
+  };
+  for (const p of pays) {
+    const pid = Number(p.id);
+    const orders = (orderStats2.get(pid) || {}).total || 0;
+    const recharges = (rechargeStats.get(pid) || {}).total || 0;
+    const paidOrders = (orderStats2.get(pid) || {}).paid || 0;
+    const paidRecharges = (rechargeStats.get(pid) || {}).paid || 0;
+    impact.order_count += orders;
+    impact.paid_order_count += paidOrders;
+    impact.pending_order_count += orders - paidOrders;
+    impact.recharge_count += recharges;
+    impact.paid_recharge_count += paidRecharges;
+    impact.pending_recharge_count += recharges - paidRecharges;
+    if (pid === 1) impact.built_in_count++;
+    if (Number(p.commodity) === 1) impact.commodity_enabled_count++;
+    if (Number(p.recharge) === 1) impact.recharge_enabled_count++;
+    if (pid === 1 || Number(p.commodity) === 1 || Number(p.recharge) === 1) continue;
+    if (orders === 0 && recharges === 0) {
+      impact.delete_ids.push(pid);
+      impact.delete_names.push(String(p.name));
+    } else if (Number(p.archived) === 1) {
+      impact.already_archived_count++;
+    } else {
+      impact.archive_ids.push(pid);
+      impact.archive_names.push(String(p.name));
+    }
+  }
+  impact.delete_count = impact.delete_ids.length;
+  impact.archive_count = impact.archive_ids.length;
+  impact.can_proceed = impact.missing_count === 0 && impact.built_in_count === 0 && impact.commodity_enabled_count === 0 && impact.recharge_enabled_count === 0 && impact.delete_count + impact.archive_count > 0;
+  return impact;
+}
+async function payDeleteImpact(env, request, url, body = {}) {
+  const impact = await payDeleteImpactCalc(env, payIds(body.list ?? []));
+  const { delete_ids, archive_ids, ...rest } = impact;
+  return apiOk("success", rest);
+}
+async function payDel(env, request, url, body = {}, manage) {
+  const impact = await payDeleteImpactCalc(env, payIds(body.list ?? []));
+  if (!impact.can_proceed) {
+    if (impact.already_archived_count > 0 && impact.missing_count === 0 && impact.built_in_count === 0 && impact.commodity_enabled_count === 0 && impact.recharge_enabled_count === 0) {
+      throw new Error("\u6240\u9009\u63A5\u53E3\u5747\u5DF2\u5F52\u6863\uFF0C\u65E0\u9700\u91CD\u590D\u64CD\u4F5C");
+    }
+    throw new Error(`\u5DF2\u963B\u6B62\u64CD\u4F5C\uFF1A\u5185\u7F6E\u63A5\u53E3 ${impact.built_in_count} \u4E2A\u3001\u4E0D\u5B58\u5728 ${impact.missing_count} \u4E2A\u3001\u4ECD\u542F\u7528\u5546\u54C1\u4E0B\u5355 ${impact.commodity_enabled_count} \u4E2A\u3001\u4ECD\u542F\u7528\u4F59\u989D\u5145\u503C ${impact.recharge_enabled_count} \u4E2A\u3002\u8BF7\u5148\u505C\u7528\u63A5\u53E3\u518D\u79FB\u9664\u3002`);
+  }
+  let deleted = 0;
+  let archived = 0;
+  if (impact.delete_ids.length) {
+    const r = await dbRun(
+      env,
+      `DELETE FROM acg_pay WHERE id IN (${impact.delete_ids.map(() => "?").join(",")})
+       AND id!=1 AND commodity=0 AND recharge=0`,
+      ...impact.delete_ids
+    );
+    deleted = Number(r.meta?.changes ?? 0);
+    if (deleted !== impact.delete_ids.length) throw new Error("\u652F\u4ED8\u63A5\u53E3\u72B6\u6001\u6216\u5386\u53F2\u5F15\u7528\u5DF2\u53D8\u5316\uFF0C\u672A\u6267\u884C\u64CD\u4F5C\uFF0C\u8BF7\u91CD\u65B0\u9884\u89C8");
+  }
+  if (impact.archive_ids.length) {
+    const r = await dbRun(
+      env,
+      `UPDATE acg_pay SET archived=1 WHERE id IN (${impact.archive_ids.map(() => "?").join(",")})
+       AND id!=1 AND commodity=0 AND recharge=0 AND archived=0`,
+      ...impact.archive_ids
+    );
+    archived = Number(r.meta?.changes ?? 0);
+    if (archived !== impact.archive_ids.length) throw new Error("\u652F\u4ED8\u63A5\u53E3\u72B6\u6001\u6216\u5386\u53F2\u5F15\u7528\u5DF2\u53D8\u5316\uFF0C\u672A\u6267\u884C\u64CD\u4F5C\uFF0C\u8BF7\u91CD\u65B0\u9884\u89C8");
+  }
+  await payLog(env, manage, request, `[\u79FB\u9664]\u652F\u4ED8\u63A5\u53E3\uFF1A\u7269\u7406\u5220\u9664 ${deleted} \u4E2A\u3001\u5F52\u6863 ${archived} \u4E2A`);
+  const parts = [];
+  if (deleted > 0) parts.push(`\u5220\u9664 ${deleted} \u4E2A`);
+  if (archived > 0) parts.push(`\u5F52\u6863 ${archived} \u4E2A`);
+  return apiOk("\uFF08\uFF3E\u2200\uFF3E\uFF09\u5DF2" + parts.join("\u3001"), { deleted, archived });
+}
+async function payRestore(env, request, url, body = {}, manage) {
+  const ids = payIds(body.list ?? []);
+  if (!ids.length) throw new Error("\u4F60\u8FD8\u6CA1\u6709\u9009\u62E9\u652F\u4ED8\u63A5\u53E3");
+  const r = await dbRun(env, `UPDATE acg_pay SET archived=0 WHERE id IN (${ids.map(() => "?").join(",")}) AND archived=1`, ...ids);
+  const count = Number(r.meta?.changes ?? 0);
+  await payLog(env, manage, request, `[\u6062\u590D]\u5F52\u6863\u652F\u4ED8\u63A5\u53E3\uFF0C\u5171\u8BA1\uFF1A${count}`);
+  return apiOk("\uFF08\uFF3E\u2200\uFF3E\uFF09\u5DF2\u6062\u590D\uFF0C\u63A5\u53E3\u76EE\u524D\u5904\u4E8E\u505C\u7528\u72B6\u6001\uFF0C\u53EF\u91CD\u65B0\u542F\u7528", { count });
+}
+function parseCfg(json, fallback = {}) {
+  if (json && typeof json === "object") return json;
+  try {
+    const o = JSON.parse(String(json || ""));
+    return o && typeof o === "object" && !Array.isArray(o) ? o : fallback;
+  } catch (e) {
+    return fallback;
+  }
+}
+var MASKED_KEYS = ["key", "secret", "app_key", "token", "password"];
+function maskPluginConfig(cfg) {
+  const out = { ...cfg };
+  for (const k of MASKED_KEYS) {
+    if (typeof out[k] === "string" && out[k] !== "") out[k] = "*".repeat(Math.min(8, out[k].length));
+  }
+  return out;
+}
+async function isDefaultProfile(env, handle, id) {
+  const row = await dbFirst(env, "SELECT id FROM acg_pay_config WHERE handle=? ORDER BY id ASC LIMIT 1", String(handle));
+  return !!row && Number(row.id) === Number(id);
+}
+async function payGetPlugins(env, request, url) {
+  const rows = await dbRows(env, "SELECT * FROM acg_pay_config ORDER BY handle ASC, sort ASC, id ASC");
+  const byHandle = /* @__PURE__ */ new Map();
+  for (const r of rows) {
+    if (!byHandle.has(r.handle)) byHandle.set(r.handle, []);
+    byHandle.get(r.handle).push(r);
+  }
+  const list = [];
+  for (const p of PAY_PLUGINS) {
+    const profiles = byHandle.get(p.id) || [];
+    const defaultProfile = profiles.reduce(
+      (min, r) => min === null || Number(r.id) < Number(min.id) ? r : min,
+      null
+    );
+    list.push({
+      id: p.id,
+      info: p.info,
+      submit: p.submit,
+      icon: "/favicon.ico",
+      system: !!p.system,
+      config: { top: 0, ...defaultProfile ? parseCfg(defaultProfile.config) : {} },
+      have_update: false
+    });
+  }
+  list.sort((a, b) => (Number(b.config.top) || 0) - (Number(a.config.top) || 0));
+  return apiOk("success", { list });
+}
+function payPluginHandle(body = {}) {
+  const handle = body.handle ?? "";
+  if (String(handle).trim() === "") throw new Error("\u63D2\u4EF6\u4E0D\u5B58\u5728");
+  if (!isPayPluginHandle(handle)) throw new Error("\u63D2\u4EF6\u4E0D\u5B58\u5728");
+  return String(handle).trim();
+}
+async function payGetPluginConfigs(env, request, url, body = {}) {
+  const handle = payPluginHandle(body);
+  const rows = await dbRows(env, "SELECT * FROM acg_pay_config WHERE handle=? ORDER BY sort ASC, id ASC", handle);
+  const ids = rows.map((r) => Number(r.id));
+  const usage = /* @__PURE__ */ new Map();
+  if (ids.length) {
+    const used = await dbRows(
+      env,
+      `SELECT pay_config_id, id, name, icon FROM acg_pay WHERE pay_config_id IN (${ids.map(() => "?").join(",")}) ORDER BY id`,
+      ...ids
+    );
+    for (const u of used) {
+      if (!usage.has(Number(u.pay_config_id))) usage.set(Number(u.pay_config_id), []);
+      usage.get(Number(u.pay_config_id)).push({ id: Number(u.id), name: String(u.name), icon: u.icon });
+    }
+  }
+  const oldest = rows.reduce((min, r) => min === null || Number(r.id) < min ? Number(r.id) : min, null);
+  return apiOk("success", {
+    profiles: rows.map((r) => {
+      const cfg = parseCfg(r.config);
+      return {
+        id: Number(r.id),
+        handle: String(r.handle),
+        name: String(r.name),
+        is_default: Number(r.id) === oldest,
+        sort: Number(r.sort) || 0,
+        // 列表侧一律给掩码, 明文只在新建/改名这类不需要回显的场景下发
+        config: maskPluginConfig(cfg),
+        in_use: usage.get(Number(r.id)) || []
+      };
+    })
+  });
+}
+async function payCreatePluginConfig(env, request, url, body = {}, manage) {
+  const handle = payPluginHandle(body);
+  const name = payStr(body.name, "\u914D\u7F6E\u540D\u79F0");
+  if (name === "" || name.length > 16) throw new Error("\u914D\u7F6E\u540D\u79F0\u5FC5\u987B\u662F 1\u201316 \u4E2A\u5B57\u7B26");
+  if (await dbFirst(env, "SELECT id FROM acg_pay_config WHERE handle=? AND name=?", handle, name)) {
+    throw new Error("\u540C\u540D\u914D\u7F6E\u5DF2\u5B58\u5728");
+  }
+  const t = now();
+  await dbInsert(env, "acg_pay_config", { handle, name, config: "{}", sort: 0, create_time: t, update_time: t });
+  const row = await dbFirst(env, "SELECT id FROM acg_pay_config WHERE handle=? AND name=?", handle, name);
+  await payLog(env, manage, request, `\u4E3A\u652F\u4ED8\u63D2\u4EF6(${handle})\u65B0\u589E\u4E86\u914D\u7F6E\u6863[${name}]`);
+  return apiOk("\u6DFB\u52A0\u6210\u529F", { id: row ? Number(row.id) : 0 });
+}
+async function payRenamePluginConfig(env, request, url, body = {}, manage) {
+  const handle = payPluginHandle(body);
+  const id = payInt(body.config_id, "\u652F\u4ED8\u914D\u7F6E", 1, 4294967295);
+  const name = payStr(body.name, "\u914D\u7F6E\u540D\u79F0");
+  if (name === "" || name.length > 16) throw new Error("\u914D\u7F6E\u540D\u79F0\u5FC5\u987B\u662F 1\u201316 \u4E2A\u5B57\u7B26");
+  const row = await dbFirst(env, "SELECT id FROM acg_pay_config WHERE id=? AND handle=?", id, handle);
+  if (!row) throw new Error("\u914D\u7F6E\u4E0D\u5B58\u5728");
+  if (await dbFirst(env, "SELECT id FROM acg_pay_config WHERE handle=? AND name=? AND id!=?", handle, name, id)) {
+    throw new Error("\u540C\u540D\u914D\u7F6E\u5DF2\u5B58\u5728");
+  }
+  await dbRun(env, "UPDATE acg_pay_config SET name=?, update_time=? WHERE id=?", name, now(), id);
+  await payLog(env, manage, request, `\u628A\u652F\u4ED8\u63D2\u4EF6(${handle})\u7684\u914D\u7F6E\u6863#${id}\u6539\u540D\u4E3A[${name}]`);
+  return apiOk("\u4FEE\u6539\u6210\u529F");
+}
+async function payDelPluginConfig(env, request, url, body = {}, manage) {
+  const handle = payPluginHandle(body);
+  const id = payInt(body.config_id, "\u652F\u4ED8\u914D\u7F6E", 1, 4294967295);
+  const row = await dbFirst(env, "SELECT id FROM acg_pay_config WHERE id=? AND handle=?", id, handle);
+  if (!row) throw new Error("\u914D\u7F6E\u4E0D\u5B58\u5728");
+  if (await isDefaultProfile(env, handle, id)) throw new Error("\u9ED8\u8BA4\u914D\u7F6E\u4E0D\u80FD\u5220\u9664\uFF0C\u65B0\u5EFA\u652F\u4ED8\u63A5\u53E3\u9700\u8981\u5B83");
+  const used = await dbFirst(env, "SELECT id FROM acg_pay WHERE pay_config_id=?", id);
+  if (used) throw new Error("\u8BE5\u914D\u7F6E\u6B63\u88AB\u652F\u4ED8\u63A5\u53E3\u4F7F\u7528\uFF0C\u9700\u8981\u5148\u628A\u5B83\u4EEC\u6539\u7528\u5176\u4ED6\u914D\u7F6E");
+  await dbRun(env, "DELETE FROM acg_pay_config WHERE id=?", id);
+  await payLog(env, manage, request, `\u5220\u9664\u4E86\u652F\u4ED8\u63D2\u4EF6(${handle})\u7684\u914D\u7F6E\u6863#${id}`);
+  return apiOk("\u5220\u9664\u6210\u529F");
+}
+async function paySetPluginConfig(env, request, url, body = {}, manage) {
+  const id = String(body.id ?? url.searchParams.get("id") ?? "").trim();
+  if (id === "") throw new Error("\u63D2\u4EF6\u4E0D\u5B58\u5728");
+  if (!isPayPluginHandle(id)) throw new Error("\u63D2\u4EF6\u4E0D\u5B58\u5728");
+  const plugin = findPayPlugin(id);
+  const raw = { ...body };
+  delete raw.id;
+  delete raw.config_id;
+  const allowed = new Set((plugin.submit || []).map((f) => f.name).filter(Boolean));
+  const clean = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (!allowed.has(k)) continue;
+    if (v === null || v === void 0) continue;
+    if (typeof v === "object") continue;
+    clean[k] = String(v);
+  }
+  const current = await dbFirst(env, "SELECT * FROM acg_pay_config WHERE handle=? ORDER BY id ASC LIMIT 1", id);
+  const oldCfg = current ? parseCfg(current.config) : {};
+  for (const k of Object.keys(clean)) {
+    if (MASKED_KEYS.includes(k) && /^\*+$/.test(clean[k])) delete clean[k];
+  }
+  const merged = { ...oldCfg, ...clean };
+  const cidRaw = url.searchParams.get("config_id") ?? body.config_id;
+  const cid = cidRaw !== null && cidRaw !== void 0 && String(cidRaw).trim() !== "" ? payInt(cidRaw, "\u652F\u4ED8\u914D\u7F6E", 1, 4294967295) : null;
+  if (cid) {
+    const row = await dbFirst(env, "SELECT id FROM acg_pay_config WHERE id=? AND handle=?", cid, id);
+    if (!row) throw new Error("\u652F\u4ED8\u914D\u7F6E\u4E0D\u5B58\u5728\u6216\u4E0D\u5C5E\u4E8E\u6240\u9009\u63D2\u4EF6");
+    await dbRun(env, "UPDATE acg_pay_config SET config=?, update_time=? WHERE id=?", JSON.stringify(merged), now(), cid);
+    await payLog(env, manage, request, `\u4FEE\u6539\u4E86\u652F\u4ED8\u63D2\u4EF6(${id})\u7684\u914D\u7F6E\u4FE1\u606F[\u914D\u7F6E\u6863#${cid}]`);
+    return apiOk("\u4FEE\u6539\u6210\u529F");
+  }
+  if (current) {
+    await dbRun(env, "UPDATE acg_pay_config SET config=?, update_time=? WHERE id=?", JSON.stringify(merged), now(), current.id);
+    await payLog(env, manage, request, `\u4FEE\u6539\u4E86\u652F\u4ED8\u63D2\u4EF6(${id})\u7684\u914D\u7F6E\u4FE1\u606F`);
+    return apiOk("\u4FEE\u6539\u6210\u529F");
+  }
+  const t = now();
+  await dbInsert(env, "acg_pay_config", { handle: id, name: "\u9ED8\u8BA4\u914D\u7F6E", config: JSON.stringify(merged), sort: 0, create_time: t, update_time: t });
+  await payLog(env, manage, request, `\u4FEE\u6539\u4E86\u652F\u4ED8\u63D2\u4EF6(${id})\u7684\u914D\u7F6E\u4FE1\u606F`);
+  return apiOk("\u4FEE\u6539\u6210\u529F");
+}
+async function payGetPluginLog(env, request, url, body = {}) {
+  const handle = payPluginHandle(body);
+  const row = await dbFirst(env, "SELECT content FROM acg_pay_plugin_log WHERE handle=?", handle);
+  return apiOk("success", { log: row ? String(row.content || "") : "" });
+}
+async function payClearPluginLog(env, request, url, body = {}, manage) {
+  const handle = payPluginHandle(body);
+  await dbRun(env, "DELETE FROM acg_pay_plugin_log WHERE handle=?", handle);
+  await payLog(env, manage, request, `\u6E05\u7A7A\u4E86\u652F\u4ED8\u63D2\u4EF6(${handle})\u7684\u65E5\u5FD7`);
+  return apiOk("success");
+}
+async function payTest(env, request, url, body = {}) {
+  const pay = await dbFirst(env, "SELECT * FROM acg_pay WHERE id=?", payId(body.id));
+  if (!pay) throw new Error("\u652F\u4ED8\u63A5\u53E3\u4E0D\u5B58\u5728");
+  if (Number(pay.id) === 1 || String(pay.handle) === "#system") {
+    throw new Error("\u4F59\u989D\u652F\u4ED8\u4E0D\u7ECF\u8FC7\u7B2C\u4E09\u65B9\u7F51\u5173\uFF0C\u65E0\u9700\u62E8\u6D4B");
+  }
+  if (Number(pay.archived) === 1) throw new Error("\u5DF2\u5F52\u6863\u7684\u63A5\u53E3\u65E0\u6CD5\u62E8\u6D4B\uFF0C\u8BF7\u5148\u6062\u590D");
+  throw new Error("\u62E8\u6D4B\u9700\u8981\u8FDE\u63A5\u771F\u5B9E\u652F\u4ED8\u7F51\u5173\uFF0C\u672C\u90E8\u7F72\u672A\u542F\u7528\u7B2C\u4E09\u65B9\u7F51\u5173\u8C03\u7528");
+}
 async function adminEndpoint(env, request, url, ctl, act, body) {
   if (ctl === "authentication" && act === "login") return adminLogin(env, request, url, body);
   const manage = await authenticateManage(env, request);
@@ -3734,6 +4321,27 @@ async function adminEndpoint(env, request, url, ctl, act, body) {
       return apiErr(e && e.message ? String(e.message) : "\u64CD\u4F5C\u5931\u8D25");
     }
   }
+  if (ctl === "pay") {
+    try {
+      if (act === "data") return await payData(env, request, url, body);
+      if (act === "save") return await paySave(env, request, url, body, manage);
+      if (act === "deleteImpact") return await payDeleteImpact(env, request, url, body);
+      if (act === "del") return await payDel(env, request, url, body, manage);
+      if (act === "restore") return await payRestore(env, request, url, body, manage);
+      if (act === "getPlugins") return await payGetPlugins(env, request, url);
+      if (act === "getPluginConfigs") return await payGetPluginConfigs(env, request, url, body);
+      if (act === "createPluginConfig") return await payCreatePluginConfig(env, request, url, body, manage);
+      if (act === "renamePluginConfig") return await payRenamePluginConfig(env, request, url, body, manage);
+      if (act === "delPluginConfig") return await payDelPluginConfig(env, request, url, body, manage);
+      if (act === "setPluginConfig") return await paySetPluginConfig(env, request, url, body, manage);
+      if (act === "getPluginLog") return await payGetPluginLog(env, request, url, body);
+      if (act === "ClearPluginLog") return await payClearPluginLog(env, request, url, body, manage);
+      if (act === "test") return await payTest(env, request, url, body);
+      if (act === "testState") return apiOk("success", { state: 0, msg: "\u62E8\u6D4B\u672A\u542F\u7528" });
+    } catch (e) {
+      return apiErr(e && e.message ? String(e.message) : "\u64CD\u4F5C\u5931\u8D25");
+    }
+  }
   return apiErr("\u63A5\u53E3\u4E0D\u5B58\u5728", 404);
 }
 
@@ -3754,11 +4362,11 @@ function adminVar(cfg = {}) {
   for (const [k, v] of Object.entries(vars)) {
     s += `setVar(${JSON.stringify(k)}, ${JSON.stringify(v)});`;
   }
-  s += "<\/script>";
+  s += "</script>";
   return s;
 }
 var cssLinks = (paths) => paths.map((p) => `<link rel="stylesheet" href="${p}"/>`).join("\n");
-var jsScripts = (paths) => paths.map((p) => `<script src="${p}"><\/script>`).join("\n");
+var jsScripts = (paths) => paths.map((p) => `<script src="${p}"></script>`).join("\n");
 function renderAdminLoginPage(cfg = {}) {
   const bg = cfg.background_url || "/assets/admin/img/bg.jpg";
   const shopName = cfg.shop_name || "acg-faka";
@@ -3782,7 +4390,7 @@ function renderAdminLoginPage(cfg = {}) {
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1"/>
     <title>\u767B\u5F55 - ${htmlEscape(shopName)}</title>
-    <script>(function(){try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;var e=document.documentElement;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);}catch(_){document.documentElement.setAttribute('data-theme','light');}})();<\/script>
+    <script>(function(){try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;var e=document.documentElement;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);}catch(_){document.documentElement.setAttribute('data-theme','light');}})();</script>
     ${cssLinks([
     "/assets/common/css/_.css",
     "/assets/admin/css/auth.css",
@@ -3799,7 +4407,7 @@ function renderAdminLoginPage(cfg = {}) {
     "/assets/common/css/md-tokens.css",
     "/assets/admin/css/material-auth.css"
   ])}
-    <script src="/assets/common/js/ready.js"><\/script>
+    <script src="/assets/common/js/ready.js"></script>
     ${adminVar(cfg)}
 </head>
 <body class="ay-bg" style="background-image: linear-gradient(180deg, rgb(255 255 255 / 0%), rgb(255 255 255 / 71%)), url('${htmlEscape(bg)}')">
@@ -3896,7 +4504,7 @@ function renderAdminLoginPage(cfg = {}) {
     </section>
 </main>
 
-<script>ready("/assets/admin/controller/auth/login.js");<\/script>
+<script>ready("/assets/admin/controller/auth/login.js");</script>
 ${jsScripts([
     "/assets/common/js/_.js",
     "/assets/common/js/util/dict.js",
@@ -3937,7 +4545,7 @@ function renderCrudPage({ cfg, manage, title, activePath, toolbar = null, body, 
     title,
     activePath,
     toolbar,
-    body: `${body}<script>${readyJs}<\/script>`
+    body: `${body}<script>${readyJs}</script>`
   });
 }
 function renderAdminCategoryPage(cfg, manage) {
@@ -4532,7 +5140,7 @@ function renderAdminShell(opts = {}) {
 <head>
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-    <script>(function(){var e=document.documentElement;try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);var m=localStorage.getItem('admin-layout-mode')==='desktop'?'desktop':((window.innerWidth||screen.width)<992?'mobile':'desktop');e.setAttribute('data-admin-layout',m);}catch(_){e.setAttribute('data-theme','light');e.setAttribute('data-admin-layout',(window.innerWidth||screen.width)<992?'mobile':'desktop');}})();<\/script>
+    <script>(function(){var e=document.documentElement;try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);var m=localStorage.getItem('admin-layout-mode')==='desktop'?'desktop':((window.innerWidth||screen.width)<992?'mobile':'desktop');e.setAttribute('data-admin-layout',m);}catch(_){e.setAttribute('data-theme','light');e.setAttribute('data-admin-layout',(window.innerWidth||screen.width)<992?'mobile':'desktop');}})();</script>
     <title>${htmlEscape(title)}-${htmlEscape(shopName)}</title>
     <link rel="shortcut icon" href="/favicon.ico"/>
     ${cssLinks([
@@ -4558,13 +5166,13 @@ function renderAdminShell(opts = {}) {
     "/assets/common/css/mdicon.css",
     "/assets/admin/css/mobile.css"
   ])}
-    <script src="/assets/common/js/ready.js"><\/script>
+    <script src="/assets/common/js/ready.js"></script>
     ${adminVar(cfg)}
 </head>
 <body id="kt_body"
       class="header-fixed header-tablet-and-mobile-fixed toolbar-enabled toolbar-fixed aside-enabled aside-fixed"
       style="--kt-toolbar-height:55px;--kt-toolbar-height-tablet-and-mobile:55px;background: url('${htmlEscape(cfg.background_url || "")}') fixed no-repeat;background-size: cover;">
-<script>(function(){try{if((!window.matchMedia||matchMedia('(min-width: 992px)').matches)&&localStorage.getItem('admin-aside-minimize')==='on'){document.body.setAttribute('data-kt-aside-minimize','on');}}catch(_){}})();<\/script>
+<script>(function(){try{if((!window.matchMedia||matchMedia('(min-width: 992px)').matches)&&localStorage.getItem('admin-aside-minimize')==='on'){document.body.setAttribute('data-kt-aside-minimize','on');}}catch(_){}})();</script>
 <div class="d-flex flex-column flex-root">
     <div class="page d-flex flex-row flex-column-fluid">
         <!--begin::Aside-->
@@ -4677,7 +5285,7 @@ ${adminFooterScripts()}
 }
 function renderAdminDashboardPage(cfg, manage) {
   const body = `
-<script src="/assets/static/echarts.min.js"><\/script>
+<script src="/assets/static/echarts.min.js"></script>
 <div class="dash">
   <div class="dash__grid">
     <aside class="dash__side">
@@ -4904,7 +5512,7 @@ function renderAdminDashboardPage(cfg, manage) {
     </div>
   </div>
 </div>
-<script>ready("/assets/admin/controller/dashboard/index.js");<\/script>`;
+<script>ready("/assets/admin/controller/dashboard/index.js");</script>`;
   return renderAdminShell({ cfg, manage, title: "\u63A7\u5236\u53F0", activePath: "/admin/dashboard/index", body });
 }
 function renderAdminOrderPage(cfg, manage) {
@@ -6305,6 +6913,55 @@ function renderAdminLogPage(cfg, manage) {
     readyJs: loadOrigCtl("/assets/admin/controller/manage/log.js")
   });
 }
+function renderAdminPayPluginPage(cfg, manage) {
+  const body = `
+<div class="card mb-5 mb-xl-8">
+    <div class="card-header border-0">
+        <div class="card-toolbar">
+            <a href="/admin/store/home" class="btn btn-sm btn-light-primary btn-app-create me-3"><i
+                        class="fa-duotone fa-regular fa-rectangle-history-circle-plus"></i>
+                \u5B89\u88C5\u66F4\u591A\u63D2\u4EF6
+            </a>
+        </div>
+    </div>
+    <div class="card-body py-3">
+        <table id="pay-plugin-table"></table>
+    </div>
+</div>`;
+  return renderCrudPage({
+    cfg,
+    manage,
+    title: "\u652F\u4ED8\u63D2\u4EF6",
+    activePath: "/admin/pay/plugin",
+    body,
+    readyJs: loadOrigCtl("/assets/admin/controller/pay/plugin.js")
+  });
+}
+function renderAdminPayPage(cfg, manage) {
+  const body = `
+<div class="card mb-5 mb-xl-8">
+    <div class="card-header border-0">
+        <div class="card-toolbar">
+            <button class="btn btn-sm btn-light-primary btn-app-create me-3"><i class="fa-duotone fa-regular fa-circle-plus"></i>
+                \u6DFB\u52A0\u652F\u4ED8
+            </button>
+            <button class="btn btn-sm btn-light-danger btn-app-del me-3"><i class="fa-duotone fa-regular fa-trash-can"></i> \u79FB\u9664\u9009\u4E2D\u652F\u4ED8
+            </button>
+        </div>
+    </div>
+    <div class="card-body py-3">
+        <table id="pay-table"></table>
+    </div>
+</div>`;
+  return renderCrudPage({
+    cfg,
+    manage,
+    title: "\u652F\u4ED8\u63A5\u53E3",
+    activePath: "/admin/pay/index",
+    body,
+    readyJs: loadOrigCtl("/assets/admin/controller/pay/api.js")
+  });
+}
 
 // pages.js
 var CSS_AUTH = [
@@ -6365,13 +7022,13 @@ function renderAuthHeader(v) {
     <link href="${favicon}?v=${app.version}" rel="icon">
     <title>${htmlEscape(title)} - ${htmlEscape(config.shop_name)}</title>
     ${CSS_AUTH.map((f) => `<link href="${f}" rel="stylesheet">`).join("")}
-    <script src="/assets/common/js/ready.js"><\/script>
+    <script src="/assets/common/js/ready.js"></script>
     ${indexVar(0, config)}
 </head>
 <body style="background-size: cover;background-image: linear-gradient(180deg, rgb(255 255 255 / 0%), rgb(255 255 255 / 71%)), url('${htmlEscape(config.background_url || "")}')">`;
 }
 function renderAuthFooter() {
-  return `${JS_AUTH.map((f) => `<script src="${f}"><\/script>`).join("")}
+  return `${JS_AUTH.map((f) => `<script src="${f}"></script>`).join("")}
 </body>
 </html>`;
 }
@@ -6435,7 +7092,7 @@ function pageLogin(v) {
         ${regLink}
     </div>
 </main>
-<script src="/assets/user/controller/auth/login.js"><\/script>`;
+<script src="/assets/user/controller/auth/login.js"></script>`;
 }
 function pageRegister(v) {
   const { config } = v;
@@ -6527,7 +7184,7 @@ function pageRegister(v) {
 
     </div>
 </main>
-<script src="/assets/user/controller/auth/register.js"><\/script>`;
+<script src="/assets/user/controller/auth/register.js"></script>`;
 }
 function userCenterShell(v, body) {
   const { config, user } = v;
@@ -6632,7 +7289,7 @@ function pagePurchaseRecord(v) {
         tbody.innerHTML = html;
       });
     })();
-    <\/script>`;
+    </script>`;
   return userCenterShell(v, body);
 }
 function pageRecharge(v) {
@@ -6683,7 +7340,7 @@ function pageRecharge(v) {
             })
             .catch(function(){ alert('\u7F51\u7EDC\u9519\u8BEF'); btn.disabled = false; });
         });
-        <\/script>` : `<div class="text-muted">\u5145\u503C\u529F\u80FD\u672A\u5F00\u542F</div>`}
+        </script>` : `<div class="text-muted">\u5145\u503C\u529F\u80FD\u672A\u5F00\u542F</div>`}
       </div>
     </div>`;
   return userCenterShell(v, body);
@@ -6730,7 +7387,7 @@ function pageSecurity(v) {
             })
             .catch(function(){ btn.disabled = false; alert('\u7F51\u7EDC\u9519\u8BEF'); });
         });
-        <\/script>
+        </script>
       </div>
     </div>`;
   return userCenterShell(v, body);
@@ -6764,7 +7421,7 @@ function pageBill(v) {
         tbody.innerHTML = html;
       });
     })();
-    <\/script>`;
+    </script>`;
   return userCenterShell(v, body);
 }
 
@@ -6878,7 +7535,7 @@ function renderHeader(v, extraScripts = "") {
     <link href="${favicon}?v=${app.version}" rel="icon">
     <title>${htmlEscape(title)} - ${htmlEscape(config.shop_name)}</title>
     ${CSS_FILES.map((f) => `<link href="${f}" rel="stylesheet">`).join("")}
-    <script src="/assets/common/js/ready.js"><\/script>
+    <script src="/assets/common/js/ready.js"></script>
     ${extraScripts}
 </head>
 <body style="background-size: cover;background-image: linear-gradient(180deg, rgb(255 255 255 / 0%), rgb(255 255 255 / 71%)), url('${htmlEscape(config.background_url || "")}')">
@@ -6925,7 +7582,7 @@ function renderHeader(v, extraScripts = "") {
 function renderFooter(v) {
   return `</div>
 ${v.setting && v.setting.icp ? `<footer>${htmlEscape(v.setting.icp)}</footer>` : ""}
-${JS_FILES.map((f) => `<script src="${f}"><\/script>`).join("")}
+${JS_FILES.map((f) => `<script src="${f}"></script>`).join("")}
 </body>
 </html>`;
 }
@@ -7167,7 +7824,7 @@ function pageIndex(v) {
     </div>
   </div>
 </main>
-<script src="/assets/user/controller/index/index.js"><\/script>`;
+<script src="/assets/user/controller/index/index.js"></script>`;
 }
 function pageItem(v) {
   const { item, config } = v;
@@ -7296,7 +7953,7 @@ function pageItem(v) {
 
 
 </main>
-<script src="/assets/user/controller/index/item.js"><\/script>`;
+<script src="/assets/user/controller/index/item.js"></script>`;
 }
 function pageQuery(v) {
   return `<main class="container py-4">
@@ -7321,7 +7978,7 @@ function pageQuery(v) {
         </div>
     </div>
 </main>
-<script src="/assets/user/controller/index/query.js"><\/script>`;
+<script src="/assets/user/controller/index/query.js"></script>`;
 }
 function pageClosed(v) {
   return `<main class="container py-5">
@@ -7471,6 +8128,12 @@ async function route(env, request, url, ctx) {
     }
     if (s === "/admin/log/index") {
       return pageRes(renderAdminLogPage(cfg, manage));
+    }
+    if (s === "/admin/pay/plugin") {
+      return pageRes(renderAdminPayPluginPage(cfg, manage));
+    }
+    if (s === "/admin/pay/index" || s === "/admin/pay") {
+      return pageRes(renderAdminPayPage(cfg, manage));
     }
     return pageRes(renderAdminShell({ cfg, manage, title: "\u5EFA\u8BBE\u4E2D", activePath: s }, "text/html"));
   }

@@ -12,6 +12,7 @@ import {
   generatePassword, verifyPassword, throttle, throttleClear,
   queryListPage, dtString,
 } from './lib.js';
+import { PAY_PLUGINS, findPayPlugin, isPayPluginHandle } from './pay-plugins.js';
 import { captchaVerify } from './api.js';
 
 export const MANAGE_SESSION = 'MANAGE_USER';
@@ -2233,6 +2234,557 @@ export async function logData(env, request, url, body = {}) {
   return apiOk('success', { list, total: page.total, page: page.page, limit: page.limit });
 }
 
+// ============================================================
+// 支付接口 + 支付插件 (后台) — 对齐原版 Controller/Admin/Api/Pay.php
+//   /admin/api/pay/data            列表(归档默认隐藏, 默认 sort asc)
+//   /admin/api/pay/save            新增/修改(严格字段白名单 + 逐字段校验)
+//   /admin/api/pay/deleteImpact    删除影响预览(只读)
+//   /admin/api/pay/del             无引用→物理删除, 有引用→归档
+//   /admin/api/pay/restore         恢复归档(恢复后仍停用)
+//   /admin/api/pay/getPlugins      插件列表(注册表 + 各配置档)
+//   /admin/api/pay/getPluginConfigs / createPluginConfig /
+//   /admin/api/pay/renamePluginConfig / delPluginConfig
+//   /admin/api/pay/setPluginConfig  写插件(或指定配置档)的配置值
+//   /admin/api/pay/getPluginLog / ClearPluginLog
+// ============================================================
+const PAY_SAVE_FIELDS = [  'name', 'icon', 'code', 'commodity', 'recharge', 'handle',
+  'pay_config_id', 'sort', 'equipment', 'cost', 'cost_type',
+];
+const PAY_MAX_BATCH = 100;
+const PAY_TEST_MAX_AMOUNT = 100;
+
+const PAY_COLUMNS = [
+  'id', 'name', 'icon', 'code', 'commodity', 'recharge', 'create_time',
+  'handle', 'pay_config_id', 'sort', 'equipment', 'cost', 'cost_type', 'archived',
+];
+
+// ---- 与原版 private paymentIds() 同语义 ----
+function payIds(value) {
+  let list;
+  if (typeof value === 'string') list = value.split(',');
+  else if (Array.isArray(value)) list = value;
+  else list = [value];
+  const ids = [];
+  for (const raw of list) {
+    if (raw === '' || raw === null || raw === undefined) continue;
+    const s = String(raw).trim();
+    if (!/^\d+$/.test(s)) throw new Error('支付接口 ID 格式不正确');
+    const id = Number(s);
+    if (id < 1 || id > 4294967295) throw new Error('支付接口 ID 超出有效范围');
+    ids.push(id);
+  }
+  const uniq = [...new Set(ids)];
+  if (uniq.length > PAY_MAX_BATCH) throw new Error(`单次最多操作 ${PAY_MAX_BATCH} 个支付接口`);
+  return uniq;
+}
+
+function payId(value) {
+  if (value === '' || value === null || value === undefined || value === 0 || value === '0') return 0;
+  return payIds([value])[0] || 0;
+}
+
+function payInt(value, label, min, max) {
+  const s = String(value == null ? '' : value).trim();
+  if (!/^-?\d+$/.test(s)) throw new Error(`${label}格式不正确`);
+  const n = Number(s);
+  if (n < min || n > max) throw new Error(`${label}超出有效范围`);
+  return n;
+}
+
+function payStr(value, label) {
+  if (value === null || value === undefined || typeof value === 'object') throw new Error(`${label}格式不正确`);
+  return String(value).trim();
+}
+
+// 配置档是否存在且属于该 handle(否则就是拿别家的商户凭据去收款)
+async function payConfigBelongs(env, handle, configId) {
+  if (!(configId > 0)) return false;
+  const row = await dbFirst(env, 'SELECT id FROM acg_pay_config WHERE id=? AND handle=?', configId, String(handle));
+  return !!row;
+}
+
+// ---- 与原版 paymentSaveMap() 同语义 ----
+async function paySaveMap(env, raw, existing) {
+  const allowed = new Set(['id', ...PAY_SAVE_FIELDS]);
+  for (const field of Object.keys(raw || {})) {
+    if (!allowed.has(field)) throw new Error('支付接口保存请求包含未授权字段');
+  }
+  if (existing && Number(existing.id) === 1) throw new Error('系统内置余额接口无法修改');
+
+  const src = { ...raw };
+  delete src.id;
+
+  // 已有支付接口的所属插件不可更改
+  if (existing && Object.prototype.hasOwnProperty.call(src, 'handle')) {
+    if (payStr(src.handle, '支付插件') !== String(existing.handle)) {
+      throw new Error('已有支付接口的所属插件不可更改');
+    }
+    delete src.handle;
+  }
+
+  const map = {};
+  if (Object.prototype.hasOwnProperty.call(src, 'name')) {
+    const name = payStr(src.name, '支付名称');
+    if (name === '' || name.length > 16 || /[\x00-\x1F\x7F<>]/.test(name)) {
+      throw new Error('支付名称必须是 1–16 个不含 HTML 的字符');
+    }
+    map.name = name;
+  }
+  if (Object.prototype.hasOwnProperty.call(src, 'icon')) {
+    const icon = payStr(src.icon, '支付图标');
+    if (icon === '' || icon.length > 255 || /[\x00-\x20\x7F<>"']/.test(icon)
+      || icon.startsWith('//') || !/^(?:\/|https?:\/\/)/i.test(icon)) {
+      throw new Error('支付图标必须是站内绝对路径或 HTTP(S) 地址');
+    }
+    map.icon = icon;
+  }
+  if (Object.prototype.hasOwnProperty.call(src, 'handle')) {
+    const handle = payStr(src.handle, '支付插件');
+    if (!/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(handle)) throw new Error('支付插件标识不正确');
+    map.handle = handle;
+  }
+  if (Object.prototype.hasOwnProperty.call(src, 'code')) {
+    const code = String(src.code == null ? '' : src.code);
+    if (code.trim() === '' || code.length > 32 || /[\x00-\x1F\x7F<>"']/.test(code)) {
+      throw new Error('支付方式代码不正确');
+    }
+    map.code = code;
+  }
+  for (const [field, label] of [['commodity', '商品下单状态'], ['recharge', '余额充值状态'], ['cost_type', '手续费模式']]) {
+    if (Object.prototype.hasOwnProperty.call(src, field)) map[field] = payInt(src[field], label, 0, 1);
+  }
+  if (Object.prototype.hasOwnProperty.call(src, 'equipment')) map.equipment = payInt(src.equipment, '显示终端', 0, 2);
+  if (Object.prototype.hasOwnProperty.call(src, 'sort')) map.sort = payInt(src.sort, '显示排序', 0, 65535);
+
+  if (Object.prototype.hasOwnProperty.call(src, 'pay_config_id')) {
+    const cid = payInt(src.pay_config_id, '支付配置', 0, 4294967295);
+    const handle = String(map.handle ?? existing?.handle ?? '');
+    if (cid > 0) {
+      if (!(await payConfigBelongs(env, handle, cid))) throw new Error('支付配置不存在或不属于所选插件');
+    }
+    map.pay_config_id = cid;
+  }
+  if (Object.prototype.hasOwnProperty.call(src, 'cost')) {
+    let cost = payStr(src.cost, '手续费');
+    if (cost === '') cost = '0';
+    if (!/^\d{1,7}(?:\.\d{1,3})?$/.test(cost) || Number(cost) > 9999999.999) {
+      throw new Error('手续费必须是不超过 3 位小数的非负数');
+    }
+    map.cost = cost;
+  }
+
+  if (!existing) {
+    for (const [field, label] of [['name', '支付名称'], ['icon', '支付图标'], ['handle', '支付插件'], ['code', '支付方式']]) {
+      if (!Object.prototype.hasOwnProperty.call(map, field)) throw new Error(`请填写${label}`);
+    }
+    // 只补齐未传的字段默认值, 不能覆盖调用方已经传进来的值
+    for (const [field, def] of Object.entries({
+      commodity: 0, recharge: 0, sort: 0, equipment: 0, cost: '0', cost_type: 0, pay_config_id: 0,
+    })) {
+      if (!Object.prototype.hasOwnProperty.call(map, field)) map[field] = def;
+    }
+  }
+
+  // 插件存在性校验: 新增或改 code 时校验(允许填插件没声明的 code, 原版也是放开的)
+  if (!existing || Object.prototype.hasOwnProperty.call(map, 'code')) {
+    const handle = String(map.handle ?? existing?.handle ?? '');
+    if (!isPayPluginHandle(handle)) throw new Error('支付插件不存在');
+  }
+
+  const effCostType = Number(map.cost_type ?? existing?.cost_type ?? 0);
+  const effCost = Number(map.cost ?? existing?.cost ?? 0);
+  if (effCostType === 1 && effCost > 1) throw new Error('百分比手续费请使用 0–1 之间的小数');
+
+  // 归档接口不允许重新启用, 避免出现「前台可用但列表看不见」的悬空状态
+  if (existing && Number(existing.archived) === 1
+    && (Number(map.commodity ?? 0) === 1 || Number(map.recharge ?? 0) === 1)) {
+    throw new Error('该接口已归档，请先在「已归档」列表中恢复后再启用');
+  }
+  if (Object.keys(map).length === 0) throw new Error('没有可保存的支付接口字段');
+  return map;
+}
+
+// 后台操作日志(与提现/商品等模块同一张 acg_manage_log, 失败不阻断主流程)
+async function payLog(env, manage, request, content) {
+  try {
+    await dbInsert(env, 'acg_manage_log', {
+      email: String(manage?.email || 'admin'), nickname: '', content: String(content || ''),
+      create_time: now(), create_ip: requestInfo(request).ip, ua: '', risk: 0,
+    });
+  } catch (e) { /* 日志失败不影响主流程 */ }
+}
+
+// ---- 支付接口列表 ----
+export async function payData(env, request, url, body = {}) {
+  const b = { ...body };
+  // 归档接口默认不出现在列表; 显式传 equal-archived=1 时才展示
+  if (b['equal-archived'] === undefined || b['equal-archived'] === '') b['equal-archived'] = 0;
+  const page = await queryListPage(env, {
+    table: 'acg_pay', columns: PAY_COLUMNS, timeColumns: ['create_time'], body: b,
+    // 原版 getOrderBy($map, "sort", "asc") —— 前台按 sort 升序展示
+    defaultSort: 'sort', defaultRule: 'asc',
+  });
+  const list = page.list.map((r) => ({
+    ...r,
+    archived: Number(r.archived) || 0,
+    commodity: Number(r.commodity) || 0,
+    recharge: Number(r.recharge) || 0,
+    create_time: dtString(r.create_time),
+  }));
+  return apiOk('success', { list, total: page.total, page: page.page, limit: page.limit });
+}
+
+// ---- 新增/修改支付接口 ----
+export async function paySave(env, request, url, body = {}, manage) {
+  const raw = body || {};
+  const id = payId(raw.id ?? null);
+  const created = id === 0;
+  const existing = created ? null : await dbFirst(env, 'SELECT * FROM acg_pay WHERE id=?', id);
+  if (!created && !existing) throw new Error('支付接口不存在');
+
+  const map = await paySaveMap(env, raw, existing);
+  if (created) {
+    const row = { ...map, create_time: now() };
+    await dbInsert(env, 'acg_pay', row);
+    const saved = await dbFirst(env, 'SELECT id FROM acg_pay WHERE handle=? ORDER BY id DESC LIMIT 1', row.handle);
+    await payLog(env, manage, request, `[新增]支付接口 ID：${saved ? saved.id : 0}`);
+    return apiOk('（＾∀＾）保存成功', { id: saved ? saved.id : 0 });
+  }
+  const sets = Object.keys(map).map((k) => `${k}=?`).join(', ');
+  await dbRun(env, `UPDATE acg_pay SET ${sets} WHERE id=?`, ...Object.values(map), id);
+  await payLog(env, manage, request, `[修改]支付接口 ID：${id}`);
+  return apiOk('（＾∀＾）保存成功', { id });
+}
+
+// ---- 删除影响分析(只读预览) ----
+async function payDeleteImpactCalc(env, requestedIds) {
+  if (!requestedIds.length) throw new Error('你还没有选择支付接口');
+  const ph = requestedIds.map(() => '?').join(',');
+  const pays = await dbRows(env,
+    `SELECT id, name, commodity, recharge, archived FROM acg_pay WHERE id IN (${ph}) ORDER BY id`, ...requestedIds);
+  const paymentIds = pays.map((p) => Number(p.id));
+
+  const stat = async (table, column) => {
+    if (!paymentIds.length) return new Map();
+    const rows = await dbRows(env,
+      `SELECT ${column} AS ref, COUNT(*) AS total, SUM(CASE WHEN status=1 THEN 1 ELSE 0 END) AS paid
+       FROM ${table} WHERE ${column} IN (${paymentIds.map(() => '?').join(',')}) GROUP BY ${column}`,
+      ...paymentIds);
+    return new Map(rows.map((r) => [Number(r.ref), { total: Number(r.total) || 0, paid: Number(r.paid) || 0 }]));
+  };
+  const orderStats = await stat('acg_order', 'pay_id');
+  const rechargeStats = await stat('acg_user_recharge', 'pay_id');
+
+  const impact = {
+    delete_ids: [], archive_ids: [], requested_count: requestedIds.length,
+    payment_count: paymentIds.length, missing_count: requestedIds.length - paymentIds.length,
+    names: pays.slice(0, 5).map((p) => String(p.name)),
+    built_in_count: 0, order_count: 0, paid_order_count: 0, pending_order_count: 0,
+    recharge_count: 0, paid_recharge_count: 0, pending_recharge_count: 0,
+    commodity_enabled_count: 0, recharge_enabled_count: 0,
+    delete_count: 0, delete_names: [], archive_count: 0, archive_names: [], already_archived_count: 0,
+    can_proceed: false,
+  };
+
+  for (const p of pays) {
+    const pid = Number(p.id);
+    const orders = (orderStats.get(pid) || {}).total || 0;
+    const recharges = (rechargeStats.get(pid) || {}).total || 0;
+    const paidOrders = (orderStats.get(pid) || {}).paid || 0;
+    const paidRecharges = (rechargeStats.get(pid) || {}).paid || 0;
+    impact.order_count += orders;
+    impact.paid_order_count += paidOrders;
+    impact.pending_order_count += orders - paidOrders;
+    impact.recharge_count += recharges;
+    impact.paid_recharge_count += paidRecharges;
+    impact.pending_recharge_count += recharges - paidRecharges;
+
+    if (pid === 1) impact.built_in_count++;
+    if (Number(p.commodity) === 1) impact.commodity_enabled_count++;
+    if (Number(p.recharge) === 1) impact.recharge_enabled_count++;
+
+    // 内置/仍启用的接口整体阻断, 不参与分组
+    if (pid === 1 || Number(p.commodity) === 1 || Number(p.recharge) === 1) continue;
+    if (orders === 0 && recharges === 0) {
+      impact.delete_ids.push(pid);
+      impact.delete_names.push(String(p.name));
+    } else if (Number(p.archived) === 1) {
+      impact.already_archived_count++;
+    } else {
+      impact.archive_ids.push(pid);
+      impact.archive_names.push(String(p.name));
+    }
+  }
+  impact.delete_count = impact.delete_ids.length;
+  impact.archive_count = impact.archive_ids.length;
+  impact.can_proceed = impact.missing_count === 0 && impact.built_in_count === 0
+    && impact.commodity_enabled_count === 0 && impact.recharge_enabled_count === 0
+    && (impact.delete_count + impact.archive_count) > 0;
+  return impact;
+}
+
+export async function payDeleteImpact(env, request, url, body = {}) {
+  const impact = await payDeleteImpactCalc(env, payIds(body.list ?? []));
+  const { delete_ids, archive_ids, ...rest } = impact;      // 原版 unset 掉内部 id 列表
+  return apiOk('success', rest);
+}
+
+export async function payDel(env, request, url, body = {}, manage) {
+  const impact = await payDeleteImpactCalc(env, payIds(body.list ?? []));
+  if (!impact.can_proceed) {
+    if (impact.already_archived_count > 0 && impact.missing_count === 0 && impact.built_in_count === 0
+      && impact.commodity_enabled_count === 0 && impact.recharge_enabled_count === 0) {
+      throw new Error('所选接口均已归档，无需重复操作');
+    }
+    throw new Error(`已阻止操作：内置接口 ${impact.built_in_count} 个、不存在 ${impact.missing_count} 个、`
+      + `仍启用商品下单 ${impact.commodity_enabled_count} 个、仍启用余额充值 ${impact.recharge_enabled_count} 个。请先停用接口再移除。`);
+  }
+  let deleted = 0;
+  let archived = 0;
+  if (impact.delete_ids.length) {
+    const r = await dbRun(env,
+      `DELETE FROM acg_pay WHERE id IN (${impact.delete_ids.map(() => '?').join(',')})
+       AND id!=1 AND commodity=0 AND recharge=0`, ...impact.delete_ids);
+    deleted = Number(r.meta?.changes ?? 0);
+    if (deleted !== impact.delete_ids.length) throw new Error('支付接口状态或历史引用已变化，未执行操作，请重新预览');
+  }
+  if (impact.archive_ids.length) {
+    const r = await dbRun(env,
+      `UPDATE acg_pay SET archived=1 WHERE id IN (${impact.archive_ids.map(() => '?').join(',')})
+       AND id!=1 AND commodity=0 AND recharge=0 AND archived=0`, ...impact.archive_ids);
+    archived = Number(r.meta?.changes ?? 0);
+    if (archived !== impact.archive_ids.length) throw new Error('支付接口状态或历史引用已变化，未执行操作，请重新预览');
+  }
+  await payLog(env, manage, request, `[移除]支付接口：物理删除 ${deleted} 个、归档 ${archived} 个`);
+  const parts = [];
+  if (deleted > 0) parts.push(`删除 ${deleted} 个`);
+  if (archived > 0) parts.push(`归档 ${archived} 个`);
+  return apiOk('（＾∀＾）已' + parts.join('、'), { deleted, archived });
+}
+
+export async function payRestore(env, request, url, body = {}, manage) {
+  const ids = payIds(body.list ?? []);
+  if (!ids.length) throw new Error('你还没有选择支付接口');
+  const r = await dbRun(env, `UPDATE acg_pay SET archived=0 WHERE id IN (${ids.map(() => '?').join(',')}) AND archived=1`, ...ids);
+  const count = Number(r.meta?.changes ?? 0);
+  await payLog(env, manage, request, `[恢复]归档支付接口，共计：${count}`);
+  return apiOk('（＾∀＾）已恢复，接口目前处于停用状态，可重新启用', { count });
+}
+
+// ============================================================
+// 支付插件 —— 配置档存 D1, 元数据/表单定义来自 pay-plugins.js 注册表
+// ============================================================
+function parseCfg(json, fallback = {}) {
+  if (json && typeof json === 'object') return json;
+  try { const o = JSON.parse(String(json || '')); return o && typeof o === 'object' && !Array.isArray(o) ? o : fallback; }
+  catch (e) { return fallback; }
+}
+
+// 配置档里的敏感值返回掩码, 与原版「密钥不再明文展示」一致
+const MASKED_KEYS = ['key', 'secret', 'app_key', 'token', 'password'];
+function maskPluginConfig(cfg) {
+  const out = { ...cfg };
+  for (const k of MASKED_KEYS) {
+    if (typeof out[k] === 'string' && out[k] !== '') out[k] = '*'.repeat(Math.min(8, out[k].length));
+  }
+  return out;
+}
+
+// 默认档 = 该 handle 下 id 最小的那套(删除后新建支付接口就没得选, 原版同样拦住)
+async function isDefaultProfile(env, handle, id) {
+  const row = await dbFirst(env, 'SELECT id FROM acg_pay_config WHERE handle=? ORDER BY id ASC LIMIT 1', String(handle));
+  return !!row && Number(row.id) === Number(id);
+}
+
+export async function payGetPlugins(env, request, url) {
+  const rows = await dbRows(env, 'SELECT * FROM acg_pay_config ORDER BY handle ASC, sort ASC, id ASC');
+  const byHandle = new Map();
+  for (const r of rows) {
+    if (!byHandle.has(r.handle)) byHandle.set(r.handle, []);
+    byHandle.get(r.handle).push(r);
+  }
+  const list = [];
+  for (const p of PAY_PLUGINS) {
+    const profiles = byHandle.get(p.id) || [];
+    // config.top 等插件级开关取默认档(该 handle 下 id 最小的那套)；
+    // profiles 是按 handle/sort/id 排的, 新建的 sort=0 档可能排在最前, 不能直接取 [0]
+    const defaultProfile = profiles.reduce(
+      (min, r) => (min === null || Number(r.id) < Number(min.id) ? r : min), null);
+    list.push({
+      id: p.id,
+      info: p.info,
+      submit: p.submit,
+      icon: '/favicon.ico',
+      system: !!p.system,
+      config: { top: 0, ...(defaultProfile ? parseCfg(defaultProfile.config) : {}) },
+      have_update: false,
+    });
+  }
+  // 原版排序: 置顶优先, 其次有更新优先
+  list.sort((a, b) => (Number(b.config.top) || 0) - (Number(a.config.top) || 0));
+  return apiOk('success', { list });
+}
+
+function payPluginHandle(body = {}) {
+  const handle = body.handle ?? '';
+  if (String(handle).trim() === '') throw new Error('插件不存在');
+  if (!isPayPluginHandle(handle)) throw new Error('插件不存在');
+  return String(handle).trim();
+}
+
+// 某插件的全部配置档 (对齐原版 Pay::listPluginConfigs)
+export async function payGetPluginConfigs(env, request, url, body = {}) {
+  const handle = payPluginHandle(body);
+  const rows = await dbRows(env, 'SELECT * FROM acg_pay_config WHERE handle=? ORDER BY sort ASC, id ASC', handle);
+  // in_use: 哪些支付接口在用这套配置(原版用于「这套配置正被 N 个接口使用」提示)
+  const ids = rows.map((r) => Number(r.id));
+  const usage = new Map();
+  if (ids.length) {
+    const used = await dbRows(env,
+      `SELECT pay_config_id, id, name, icon FROM acg_pay WHERE pay_config_id IN (${ids.map(() => '?').join(',')}) ORDER BY id`,
+      ...ids);
+    for (const u of used) {
+      if (!usage.has(Number(u.pay_config_id))) usage.set(Number(u.pay_config_id), []);
+      usage.get(Number(u.pay_config_id)).push({ id: Number(u.id), name: String(u.name), icon: u.icon });
+    }
+  }
+  // 默认档 = 该 handle 下 id 最小的那套(删除后新建支付接口就没得选, 原版同样拦住)
+  // 注意不能拿 rows[0] 当默认: rows 是按 sort 排序的, 而新建档 sort=0 会排到最前,
+  // 那样新档会冒充默认档, 真正的默认档反而变成可删的那个
+  const oldest = rows.reduce((min, r) => (min === null || Number(r.id) < min ? Number(r.id) : min), null);
+  return apiOk('success', {
+    profiles: rows.map((r) => {
+      const cfg = parseCfg(r.config);
+      return {
+        id: Number(r.id), handle: String(r.handle), name: String(r.name),
+        is_default: Number(r.id) === oldest,
+        sort: Number(r.sort) || 0,
+        // 列表侧一律给掩码, 明文只在新建/改名这类不需要回显的场景下发
+        config: maskPluginConfig(cfg),
+        in_use: usage.get(Number(r.id)) || [],
+      };
+    }),
+  });
+}
+
+export async function payCreatePluginConfig(env, request, url, body = {}, manage) {
+  const handle = payPluginHandle(body);
+  const name = payStr(body.name, '配置名称');
+  if (name === '' || name.length > 16) throw new Error('配置名称必须是 1–16 个字符');
+  if (await dbFirst(env, 'SELECT id FROM acg_pay_config WHERE handle=? AND name=?', handle, name)) {
+    throw new Error('同名配置已存在');
+  }
+  const t = now();
+  await dbInsert(env, 'acg_pay_config', { handle, name, config: '{}', sort: 0, create_time: t, update_time: t });
+  const row = await dbFirst(env, 'SELECT id FROM acg_pay_config WHERE handle=? AND name=?', handle, name);
+  await payLog(env, manage, request, `为支付插件(${handle})新增了配置档[${name}]`);
+  return apiOk('添加成功', { id: row ? Number(row.id) : 0 });
+}
+
+export async function payRenamePluginConfig(env, request, url, body = {}, manage) {
+  const handle = payPluginHandle(body);
+  const id = payInt(body.config_id, '支付配置', 1, 4294967295);
+  const name = payStr(body.name, '配置名称');
+  if (name === '' || name.length > 16) throw new Error('配置名称必须是 1–16 个字符');
+  const row = await dbFirst(env, 'SELECT id FROM acg_pay_config WHERE id=? AND handle=?', id, handle);
+  if (!row) throw new Error('配置不存在');
+  if (await dbFirst(env, 'SELECT id FROM acg_pay_config WHERE handle=? AND name=? AND id!=?', handle, name, id)) {
+    throw new Error('同名配置已存在');
+  }
+  await dbRun(env, 'UPDATE acg_pay_config SET name=?, update_time=? WHERE id=?', name, now(), id);
+  await payLog(env, manage, request, `把支付插件(${handle})的配置档#${id}改名为[${name}]`);
+  return apiOk('修改成功');
+}
+
+export async function payDelPluginConfig(env, request, url, body = {}, manage) {
+  const handle = payPluginHandle(body);
+  const id = payInt(body.config_id, '支付配置', 1, 4294967295);
+  const row = await dbFirst(env, 'SELECT id FROM acg_pay_config WHERE id=? AND handle=?', id, handle);
+  if (!row) throw new Error('配置不存在');
+  if (await isDefaultProfile(env, handle, id)) throw new Error('默认配置不能删除，新建支付接口需要它');
+  const used = await dbFirst(env, 'SELECT id FROM acg_pay WHERE pay_config_id=?', id);
+  if (used) throw new Error('该配置正被支付接口使用，需要先把它们改用其他配置');
+  await dbRun(env, 'DELETE FROM acg_pay_config WHERE id=?', id);
+  await payLog(env, manage, request, `删除了支付插件(${handle})的配置档#${id}`);
+  return apiOk('删除成功');
+}
+
+// 写插件配置: 不传 config_id 就写默认档(保持插件列表页「配置」按钮的老行为)
+export async function paySetPluginConfig(env, request, url, body = {}, manage) {
+  const id = String(body.id ?? url.searchParams.get('id') ?? '').trim();
+  if (id === '') throw new Error('插件不存在');
+  if (!isPayPluginHandle(id)) throw new Error('插件不存在');
+  const plugin = findPayPlugin(id);
+
+  const raw = { ...body };
+  delete raw.id;
+  delete raw.config_id;
+
+  // 只接受该插件 submit 里声明过的字段, 其余(数组型/嵌套)一律丢弃
+  const allowed = new Set((plugin.submit || []).map((f) => f.name).filter(Boolean));
+  const clean = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (!allowed.has(k)) continue;
+    if (v === null || v === undefined) continue;
+    if (typeof v === 'object') continue;
+    clean[k] = String(v);
+  }
+  // 掩码回填: 前端把密钥显示成 ****, 原样提交等于没改, 这时保留原值
+  const current = await dbFirst(env, 'SELECT * FROM acg_pay_config WHERE handle=? ORDER BY id ASC LIMIT 1', id);
+  const oldCfg = current ? parseCfg(current.config) : {};
+  for (const k of Object.keys(clean)) {
+    if (MASKED_KEYS.includes(k) && /^\*+$/.test(clean[k])) delete clean[k];
+  }
+  const merged = { ...oldCfg, ...clean };
+
+  const cidRaw = url.searchParams.get('config_id') ?? body.config_id;
+  const cid = cidRaw !== null && cidRaw !== undefined && String(cidRaw).trim() !== ''
+    ? payInt(cidRaw, '支付配置', 1, 4294967295) : null;
+
+  if (cid) {
+    const row = await dbFirst(env, 'SELECT id FROM acg_pay_config WHERE id=? AND handle=?', cid, id);
+    if (!row) throw new Error('支付配置不存在或不属于所选插件');
+    await dbRun(env, 'UPDATE acg_pay_config SET config=?, update_time=? WHERE id=?', JSON.stringify(merged), now(), cid);
+    await payLog(env, manage, request, `修改了支付插件(${id})的配置信息[配置档#${cid}]`);
+    return apiOk('修改成功');
+  }
+  if (current) {
+    await dbRun(env, 'UPDATE acg_pay_config SET config=?, update_time=? WHERE id=?', JSON.stringify(merged), now(), current.id);
+    await payLog(env, manage, request, `修改了支付插件(${id})的配置信息`);
+    return apiOk('修改成功');
+  }
+  // 一套都没有就先建一套默认的(原版 openConfig 里同样是无感创建)
+  const t = now();
+  await dbInsert(env, 'acg_pay_config', { handle: id, name: '默认配置', config: JSON.stringify(merged), sort: 0, create_time: t, update_time: t });
+  await payLog(env, manage, request, `修改了支付插件(${id})的配置信息`);
+  return apiOk('修改成功');
+}
+
+// ---- 插件日志(原版写文件, 这里落 D1) ----
+export async function payGetPluginLog(env, request, url, body = {}) {
+  const handle = payPluginHandle(body);
+  const row = await dbFirst(env, 'SELECT content FROM acg_pay_plugin_log WHERE handle=?', handle);
+  return apiOk('success', { log: row ? String(row.content || '') : '' });
+}
+
+export async function payClearPluginLog(env, request, url, body = {}, manage) {
+  const handle = payPluginHandle(body);
+  await dbRun(env, 'DELETE FROM acg_pay_plugin_log WHERE handle=?', handle);
+  await payLog(env, manage, request, `清空了支付插件(${handle})的日志`);
+  return apiOk('success');
+}
+
+// 拨测: 需要真实网关, 本移植不接入第三方网络调用
+export async function payTest(env, request, url, body = {}) {
+  const pay = await dbFirst(env, 'SELECT * FROM acg_pay WHERE id=?', payId(body.id));
+  if (!pay) throw new Error('支付接口不存在');
+  if (Number(pay.id) === 1 || String(pay.handle) === '#system') {
+    throw new Error('余额支付不经过第三方网关，无需拨测');
+  }
+  if (Number(pay.archived) === 1) throw new Error('已归档的接口无法拨测，请先恢复');
+  throw new Error('拨测需要连接真实支付网关，本部署未启用第三方网关调用');
+}
+
 export async function adminEndpoint(env, request, url, ctl, act, body) {
   if (ctl === 'authentication' && act === 'login') return adminLogin(env, request, url, body);
   // 以下接口需要登录
@@ -2389,6 +2941,28 @@ export async function adminEndpoint(env, request, url, ctl, act, body) {
   if (ctl === 'log') {
     try {
       if (act === 'data') return await logData(env, request, url, body);
+    } catch (e) {
+      return apiErr(e && e.message ? String(e.message) : '操作失败');
+    }
+  }
+  // 支付接口 + 支付插件
+  if (ctl === 'pay') {
+    try {
+      if (act === 'data') return await payData(env, request, url, body);
+      if (act === 'save') return await paySave(env, request, url, body, manage);
+      if (act === 'deleteImpact') return await payDeleteImpact(env, request, url, body);
+      if (act === 'del') return await payDel(env, request, url, body, manage);
+      if (act === 'restore') return await payRestore(env, request, url, body, manage);
+      if (act === 'getPlugins') return await payGetPlugins(env, request, url);
+      if (act === 'getPluginConfigs') return await payGetPluginConfigs(env, request, url, body);
+      if (act === 'createPluginConfig') return await payCreatePluginConfig(env, request, url, body, manage);
+      if (act === 'renamePluginConfig') return await payRenamePluginConfig(env, request, url, body, manage);
+      if (act === 'delPluginConfig') return await payDelPluginConfig(env, request, url, body, manage);
+      if (act === 'setPluginConfig') return await paySetPluginConfig(env, request, url, body, manage);
+      if (act === 'getPluginLog') return await payGetPluginLog(env, request, url, body);
+      if (act === 'ClearPluginLog') return await payClearPluginLog(env, request, url, body, manage);
+      if (act === 'test') return await payTest(env, request, url, body);
+      if (act === 'testState') return apiOk('success', { state: 0, msg: '拨测未启用' });
     } catch (e) {
       return apiErr(e && e.message ? String(e.message) : '操作失败');
     }

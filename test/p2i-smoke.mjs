@@ -163,7 +163,14 @@ const onlySeed = (r, seed) => (data(r) ? data(r).list : []).filter((x) => seed.i
 
   sec('2 操作日志 /admin/api/log/data');
   {
-    const r = await getJson('/admin/api/log/data?limit=100');
+    // log 的 limit 白名单是 15/30/50。同库里可能存在其它用例(比如 p2j 的支付操作)
+    // 写入的日志, 它们的 create_time 是当前时间; 种子的 5 条固定在 1700000000~1700008000。
+    // 所以用时间区间把种子圈出来, 既不受分页窗口大小影响, 也不破坏 93004/93005 这类负例。
+    const SEED_LO = fmtLocal(1699999000);
+    const SEED_HI = fmtLocal(1700010000);
+    const r = await getJson('/admin/api/log/data?limit=30&' + q({
+      'betweenStart-create_time': SEED_LO, 'betweenEnd-create_time': SEED_HI,
+    }));
     ok(isOk(r), '基本列表 code=200', 'code=' + (r.json && r.json.code) + ' msg=' + (r.json && r.json.msg));
     ok(data(r) && data(r).total >= 5, 'total>=5(含种子 5 条)', 'total=' + (data(r) && data(r).total));
     ok(hasAll(r, SEED_LOG), '种子 5 条全部返回', JSON.stringify(ids(r)));
@@ -208,9 +215,15 @@ const onlySeed = (r, seed) => (data(r) ? data(r).list : []).filter((x) => seed.i
     ok(data(okLimit) && data(okLimit).limit === 30, 'limit=30 生效', 'limit=' + (data(okLimit) && data(okLimit).limit));
     const over = await getJson('/admin/api/log/data?limit=999');
     ok(data(over) && data(over).limit === 15, 'limit=999 回落 15', 'limit=' + (data(over) && data(over).limit));
-    const pg = await getJson('/admin/api/log/data?limit=15&page=2');
-    ok(data(pg) && data(pg).page === 2 && data(pg).list.length === 15,
-      'page=2 每页 15 条', JSON.stringify(data(pg) && { p: data(pg).page, n: data(pg).list.length }));
+    // 分页: 不写死每页条数(同库可能有其它用例的日志), 只验证分页机制本身
+    const iso = q({ 'betweenStart-create_time': SEED_LO, 'betweenEnd-create_time': SEED_HI });
+    const pg1 = await getJson('/admin/api/log/data?limit=15&page=1&' + iso);
+    const pg2 = await getJson('/admin/api/log/data?limit=15&page=2&' + iso);
+    ok(data(pg1) && data(pg1).page === 1 && data(pg1).list.length > 0, 'page=1 有数据',
+      JSON.stringify(data(pg1) && { p: data(pg1).page, n: data(pg1).list.length }));
+    ok(data(pg2) && data(pg2).page === 2, 'page=2 返回第 2 页', JSON.stringify(data(pg2) && data(pg2).page));
+    const overlap = (data(pg1) || { list: [] }).list.filter((x) => (data(pg2) || { list: [] }).list.some((y) => y.id === x.id));
+    ok(overlap.length === 0, 'page=1 与 page=2 无重叠', JSON.stringify(overlap.map((x) => x.id)));
   }
 
   sec('3 页面渲染');

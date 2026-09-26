@@ -350,7 +350,14 @@ CREATE TABLE IF NOT EXISTS acg_pay_config (
 CREATE UNIQUE INDEX IF NOT EXISTS uq_pay_config_handle_name ON acg_pay_config(handle, name);
 CREATE INDEX IF NOT EXISTS idx_pay_config_handle ON acg_pay_config(handle);
 
--- 共享平台(上游店铺)
+-- 支付插件日志(对齐原版写文件行为, 这里用 D1 存一行)
+CREATE TABLE IF NOT EXISTS acg_pay_plugin_log (
+  handle TEXT PRIMARY KEY,
+  content TEXT,
+  update_time INTEGER
+);
+
+-- 店铺共享(开店模板)
 CREATE TABLE IF NOT EXISTS acg_shared (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   type INTEGER NOT NULL DEFAULT 0,

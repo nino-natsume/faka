@@ -17,7 +17,7 @@ import {
 } from './admin.js';
 import {
   renderAdminLoginPage, renderAdminShell, renderAdminDashboardPage,
-  renderAdminCategoryPage, renderAdminCommodityPage, renderAdminCardPage, renderAdminOrderPage, renderAdminUserPage, renderAdminRechargePage, renderAdminCouponPage, renderAdminTicketPage, renderAdminMessagePage, renderAdminCashPage, renderAdminBillPage, renderAdminLogPage,
+  renderAdminCategoryPage, renderAdminCommodityPage, renderAdminCardPage, renderAdminOrderPage, renderAdminUserPage, renderAdminRechargePage, renderAdminCouponPage, renderAdminTicketPage, renderAdminMessagePage,   renderAdminCashPage, renderAdminBillPage, renderAdminLogPage, renderAdminPayPluginPage, renderAdminPayPage,
 } from './admin-pages.js';
 import {
   renderAuthHeader, renderAuthFooter, pageLogin, pageRegister,
@@ -772,6 +772,12 @@ async function route(env, request, url, ctx) {
     }
     if (s === '/admin/log/index') {
       return pageRes(renderAdminLogPage(cfg, manage));
+    }
+    if (s === '/admin/pay/plugin') {
+      return pageRes(renderAdminPayPluginPage(cfg, manage));
+    }
+    if (s === '/admin/pay/index' || s === '/admin/pay') {
+      return pageRes(renderAdminPayPage(cfg, manage));
     }
     return pageRes(renderAdminShell({ cfg, manage, title: '建设中', activePath: s }, 'text/html'));
   }

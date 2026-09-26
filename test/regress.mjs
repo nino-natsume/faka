@@ -65,6 +65,8 @@ const ADMIN_PAGES = [
   ['/admin/cash/index', '提现'],
   ['/admin/user/bill', '账单'],
   ['/admin/log/index', '日志'],
+  ['/admin/pay/plugin', '支付插件'],
+  ['/admin/pay/index', '支付接口'],
 ];
 // 后台只读 API
 const ADMIN_APIS = [
@@ -87,6 +89,10 @@ const ADMIN_APIS = [
   '/admin/api/cash/data?limit=5',
   '/admin/api/bill/data?limit=5',
   '/admin/api/log/data?limit=15',
+  '/admin/api/pay/data?limit=5',
+  '/admin/api/pay/getPlugins',
+  '/admin/api/pay/getPluginConfigs?handle=Epay',
+  '/admin/api/pay/getPluginLog?handle=Epay',
   '/admin/api/app/ad',
 ];
 // 前台公开页: [路径, 标记, 允许 302 到登录]
