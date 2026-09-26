@@ -93,6 +93,11 @@ const onlySeed = (r, seed) => (data(r) ? data(r).list : []).filter((x) => seed.i
   {
     // 注: 本地库可能残留 seed.sql 的历史账单, 断言一律用「种子 ID 的包含关系」而非绝对 total
     const r = await getJson('/admin/api/bill/data?limit=100');
+    if (!hasAll(r, SEED_BILL)) {
+      console.error('\n缺少种子数据, 请先执行:');
+      console.error('  npx wrangler d1 execute faka --local --file=test/p2i-seed.sql');
+      process.exit(1);
+    }
     ok(isOk(r), '基本列表 code=200', 'code=' + (r.json && r.json.code) + ' msg=' + (r.json && r.json.msg));
     ok(data(r) && data(r).total >= 6, 'total>=6(含种子 6 条)', 'total=' + (data(r) && data(r).total));
     ok(hasAll(r, SEED_BILL), '种子 6 条全部返回', JSON.stringify(ids(r)));
