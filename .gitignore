@@ -15,3 +15,7 @@ Thumbs.db
 
 # 本地临时
 tmp/
+# 测试输出重定向 / 打包校验临时物
+r-*.txt
+p2j-out.txt
+.packcheck/
