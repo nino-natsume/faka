@@ -1,3 +1,5 @@
+// DCSHOP faka - Pages 单文件入口 (由 worker.js+admin.js+lib.js 自动打包生成, 勿手改)
+
 // lib.js
 var now = () => Math.floor(Date.now() / 1e3);
 var randStr = (len = 32) => {
@@ -327,10 +329,10 @@ function indexVar(catId, cfg) {
     CURRENCY: { code: cfg.currency_code || "CNY", symbol: cfg.currency_symbol || "\xA5", rate: Number(cfg.currency_rate || 1), decimals: Number(cfg.currency_decimals || 2) },
     CAT_ID: Number(catId) || 0
   };
-  return `<script>window._data_var=${JSON.stringify(data)};<\/script>${langDictScript()}`;
+  return `<script>window._data_var=${JSON.stringify(data)};</script>${langDictScript()}`;
 }
 function itemVar(item) {
-  return `<script>window._data_var._var_item=${JSON.stringify(item)};<\/script>`;
+  return `<script>window._data_var._var_item=${JSON.stringify(item)};</script>`;
 }
 function generateTradeNo() {
   let s = String(1 + Math.floor(Math.random() * 9));
@@ -3754,11 +3756,11 @@ function adminVar(cfg = {}) {
   for (const [k, v] of Object.entries(vars)) {
     s += `setVar(${JSON.stringify(k)}, ${JSON.stringify(v)});`;
   }
-  s += "<\/script>";
+  s += "</script>";
   return s;
 }
 var cssLinks = (paths) => paths.map((p) => `<link rel="stylesheet" href="${p}"/>`).join("\n");
-var jsScripts = (paths) => paths.map((p) => `<script src="${p}"><\/script>`).join("\n");
+var jsScripts = (paths) => paths.map((p) => `<script src="${p}"></script>`).join("\n");
 function renderAdminLoginPage(cfg = {}) {
   const bg = cfg.background_url || "/assets/admin/img/bg.jpg";
   const shopName = cfg.shop_name || "acg-faka";
@@ -3782,7 +3784,7 @@ function renderAdminLoginPage(cfg = {}) {
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1"/>
     <title>\u767B\u5F55 - ${htmlEscape(shopName)}</title>
-    <script>(function(){try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;var e=document.documentElement;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);}catch(_){document.documentElement.setAttribute('data-theme','light');}})();<\/script>
+    <script>(function(){try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;var e=document.documentElement;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);}catch(_){document.documentElement.setAttribute('data-theme','light');}})();</script>
     ${cssLinks([
     "/assets/common/css/_.css",
     "/assets/admin/css/auth.css",
@@ -3799,7 +3801,7 @@ function renderAdminLoginPage(cfg = {}) {
     "/assets/common/css/md-tokens.css",
     "/assets/admin/css/material-auth.css"
   ])}
-    <script src="/assets/common/js/ready.js"><\/script>
+    <script src="/assets/common/js/ready.js"></script>
     ${adminVar(cfg)}
 </head>
 <body class="ay-bg" style="background-image: linear-gradient(180deg, rgb(255 255 255 / 0%), rgb(255 255 255 / 71%)), url('${htmlEscape(bg)}')">
@@ -3896,7 +3898,7 @@ function renderAdminLoginPage(cfg = {}) {
     </section>
 </main>
 
-<script>ready("/assets/admin/controller/auth/login.js");<\/script>
+<script>ready("/assets/admin/controller/auth/login.js");</script>
 ${jsScripts([
     "/assets/common/js/_.js",
     "/assets/common/js/util/dict.js",
@@ -4532,7 +4534,7 @@ function renderAdminShell(opts = {}) {
 <head>
     <meta charset="utf-8"/>
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover"/>
-    <script>(function(){var e=document.documentElement;try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);var m=localStorage.getItem('admin-layout-mode')==='desktop'?'desktop':((window.innerWidth||screen.width)<992?'mobile':'desktop');e.setAttribute('data-admin-layout',m);}catch(_){e.setAttribute('data-theme','light');e.setAttribute('data-admin-layout',(window.innerWidth||screen.width)<992?'mobile':'desktop');}})();<\/script>
+    <script>(function(){var e=document.documentElement;try{var p=localStorage.getItem('admin-theme')||'auto';var d=p==='auto'?(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light'):p;e.setAttribute('data-theme',d);e.setAttribute('data-theme-pref',p);var m=localStorage.getItem('admin-layout-mode')==='desktop'?'desktop':((window.innerWidth||screen.width)<992?'mobile':'desktop');e.setAttribute('data-admin-layout',m);}catch(_){e.setAttribute('data-theme','light');e.setAttribute('data-admin-layout',(window.innerWidth||screen.width)<992?'mobile':'desktop');}})();</script>
     <title>${htmlEscape(title)}-${htmlEscape(shopName)}</title>
     <link rel="shortcut icon" href="/favicon.ico"/>
     ${cssLinks([
@@ -4558,13 +4560,13 @@ function renderAdminShell(opts = {}) {
     "/assets/common/css/mdicon.css",
     "/assets/admin/css/mobile.css"
   ])}
-    <script src="/assets/common/js/ready.js"><\/script>
+    <script src="/assets/common/js/ready.js"></script>
     ${adminVar(cfg)}
 </head>
 <body id="kt_body"
       class="header-fixed header-tablet-and-mobile-fixed toolbar-enabled toolbar-fixed aside-enabled aside-fixed"
       style="--kt-toolbar-height:55px;--kt-toolbar-height-tablet-and-mobile:55px;background: url('${htmlEscape(cfg.background_url || "")}') fixed no-repeat;background-size: cover;">
-<script>(function(){try{if((!window.matchMedia||matchMedia('(min-width: 992px)').matches)&&localStorage.getItem('admin-aside-minimize')==='on'){document.body.setAttribute('data-kt-aside-minimize','on');}}catch(_){}})();<\/script>
+<script>(function(){try{if((!window.matchMedia||matchMedia('(min-width: 992px)').matches)&&localStorage.getItem('admin-aside-minimize')==='on'){document.body.setAttribute('data-kt-aside-minimize','on');}}catch(_){}})();</script>
 <div class="d-flex flex-column flex-root">
     <div class="page d-flex flex-row flex-column-fluid">
         <!--begin::Aside-->
@@ -4677,7 +4679,7 @@ ${adminFooterScripts()}
 }
 function renderAdminDashboardPage(cfg, manage) {
   const body = `
-<script src="/assets/static/echarts.min.js"><\/script>
+<script src="/assets/static/echarts.min.js"></script>
 <div class="dash">
   <div class="dash__grid">
     <aside class="dash__side">
@@ -4904,7 +4906,7 @@ function renderAdminDashboardPage(cfg, manage) {
     </div>
   </div>
 </div>
-<script>ready("/assets/admin/controller/dashboard/index.js");<\/script>`;
+<script>ready("/assets/admin/controller/dashboard/index.js");</script>`;
   return renderAdminShell({ cfg, manage, title: "\u63A7\u5236\u53F0", activePath: "/admin/dashboard/index", body });
 }
 function renderAdminOrderPage(cfg, manage) {
@@ -6878,7 +6880,7 @@ function renderHeader(v, extraScripts = "") {
     <link href="${favicon}?v=${app.version}" rel="icon">
     <title>${htmlEscape(title)} - ${htmlEscape(config.shop_name)}</title>
     ${CSS_FILES.map((f) => `<link href="${f}" rel="stylesheet">`).join("")}
-    <script src="/assets/common/js/ready.js"><\/script>
+    <script src="/assets/common/js/ready.js"></script>
     ${extraScripts}
 </head>
 <body style="background-size: cover;background-image: linear-gradient(180deg, rgb(255 255 255 / 0%), rgb(255 255 255 / 71%)), url('${htmlEscape(config.background_url || "")}')">
@@ -6925,7 +6927,7 @@ function renderHeader(v, extraScripts = "") {
 function renderFooter(v) {
   return `</div>
 ${v.setting && v.setting.icp ? `<footer>${htmlEscape(v.setting.icp)}</footer>` : ""}
-${JS_FILES.map((f) => `<script src="${f}"><\/script>`).join("")}
+${JS_FILES.map((f) => `<script src="${f}"></script>`).join("")}
 </body>
 </html>`;
 }
@@ -7167,7 +7169,7 @@ function pageIndex(v) {
     </div>
   </div>
 </main>
-<script src="/assets/user/controller/index/index.js"><\/script>`;
+<script src="/assets/user/controller/index/index.js"></script>`;
 }
 function pageItem(v) {
   const { item, config } = v;
@@ -7296,7 +7298,7 @@ function pageItem(v) {
 
 
 </main>
-<script src="/assets/user/controller/index/item.js"><\/script>`;
+<script src="/assets/user/controller/index/item.js"></script>`;
 }
 function pageQuery(v) {
   return `<main class="container py-4">
@@ -7321,7 +7323,7 @@ function pageQuery(v) {
         </div>
     </div>
 </main>
-<script src="/assets/user/controller/index/query.js"><\/script>`;
+<script src="/assets/user/controller/index/query.js"></script>`;
 }
 function pageClosed(v) {
   return `<main class="container py-5">
